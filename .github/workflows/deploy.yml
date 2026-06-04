@@ -1,0 +1,130 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - staging
+
+# Prevent concurrent deploys to the same environment.
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+jobs:
+  # ── Build and push the control-plane image ──────────────────────────────────
+  build-push:
+    name: Build & push image
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # Required for OIDC credential exchange with AWS
+      contents: read
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Compute image metadata
+        id: meta
+        run: |
+          SHORT_SHA="${GITHUB_SHA::8}"
+          echo "tag=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "image=${{ vars.ECR_CONTROL_PLANE_URL }}:${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: app
+          file: app/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}
+            ${{ vars.ECR_CONTROL_PLANE_URL }}:latest
+
+  # ── Deploy to target environment via Helm ───────────────────────────────────
+  deploy:
+    name: Helm deploy (${{ github.event.inputs.environment || 'dev' }})
+    needs: build-push
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    permissions:
+      id-token: write
+      contents: read
+
+    env:
+      ENV: ${{ github.event.inputs.environment || 'dev' }}
+      IMAGE_TAG: ${{ needs.build-push.outputs.image_tag }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name "${{ vars.EKS_CLUSTER_NAME }}" \
+            --region "${{ vars.AWS_REGION }}"
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "3.17.x"
+
+      - name: Deploy cluster add-ons (ExternalSecrets Operator)
+        run: |
+          helm dependency update deploy/helm/cluster-addons
+          helm upgrade --install cluster-addons deploy/helm/cluster-addons \
+            --namespace kube-system \
+            --create-namespace \
+            --wait \
+            --timeout 5m
+
+      - name: Deploy control-plane chart
+        run: |
+          helm upgrade --install private-ai-workspace deploy/helm/private-ai-workspace \
+            --namespace app \
+            --create-namespace \
+            --set image.repository="${{ vars.ECR_CONTROL_PLANE_URL }}" \
+            --set image.tag="${IMAGE_TAG}" \
+            --set serviceAccount.irsaRoleArn="${{ vars.IRSA_APP_ROLE_ARN }}" \
+            --set externalSecrets.secretsManagerSecretName="${{ vars.APP_CONFIG_SECRET_NAME }}" \
+            --set externalSecrets.awsRegion="${{ vars.AWS_REGION }}" \
+            -f "deploy/values/${ENV}/app.yaml" \
+            --wait \
+            --timeout 5m
+
+      - name: Verify health
+        run: |
+          kubectl wait deployment/private-ai-workspace-private-ai-workspace \
+            --namespace app \
+            --for=condition=Available \
+            --timeout=120s
+          kubectl get ingress --namespace app

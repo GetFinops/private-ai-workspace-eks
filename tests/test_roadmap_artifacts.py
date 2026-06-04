@@ -62,3 +62,54 @@ class RoadmapArtifactTests(TestCase):
         self.assertIn('object_storage         = "S3"', main_tf)
         self.assertIn('secrets                = "AWS Secrets Manager"', main_tf)
         self.assertIn('inference_runtime      = "vLLM OpenAI-compatible API"', main_tf)
+
+    # ── M2 artifact tests ────────────────────────────────────────────────────
+
+    def test_irsa_app_module_exists(self) -> None:
+        irsa_dir = ROOT / "infra" / "terraform" / "modules" / "irsa-app"
+        for name in ("main.tf", "variables.tf", "outputs.tf"):
+            with self.subTest(name=name):
+                self.assertTrue((irsa_dir / name).is_file())
+
+    def test_irsa_app_module_scopes_trust_to_service_account(self) -> None:
+        main_tf = (ROOT / "infra" / "terraform" / "modules" / "irsa-app" / "main.tf").read_text()
+        self.assertIn("system:serviceaccount:", main_tf)
+        self.assertIn("sts:AssumeRoleWithWebIdentity", main_tf)
+
+    def test_helm_chart_has_ingress_template(self) -> None:
+        ingress = ROOT / "deploy" / "helm" / "private-ai-workspace" / "templates" / "ingress.yaml"
+        self.assertTrue(ingress.is_file())
+        content = ingress.read_text()
+        self.assertIn("alb.ingress.kubernetes.io/scheme", content)
+        self.assertIn("ingress.enabled", content)
+
+    def test_helm_chart_has_externalsecret_template(self) -> None:
+        es = ROOT / "deploy" / "helm" / "private-ai-workspace" / "templates" / "externalsecret.yaml"
+        self.assertTrue(es.is_file())
+        content = es.read_text()
+        self.assertIn("external-secrets.io/v1beta1", content)
+        self.assertIn("ExternalSecret", content)
+
+    def test_helm_values_ingress_disabled_by_default(self) -> None:
+        values = (ROOT / "deploy" / "helm" / "private-ai-workspace" / "values.yaml").read_text()
+        self.assertIn("enabled: false", values)
+
+    def test_helm_values_nodeSelector_routes_to_control_plane(self) -> None:
+        values = (ROOT / "deploy" / "helm" / "private-ai-workspace" / "values.yaml").read_text()
+        self.assertIn("private-ai-workspace/plane: control", values)
+
+    def test_cluster_addons_chart_exists(self) -> None:
+        addons = ROOT / "deploy" / "helm" / "cluster-addons"
+        self.assertTrue((addons / "Chart.yaml").is_file())
+        self.assertTrue((addons / "values.yaml").is_file())
+
+    def test_deploy_workflow_exists(self) -> None:
+        wf = ROOT / ".github" / "workflows" / "deploy.yml"
+        self.assertTrue(wf.is_file())
+        content = wf.read_text()
+        self.assertIn("amazon-ecr-login", content)
+        self.assertIn("helm upgrade", content)
+        self.assertIn("OIDC", content)
+
+    def test_dev_app_values_exist(self) -> None:
+        self.assertTrue((ROOT / "deploy" / "values" / "dev" / "app.yaml").is_file())

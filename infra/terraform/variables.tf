@@ -110,3 +110,15 @@ variable "rds_backup_retention_days" {
   type        = number
   default     = 7
 }
+
+variable "app_namespace" {
+  description = "Kubernetes namespace where the control-plane chart is deployed."
+  type        = string
+  default     = "app"
+}
+
+variable "app_service_account_name" {
+  description = "Kubernetes ServiceAccount name for the control-plane pod."
+  type        = string
+  default     = "private-ai-workspace-control-plane"
+}

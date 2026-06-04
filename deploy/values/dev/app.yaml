@@ -1,0 +1,55 @@
+# deploy/values/dev/app.yaml
+# Control-plane Helm overrides for the dev environment.
+#
+# Usage:
+#   helm upgrade --install private-ai-workspace deploy/helm/private-ai-workspace \
+#     --namespace app --create-namespace \
+#     --set image.repository=<ECR_URL> \
+#     --set image.tag=<GIT_SHA> \
+#     -f deploy/values/dev/app.yaml
+#
+# Substitute the placeholder values below from Terraform outputs:
+#   image.repository   → terraform output -raw ecr_control_plane_url
+#   serviceAccount.irsaRoleArn → terraform output -raw irsa_app_role_arn
+#   externalSecrets.secretsManagerSecretName → terraform output -raw app_config_secret_name
+#   config.objectStorageBucket → terraform output -raw s3_artifacts_bucket
+
+replicaCount: 1
+
+image:
+  repository: ""   # Set at deploy time from ECR URL
+  tag: "latest"
+  pullPolicy: Always
+
+config:
+  environment: development
+  logLevel: INFO
+  objectStorageBucket: ""      # Set from: terraform output -raw s3_artifacts_bucket
+  inferenceBaseUrl: ""         # Not configured until M4
+  secretsProvider: aws-secrets-manager
+
+ingress:
+  enabled: true
+  host: ""                     # Set to dev.yourdomain.com
+  certificateArn: ""           # Set from ACM certificate ARN
+  annotations: {}
+
+serviceAccount:
+  create: true
+  irsaRoleArn: ""              # Set from: terraform output -raw irsa_app_role_arn
+  annotations: {}
+
+externalSecrets:
+  enabled: true
+  awsRegion: us-west-2         # Match var.aws_region in dev.tfvars
+  secretsManagerSecretName: "" # Set from: terraform output -raw app_config_secret_name
+  existingSecret: "private-ai-workspace-dev-app-secrets"
+  refreshInterval: "5m"        # Shorter interval for dev iteration
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
