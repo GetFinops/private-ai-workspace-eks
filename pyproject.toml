@@ -5,4 +5,10 @@ description = "Bootstrap control plane for a private AI workspace on EKS."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
+dependencies = [
+    # PyJWT (MIT) + cryptography (Apache-2.0/BSD) for OIDC RS256/ES256 token verification.
+    # Approved for use in M1 (see docs/milestones/m1-control-plane-skeleton.md).
+    "PyJWT>=2.7",
+    "cryptography>=42.0",
+]
 
