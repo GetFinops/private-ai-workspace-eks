@@ -1,0 +1,8 @@
+[project]
+name = "private-ai-workspace-eks"
+version = "0.1.0"
+description = "Bootstrap control plane for a private AI workspace on EKS."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
