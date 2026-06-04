@@ -1,0 +1,31 @@
+# deploy/values/dev/observability.yaml
+# Development overrides for the observability Helm chart.
+# Usage: helm upgrade --install observability deploy/helm/observability \
+#          --namespace monitoring --create-namespace \
+#          -f deploy/values/dev/observability.yaml
+
+kubePrometheusStack:
+  prometheus:
+    prometheusSpec:
+      retention: 3d
+      retentionSize: "2GB"
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 1Gi
+
+  grafana:
+    adminPassword: "admin"  # Dev only — change in staging/prod.
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  alertmanager:
+    enabled: false  # Disable alertmanager in dev to reduce resource use.

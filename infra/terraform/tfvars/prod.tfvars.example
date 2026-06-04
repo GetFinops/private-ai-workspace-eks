@@ -1,0 +1,34 @@
+# infra/terraform/tfvars/prod.tfvars.example
+#
+# Copy to prod.tfvars and fill in values before running.
+# prod.tfvars is gitignored — never commit real values.
+
+aws_region   = "us-east-1"
+environment  = "prod"
+project_name = "private-ai-workspace"
+
+# VPC — Multi-AZ NAT for production
+vpc_cidr                  = "10.0.0.0/16"
+enable_single_nat_gateway = false
+
+# EKS
+kubernetes_version = "1.32"
+
+# Control-plane node group
+control_plane_node_instance_types = ["m7i.large", "m6i.large"]
+control_plane_desired_size        = 2
+control_plane_min_size            = 2
+control_plane_max_size            = 6
+
+# GPU inference node group — start with one warm on-demand node
+gpu_node_instance_types = ["g5.xlarge", "g5.2xlarge"]
+gpu_desired_size        = 1
+gpu_min_size            = 0
+gpu_max_size            = 4
+gpu_capacity_type       = "SPOT"
+
+# RDS — Multi-AZ, longer retention
+postgres_version          = "16"
+rds_instance_class        = "db.t3.large"
+rds_multi_az              = true
+rds_backup_retention_days = 14

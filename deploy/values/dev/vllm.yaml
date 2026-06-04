@@ -1,0 +1,26 @@
+# deploy/values/dev/vllm.yaml
+# Development overrides for the vllm-inference Helm chart.
+# Usage: helm upgrade --install vllm deploy/helm/vllm -f deploy/values/dev/vllm.yaml
+
+replicaCount: 1
+
+model:
+  id: "meta-llama/Llama-3.2-1B-Instruct"
+  maxModelLen: 2048
+  tensorParallelSize: 1
+  maxNumSeqs: 32
+
+resources:
+  requests:
+    nvidia.com/gpu: 1
+  limits:
+    nvidia.com/gpu: 1
+
+autoscaling:
+  enabled: false
+
+# In dev, allow pod scheduling on the single GPU node even before Prometheus is set up.
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8000"
+  prometheus.io/path: "/metrics"

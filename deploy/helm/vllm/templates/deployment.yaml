@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vllm-inference.fullname" . }}
+  labels:
+    {{- include "vllm-inference.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "vllm-inference.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vllm-inference.selectorLabels" . | nindent 8 }}
+        {{- include "vllm-inference.labels" . | nindent 8 }}
+      annotations:
+        {{- toYaml .Values.podAnnotations | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "vllm-inference.serviceAccountName" . }}
+      containers:
+        - name: vllm
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "--model"
+            - {{ .Values.model.id | required "model.id is required" | quote }}
+            - "--dtype"
+            - {{ .Values.model.dtype | quote }}
+            - "--max-model-len"
+            - {{ .Values.model.maxModelLen | quote }}
+            - "--tensor-parallel-size"
+            - {{ .Values.model.tensorParallelSize | quote }}
+            - "--max-num-seqs"
+            - {{ .Values.model.maxNumSeqs | quote }}
+            - "--port"
+            - "8000"
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.modelWeights.enabled }}
+          volumeMounts:
+            - name: model-weights
+              mountPath: /models
+          {{- end }}
+      {{- if .Values.modelWeights.enabled }}
+      volumes:
+        - name: model-weights
+          persistentVolumeClaim:
+            claimName: {{ include "vllm-inference.fullname" . }}-model-weights
+      {{- end }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

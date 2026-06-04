@@ -1,0 +1,17 @@
+{{- if .Values.modelWeights.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "vllm-inference.fullname" . }}-model-weights
+  labels:
+    {{- include "vllm-inference.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.modelWeights.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.modelWeights.size }}
+  {{- with .Values.modelWeights.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+{{- end }}

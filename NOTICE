@@ -5,7 +5,7 @@ This repository is an independently maintained project under GetFinops.
 It is inspired by prior review and planning work related to:
 
 - Odysseus, licensed under MIT
-- aws-samples/sample-genai-on-eks, licensed under MIT-0
+- aws-samples/sample-genai-on-eks-starter-kit, licensed under MIT-0
 
 This repository is not the official Odysseus project and is not endorsed by
 the Odysseus maintainers or AWS.
@@ -19,3 +19,86 @@ Contribution and provenance rules:
 
 At bootstrap time, this repository is intentionally a clean skeleton with
 project governance and structure in place before selective code import.
+
+────────────────────────────────────────────────────────────────────────────────
+Provenance record (maintained per docs/05-build-readiness-checklist.md)
+────────────────────────────────────────────────────────────────────────────────
+
+The following files contain code adapted from upstream open-source projects.
+The upstream notices are preserved below. "Adapted" means the logic was
+selectively rewritten to fit this project's stdlib-only, cloud-native
+constraints; the original source is credited and the upstream license applies
+to the adapted portions.
+
+────────────────────────────────────
+Source 1: aws-samples/sample-genai-on-eks-starter-kit
+────────────────────────────────────
+
+Repository: https://github.com/aws-samples/sample-genai-on-eks-starter-kit
+License: MIT No Attribution (MIT-0)
+
+MIT-0 imposes no attribution requirement, but the upstream project is
+credited here for transparency.
+
+Files in this repository adapted from the above source:
+
+  infra/terraform/modules/vpc/main.tf
+    Upstream: terraform/vpc.tf
+    Modifications: renamed variables to project convention, removed EFS subnet,
+    parameterised NAT gateway count, added project/environment naming.
+
+  infra/terraform/modules/eks/main.tf
+    Upstream: terraform/modules/eks-standard-mode/eks.tf
+              terraform/modules/eks-standard-mode/eks-addons.tf
+    Modifications: replaced Karpenter-only node strategy with two explicit
+    managed node groups (CPU control-plane + GPU inference); removed EFS/LWS;
+    simplified to AWS Load Balancer Controller only; removed CLI-specific
+    local-exec provisioners; added gpu_capacity_type variable.
+
+  infra/terraform/modules/eks/variables.tf
+    Upstream: terraform/modules/eks-standard-mode/variables.tf
+    Modifications: renamed, expanded for our two-node-group design.
+
+────────────────────────────────────
+Source 2: pewdiepie-archdaemon/odysseus
+────────────────────────────────────
+
+Repository: https://github.com/pewdiepie-archdaemon/odysseus
+License: MIT
+
+Copyright (c) pewdiepie-archdaemon and the Odysseus contributors.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Files in this repository adapted from the above source:
+
+  app/control_plane/routing.py
+    Upstream: src/endpoint_resolver.py — normalize_base, build_chat_url functions.
+    Modifications: removed SQLAlchemy/FastAPI/database dependencies; narrowed to
+    the internal vLLM contract only; restricted accepted URL schemes to http/https;
+    added InferenceEndpoint dataclass; replaced multi-provider logic with
+    single-backend vLLM model; added explicit InferenceRoutingError /
+    InferenceUnavailableError types aligned to our failure-mode design.
+
+  app/control_plane/inference.py
+    Upstream: routes/chat_routes.py — error-type conventions and request-shaping
+    patterns; core/exceptions.py — LLMServiceError pattern.
+    Modifications: replaced httpx/FastAPI with stdlib urllib.request; removed
+    streaming, database, and multi-provider logic; added timeout/retry policy
+    per docs/inference-contract.md; all AGPL-sensitive optional features excluded.

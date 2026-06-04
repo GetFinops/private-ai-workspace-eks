@@ -1,0 +1,84 @@
+# vLLM inference chart values.
+#
+# Override with an environment-specific values file:
+#   helm upgrade --install vllm deploy/helm/vllm -f deploy/values/dev/vllm.yaml
+#
+# The service type is deliberately ClusterIP so the inference endpoint is
+# only reachable within the cluster. The control plane reaches it via the
+# internal DNS name: http://vllm-inference.<namespace>.svc.cluster.local:8000
+
+replicaCount: 1
+
+image:
+  repository: vllm/vllm-openai
+  tag: "v0.9.0"
+  pullPolicy: IfNotPresent
+
+model:
+  # Hugging Face model ID or local model path mounted from a PVC.
+  # Required — override in your environment values file.
+  id: ""
+  # Optional dtype override (auto | float16 | bfloat16).
+  dtype: "auto"
+  # Maximum sequence length. Adjust to fit GPU VRAM.
+  maxModelLen: 4096
+  # Tensor parallelism degree (number of GPUs per replica).
+  tensorParallelSize: 1
+  # Maximum concurrent requests in the continuous batching queue.
+  maxNumSeqs: 128
+
+service:
+  type: ClusterIP
+  port: 8000
+
+# GPU resource requests and limits.
+# The taint on inference nodes requires this toleration.
+resources:
+  requests:
+    nvidia.com/gpu: 1
+  limits:
+    nvidia.com/gpu: 1
+
+tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Equal"
+    value: "true"
+    effect: "NoSchedule"
+
+nodeSelector:
+  private-ai-workspace/plane: inference
+
+affinity: {}
+
+# HPA settings — scale based on custom vLLM Prometheus metrics (M6).
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 4
+  # Requires kube-prometheus-stack and custom metrics adapter (M5/M6).
+  targetQueueDepth: 10
+
+# Persistent volume for model weights (optional).
+# If model.id references Hugging Face, set modelWeights.enabled: false.
+modelWeights:
+  enabled: false
+  storageClass: ""
+  size: 100Gi
+  accessMode: ReadWriteOnce
+
+# Extra environment variables forwarded to vLLM.
+extraEnv: []
+# - name: HUGGING_FACE_HUB_TOKEN
+#   valueFrom:
+#     secretKeyRef:
+#       name: hf-token
+#       key: token
+
+serviceAccount:
+  create: true
+  name: ""
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8000"
+  prometheus.io/path: "/metrics"
