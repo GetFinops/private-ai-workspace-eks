@@ -102,3 +102,12 @@ Files in this repository adapted from the above source:
     Modifications: replaced httpx/FastAPI with stdlib urllib.request; removed
     streaming, database, and multi-provider logic; added timeout/retry policy
     per docs/inference-contract.md; all AGPL-sensitive optional features excluded.
+
+  app/control_plane/token_verifier.py
+    Upstream: core/auth.py — interface convention (verifier returning typed principal);
+    core/exceptions.py — error-type pattern.
+    Modifications: rewritten to use PyJWT (MIT) for RS256/ES256 OIDC verification;
+    no Odysseus code copied directly; TokenClaims, TokenVerificationError, and
+    TokenVerifier Protocol are new types aligned to our AuthSettings contract;
+    OIDCTokenVerifier supports any OIDC-compliant provider via standard JWKS;
+    DevTokenVerifier is a new development-only stub with no upstream analogue.

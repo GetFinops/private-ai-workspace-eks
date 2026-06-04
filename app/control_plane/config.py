@@ -9,9 +9,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from os import environ
-from typing import Mapping
+from typing import TYPE_CHECKING, Mapping
 
 from app.control_plane.auth import AuthSettings
+
+if TYPE_CHECKING:
+    from app.control_plane.token_verifier import TokenVerifier
 
 
 @dataclass(frozen=True)
@@ -25,6 +28,10 @@ class ControlPlaneConfig:
     secrets_provider: str = "aws-secrets-manager"
     inference_base_url: str | None = None
     auth: AuthSettings = field(default_factory=AuthSettings)
+    # Optional: pre-shared token accepted only in development mode.
+    # Set DEV_AUTH_TOKEN in local .env to enable DevTokenVerifier.
+    # Never set in staging or production environments.
+    dev_auth_token: str | None = None
     log_level: str = "INFO"
 
     @classmethod
@@ -47,12 +54,12 @@ class ControlPlaneConfig:
                 audience=_clean(values.get("AUTH_AUDIENCE")),
                 admin_group=_clean(values.get("AUTH_ADMIN_GROUP")),
             ),
+            dev_auth_token=_clean(values.get("DEV_AUTH_TOKEN")),
             log_level=values.get("LOG_LEVEL", "INFO").upper(),
         )
 
     def readiness_checks(self) -> dict[str, bool]:
         """Return dependency checks that are safe to expose operationally."""
-
         return {
             "database_configured": bool(self.database_url),
             "object_storage_configured": bool(self.object_storage_bucket),
@@ -63,7 +70,6 @@ class ControlPlaneConfig:
 
     def is_ready(self) -> bool:
         """Whether the control plane is ready for production traffic."""
-
         checks = self.readiness_checks()
         return (
             checks["database_configured"]
@@ -71,6 +77,31 @@ class ControlPlaneConfig:
             and checks["secrets_provider_configured"]
             and checks["auth_configured"]
         )
+
+    def make_token_verifier(self) -> "TokenVerifier | None":
+        """Return the appropriate token verifier for this configuration.
+
+        Returns None when neither OIDC nor dev auth is configured, which
+        causes the chat endpoint to return 503 with an explicit message.
+        """
+        from app.control_plane.token_verifier import DevTokenVerifier, OIDCTokenVerifier
+
+        # Development mode: accept a pre-shared static token.
+        if self.environment == "development" and self.dev_auth_token:
+            return DevTokenVerifier(
+                dev_token=self.dev_auth_token,
+                admin_group=self.auth.admin_group or "admin",
+                environment=self.environment,
+            )
+
+        # Production/staging mode: OIDC JWT verification.
+        if self.auth.is_configured():
+            return OIDCTokenVerifier(
+                issuer_url=self.auth.issuer_url,  # type: ignore[arg-type]
+                audience=self.auth.audience,       # type: ignore[arg-type]
+            )
+
+        return None
 
 
 def _clean(value: str | None) -> str | None:
