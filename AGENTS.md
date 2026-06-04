@@ -154,3 +154,58 @@ Stop and ask for maintainer input if a change touches:
 - AGPL-sensitive components
 - production networking exposure
 - tenant or user isolation behavior
+
+## Cursor Cloud specific instructions
+
+### Current repository stage
+
+`main` is a governance and layout bootstrap. There are no third-party Python or
+Node dependencies to install, no Docker Compose stack, and no Kubernetes cluster
+required for local verification today.
+
+The CI workflow in `.github/workflows/ci.yml` only verifies required policy
+files and top-level directories exist.
+
+### When the control-plane skeleton is present
+
+The open implementation branch adds a stdlib-only Python 3.11+ control plane
+under `app/control_plane/`. Once that code is on your branch:
+
+- **Requirements:** Python 3.11 or newer (`python3 --version`). No `pip install`
+  step is needed; the skeleton uses the standard library only.
+- **Tests (same as CI):**
+
+  ```bash
+  python3 -m compileall app tests
+  python3 -m unittest discover -s tests
+  ```
+
+- **Run the dev server:**
+
+  ```bash
+  python3 -m app.control_plane
+  ```
+
+  Default bind: `http://0.0.0.0:8080`. Useful smoke endpoints:
+
+  - `GET /healthz` — liveness (works without external deps)
+  - `GET /readyz` — readiness (reports missing DB/auth/inference config)
+  - `GET /v1/inference/status` — internal inference configuration status
+
+- **Optional prod-style env vars** (for readiness checks): `DATABASE_URL`,
+  `OBJECT_STORAGE_BUCKET`, `INFERENCE_BASE_URL`, `AUTH_ISSUER_URL`,
+  `AUTH_AUDIENCE`, `AUTH_ADMIN_GROUP`. See `README.md` on branches that include
+  the control plane.
+
+### Services
+
+| Service | Required locally? | Notes |
+|---------|-------------------|-------|
+| Control plane (`python3 -m app.control_plane`) | When `app/control_plane/` exists | CPU-only HTTP skeleton |
+| PostgreSQL / S3 / vLLM | No for local smoke test | Required for production readiness |
+| EKS / Terraform / Helm | No for app dev | Used for deployment milestones |
+
+### Lint
+
+No dedicated linter is configured yet. Use `python3 -m compileall app tests` as
+the compile check until ruff/mypy or similar is added.
