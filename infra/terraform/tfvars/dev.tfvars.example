@@ -14,7 +14,7 @@ vpc_cidr                  = "10.0.0.0/16"
 enable_single_nat_gateway = true
 
 # EKS
-kubernetes_version = "1.32"
+kubernetes_version = "1.35"
 
 # Control-plane node group
 control_plane_node_instance_types = ["m7i.large"]
