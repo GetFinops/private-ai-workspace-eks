@@ -32,3 +32,8 @@ jobs:
           test -d deploy
           test -d scripts
           test -d tests
+
+      - name: Verify Python control-plane package
+        run: |
+          python -m compileall app tests
+          python -m unittest discover -s tests

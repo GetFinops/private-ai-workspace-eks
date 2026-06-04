@@ -1,24 +1,33 @@
 # Documentation
 
-This directory contains the initial public documentation baseline for the
-project bootstrap.
+This directory contains the public documentation baseline and planning bundle
+for the project bootstrap.
 
-## Included Here
+## Planning Bundle
 
-- public-facing bootstrap summary
-- repository structure expectations
-- contribution and governance references from the root policy files
+- [Licensing and policy review](01-licensing-and-policy.md)
+- [Review summary](02-review-summary.md)
+- [Implementation plan](03-implementation-plan.md)
+- [Governance and contribution](04-governance-and-contribution.md)
+- [Build readiness checklist](05-build-readiness-checklist.md)
+- [Cloud architecture](06-cloud-architecture.md)
+- [Observability](07-observability.md)
+- [Repo bootstrap plan](08-repo-bootstrap.md)
+- [AWS service decision matrix](09-aws-service-decision-matrix.md)
+- [Delivery roadmap](10-delivery-roadmap.md)
 
-## Planned Expansion
+## Current Implementation Docs
 
-The docs set is expected to grow to cover:
+- The root `README.md` summarizes project scope, non-goals, repository layout,
+  and the initial AWS stack decisions.
+- [Internal inference contract](inference-contract.md) documents the initial
+  control-plane to vLLM boundary.
+- `app/` contains the first control-plane skeleton with health/readiness
+  endpoints and an internal vLLM-compatible inference contract.
 
-- architecture
-- deployment
-- observability
-- security hardening
-- provenance tracking
-- delivery milestones
+## Documentation Rules
 
-For now, the repository is intentionally focused on bootstrap structure and
-governance so implementation can start from a controlled baseline.
+- Keep architecture and deployment assumptions explicit.
+- Keep upstream provenance and licensing notes visible for review.
+- Do not describe this project as the official Odysseus project or an
+  AWS-endorsed derivative.
