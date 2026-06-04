@@ -1,0 +1,16 @@
+apiVersion: v2
+name: vllm-inference
+description: >
+  Helm chart for a vLLM OpenAI-compatible inference service on GPU nodes.
+  Designed for the private-ai-workspace inference plane (M4 milestone).
+  The inference service is internal-only; no Ingress is created by this chart.
+type: application
+version: 0.1.0
+appVersion: "0.9.0"
+keywords:
+  - vllm
+  - llm
+  - inference
+  - gpu
+maintainers:
+  - name: private-ai-workspace maintainers

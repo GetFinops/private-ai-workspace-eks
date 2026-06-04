@@ -1,0 +1,36 @@
+# infra/terraform/tfvars/dev.tfvars.example
+#
+# Copy to dev.tfvars and fill in values before running:
+#   cp infra/terraform/tfvars/dev.tfvars.example infra/terraform/tfvars/dev.tfvars
+#
+# dev.tfvars is gitignored — never commit real values.
+
+aws_region   = "us-west-2"
+environment  = "dev"
+project_name = "private-ai-workspace"
+
+# VPC
+vpc_cidr                  = "10.0.0.0/16"
+enable_single_nat_gateway = true
+
+# EKS
+kubernetes_version = "1.32"
+
+# Control-plane node group
+control_plane_node_instance_types = ["m7i.large"]
+control_plane_desired_size        = 1
+control_plane_min_size            = 1
+control_plane_max_size            = 2
+
+# GPU inference node group (start cold in dev)
+gpu_node_instance_types = ["g5.xlarge"]
+gpu_desired_size        = 0
+gpu_min_size            = 0
+gpu_max_size            = 1
+gpu_capacity_type       = "SPOT"
+
+# RDS
+postgres_version          = "16"
+rds_instance_class        = "db.t3.medium"
+rds_multi_az              = false
+rds_backup_retention_days = 3

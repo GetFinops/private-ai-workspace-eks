@@ -1,0 +1,13 @@
+apiVersion: v2
+name: observability
+description: >
+  Umbrella chart for the observability stack of private-ai-workspace (M5 milestone).
+  Installs kube-prometheus-stack (Prometheus + Grafana + Alertmanager) and
+  provides pre-configured values for vLLM and DCGM GPU metrics scraping.
+type: application
+version: 0.1.0
+dependencies:
+  - name: kube-prometheus-stack
+    version: "72.x.x"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: kubePrometheusStack.enabled
