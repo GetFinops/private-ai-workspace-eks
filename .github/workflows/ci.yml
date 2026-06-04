@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  docs-and-structure:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify required files
+        run: |
+          test -f README.md
+          test -f LICENSE
+          test -f NOTICE
+          test -f CONTRIBUTING.md
+          test -f CODE_OF_CONDUCT.md
+          test -f SECURITY.md
+          test -f CODEOWNERS
+          test -f .github/PULL_REQUEST_TEMPLATE.md
+          test -f docs/README.md
+
+      - name: Verify required directories
+        run: |
+          test -d app
+          test -d infra
+          test -d deploy
+          test -d scripts
+          test -d tests

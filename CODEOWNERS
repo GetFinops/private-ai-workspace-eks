@@ -1,0 +1,11 @@
+# Global maintainer ownership
+* @GlushakovIL
+
+# Security and control-plane paths
+/app/ @GlushakovIL
+/infra/ @GlushakovIL
+/deploy/ @GlushakovIL
+/scripts/ @GlushakovIL
+/.github/ @GlushakovIL
+/SECURITY.md @GlushakovIL
+/NOTICE @GlushakovIL

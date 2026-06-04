@@ -1,0 +1,21 @@
+Project notice for `private-ai-workspace-eks`.
+
+This repository is an independently maintained project under GetFinops.
+
+It is inspired by prior review and planning work related to:
+
+- Odysseus, licensed under MIT
+- aws-samples/sample-genai-on-eks, licensed under MIT-0
+
+This repository is not the official Odysseus project and is not endorsed by
+the Odysseus maintainers or AWS.
+
+Contribution and provenance rules:
+
+- copied or adapted third-party code must retain its required upstream notices
+- contributors must document provenance when introducing upstream-derived code
+- AGPL-sensitive optional components should remain excluded or clearly isolated
+  unless separately reviewed and approved
+
+At bootstrap time, this repository is intentionally a clean skeleton with
+project governance and structure in place before selective code import.
