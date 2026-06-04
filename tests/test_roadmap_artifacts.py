@@ -20,6 +20,28 @@ class RoadmapArtifactTests(TestCase):
             with self.subTest(name=name):
                 self.assertTrue((ROOT / "docs" / name).is_file())
 
+    def test_gap_analysis_report_is_published(self) -> None:
+        self.assertTrue((ROOT / "docs" / "11-gap-analysis.md").is_file())
+
+    def test_milestone_instruction_files_are_published(self) -> None:
+        milestones = ROOT / "docs" / "milestones"
+        self.assertTrue((milestones / "README.md").is_file())
+
+        expected = [
+            "m0-project-bootstrap.md",
+            "m1-control-plane-skeleton.md",
+            "m2-eks-baseline-deployment.md",
+            "m3-state-externalization.md",
+            "m4-inference-plane-mvp.md",
+            "m5-observability-baseline.md",
+            "m6-elastic-gpu-scaling.md",
+            "m7-staging-hardening.md",
+            "m8-production-release.md",
+        ]
+        for name in expected:
+            with self.subTest(name=name):
+                self.assertTrue((milestones / name).is_file())
+
     def test_helm_chart_defaults_to_internal_service(self) -> None:
         values = (
             ROOT

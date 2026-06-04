@@ -15,6 +15,14 @@ for the project bootstrap.
 - [Repo bootstrap plan](08-repo-bootstrap.md)
 - [AWS service decision matrix](09-aws-service-decision-matrix.md)
 - [Delivery roadmap](10-delivery-roadmap.md)
+- [Gap analysis](11-gap-analysis.md)
+
+## Milestone Instructions
+
+Per-milestone build instructions for automated and human contributors live in
+[`milestones/`](milestones/README.md). They expand the delivery roadmap into
+build-ready guidance with scope, tasks, provenance and security checkpoints,
+testing requirements, and exit criteria.
 
 ## Current Implementation Docs
 
