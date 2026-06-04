@@ -35,5 +35,5 @@ jobs:
 
       - name: Verify Python control-plane package
         run: |
-          python -m compileall app tests
-          python -m unittest discover -s tests
+          python3 -m compileall app tests
+          python3 -m unittest discover -s tests

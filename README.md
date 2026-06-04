@@ -81,8 +81,8 @@ The planning bundle recommends starting with:
 The current scaffold uses only the Python standard library:
 
 ```bash
-python -m unittest discover -s tests
-python -m app.control_plane
+python3 -m unittest discover -s tests
+python3 -m app.control_plane
 ```
 
 Production readiness requires external dependency configuration, for example:
@@ -94,7 +94,7 @@ INFERENCE_BASE_URL=http://vllm.inference.svc:8000 \
 AUTH_ISSUER_URL=https://issuer.example.com \
 AUTH_AUDIENCE=private-ai-workspace \
 AUTH_ADMIN_GROUP=workspace-admins \
-python -m app.control_plane
+python3 -m app.control_plane
 ```
 
 ## Repository Layout
