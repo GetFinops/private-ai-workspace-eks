@@ -40,8 +40,8 @@ module "ecr" {
 module "eks" {
   source = "./modules/eks"
 
-  project_name     = var.project_name
-  environment      = var.environment
+  project_name       = var.project_name
+  environment        = var.environment
   kubernetes_version = var.kubernetes_version
 
   vpc_id             = module.vpc.vpc_id
@@ -70,12 +70,12 @@ module "rds" {
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
 
-  postgres_version         = var.postgres_version
-  instance_class           = var.rds_instance_class
-  multi_az                 = var.rds_multi_az
-  deletion_protection      = var.environment == "prod"
-  skip_final_snapshot      = var.environment != "prod"
-  backup_retention_days    = var.rds_backup_retention_days
+  postgres_version      = var.postgres_version
+  instance_class        = var.rds_instance_class
+  multi_az              = var.rds_multi_az
+  deletion_protection   = var.environment == "prod"
+  skip_final_snapshot   = var.environment != "prod"
+  backup_retention_days = var.rds_backup_retention_days
 
   tags = local.tags
 }
@@ -87,4 +87,35 @@ module "s3" {
   environment   = var.environment
   force_destroy = var.environment != "prod"
   tags          = local.tags
+}
+
+# App-level configuration secret: holds AUTH_ISSUER_URL, AUTH_AUDIENCE,
+# AUTH_ADMIN_GROUP, and DATABASE_URL (constructed from RDS credentials).
+# Values are set out-of-band by operators; Terraform creates the secret
+# placeholder so the IRSA policy can reference its ARN.
+resource "aws_secretsmanager_secret" "app_config" {
+  name                    = "${var.project_name}/${var.environment}/app"
+  description             = "Control-plane application configuration for ${var.project_name}/${var.environment}. Values set by operators."
+  recovery_window_in_days = var.environment == "prod" ? 30 : 0
+
+  tags = local.tags
+}
+
+module "irsa_app" {
+  source = "./modules/irsa-app"
+
+  project_name  = var.project_name
+  environment   = var.environment
+
+  oidc_provider_arn = module.eks.cluster_oidc_provider_arn
+  oidc_provider_url = module.eks.cluster_oidc_provider_url
+
+  service_account_namespace = var.app_namespace
+  service_account_name      = var.app_service_account_name
+
+  rds_secret_arn        = module.rds.credentials_secret_arn
+  app_config_secret_arn = aws_secretsmanager_secret.app_config.arn
+  s3_bucket_arn         = module.s3.bucket_arn
+
+  tags = local.tags
 }

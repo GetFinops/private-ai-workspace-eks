@@ -8,21 +8,41 @@ image:
 serviceAccount:
   create: true
   name: ""
+  # Set from Terraform output: $(terraform -chdir=infra/terraform output -raw irsa_app_role_arn)
+  irsaRoleArn: ""
+  annotations: {}
 
 service:
   type: ClusterIP
   port: 8080
 
+ingress:
+  enabled: false
+  # Set to your public hostname (e.g. api.yourdomain.com).
+  host: ""
+  # ACM certificate ARN for HTTPS. Required when ingress.enabled=true.
+  certificateArn: ""
+  annotations: {}
+
 config:
   environment: production
   logLevel: INFO
   objectStorageBucket: ""
-  inferenceBaseUrl: http://vllm.inference.svc.cluster.local:8000
+  inferenceBaseUrl: http://vllm-inference.inference.svc.cluster.local:8000
   secretsProvider: aws-secrets-manager
 
 externalSecrets:
-  # Secret must contain DATABASE_URL, AUTH_ISSUER_URL, AUTH_AUDIENCE, and AUTH_ADMIN_GROUP.
+  enabled: false
+  # AWS region where Secrets Manager secrets live.
+  awsRegion: us-east-1
+  # Secrets Manager secret name holding DATABASE_URL, AUTH_ISSUER_URL,
+  # AUTH_AUDIENCE, AUTH_ADMIN_GROUP as JSON keys.
+  # Set from Terraform output: $(terraform -chdir=infra/terraform output -raw app_config_secret_name)
+  secretsManagerSecretName: ""
+  # Name of the Kubernetes Secret created by ExternalSecrets.
+  # Must match the deployment's envFrom.secretRef reference.
   existingSecret: ""
+  refreshInterval: "1h"
 
 resources:
   requests:
@@ -32,6 +52,9 @@ resources:
     cpu: 500m
     memory: 512Mi
 
-nodeSelector: {}
+# Route control-plane pods to the CPU node group; GPU nodes are tainted.
+nodeSelector:
+  private-ai-workspace/plane: control
+
 tolerations: []
 affinity: {}

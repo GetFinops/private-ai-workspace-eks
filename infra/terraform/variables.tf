@@ -30,7 +30,7 @@ variable "enable_single_nat_gateway" {
 variable "kubernetes_version" {
   description = "Kubernetes version for the EKS cluster."
   type        = string
-  default     = "1.32"
+  default     = "1.35"
 }
 
 variable "control_plane_node_instance_types" {
@@ -109,4 +109,16 @@ variable "rds_backup_retention_days" {
   description = "RDS automated backup retention window in days."
   type        = number
   default     = 7
+}
+
+variable "app_namespace" {
+  description = "Kubernetes namespace where the control-plane chart is deployed."
+  type        = string
+  default     = "app"
+}
+
+variable "app_service_account_name" {
+  description = "Kubernetes ServiceAccount name for the control-plane pod."
+  type        = string
+  default     = "private-ai-workspace-control-plane"
 }
