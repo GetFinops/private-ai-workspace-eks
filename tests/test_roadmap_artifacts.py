@@ -23,6 +23,11 @@ class RoadmapArtifactTests(TestCase):
     def test_gap_analysis_report_is_published(self) -> None:
         self.assertTrue((ROOT / "docs" / "11-gap-analysis.md").is_file())
 
+    def test_phase_2_feature_adoption_track_is_published(self) -> None:
+        self.assertTrue(
+            (ROOT / "docs" / "12-phase-2-feature-adoption.md").is_file()
+        )
+
     def test_milestone_instruction_files_are_published(self) -> None:
         milestones = ROOT / "docs" / "milestones"
         self.assertTrue((milestones / "README.md").is_file())

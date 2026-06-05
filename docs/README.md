@@ -16,6 +16,7 @@ for the project bootstrap.
 - [AWS service decision matrix](09-aws-service-decision-matrix.md)
 - [Delivery roadmap](10-delivery-roadmap.md)
 - [Gap analysis](11-gap-analysis.md)
+- [Phase 2 feature adoption track (M9+, proposed)](12-phase-2-feature-adoption.md)
 
 ## Milestone Instructions
 
@@ -23,6 +24,12 @@ Per-milestone build instructions for automated and human contributors live in
 [`milestones/`](milestones/README.md). They expand the delivery roadmap into
 build-ready guidance with scope, tasks, provenance and security checkpoints,
 testing requirements, and exit criteria.
+
+The committed roadmap covers milestones M0–M8 (the platform baseline). Proposed
+product features that could layer on top of that baseline are analyzed,
+licensing-reviewed, and sequenced as a candidate M9+ track in
+[Phase 2 feature adoption](12-phase-2-feature-adoption.md). That track is
+exploratory and gated by maintainer decision; it is not committed scope.
 
 ## Current Implementation Docs
 
