@@ -20,9 +20,16 @@ import json
 import logging
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parent.parent
+
+try:
+    import prometheus_client  # noqa: F401
+    HAS_PROMETHEUS = True
+except ImportError:
+    HAS_PROMETHEUS = False
+
+_SKIP_PROM = "prometheus-client not installed — run: pip install -e ."
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -31,25 +38,51 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class TestMetricsModule(unittest.TestCase):
+    @unittest.skipUnless(HAS_PROMETHEUS, _SKIP_PROM)
     def test_http_requests_total_is_counter(self) -> None:
         from app.control_plane.metrics import HTTP_REQUESTS_TOTAL
         from prometheus_client import Counter  # type: ignore[import]
         self.assertIsInstance(HTTP_REQUESTS_TOTAL, Counter)
 
+    @unittest.skipUnless(HAS_PROMETHEUS, _SKIP_PROM)
     def test_http_request_duration_is_histogram(self) -> None:
         from app.control_plane.metrics import HTTP_REQUEST_DURATION_SECONDS
         from prometheus_client import Histogram  # type: ignore[import]
         self.assertIsInstance(HTTP_REQUEST_DURATION_SECONDS, Histogram)
 
+    @unittest.skipUnless(HAS_PROMETHEUS, _SKIP_PROM)
     def test_inference_requests_total_is_counter(self) -> None:
         from app.control_plane.metrics import INFERENCE_REQUESTS_TOTAL
         from prometheus_client import Counter  # type: ignore[import]
         self.assertIsInstance(INFERENCE_REQUESTS_TOTAL, Counter)
 
+    @unittest.skipUnless(HAS_PROMETHEUS, _SKIP_PROM)
     def test_auth_failures_total_is_counter(self) -> None:
         from app.control_plane.metrics import AUTH_FAILURES_TOTAL
         from prometheus_client import Counter  # type: ignore[import]
         self.assertIsInstance(AUTH_FAILURES_TOTAL, Counter)
+
+    def test_public_symbols_importable_without_prometheus(self) -> None:
+        """All public metric symbols import cleanly even when prometheus_client
+        is not installed (CI runs without pip install per AGENTS.md)."""
+        from app.control_plane import metrics
+        for name in [
+            "HTTP_REQUESTS_TOTAL", "HTTP_REQUEST_ERRORS_TOTAL",
+            "HTTP_REQUEST_DURATION_SECONDS", "HTTP_REQUESTS_IN_FLIGHT",
+            "AUTH_FAILURES_TOTAL", "INFERENCE_REQUESTS_TOTAL",
+            "INFERENCE_LATENCY_SECONDS", "DB_OPERATION_DURATION_SECONDS",
+        ]:
+            self.assertTrue(hasattr(metrics, name), f"missing symbol: {name}")
+
+    def test_noop_metric_inc_observe_do_not_raise(self) -> None:
+        """Counter/Histogram operations must be safe even with no-op stubs."""
+        from app.control_plane.metrics import (
+            HTTP_REQUESTS_TOTAL, HTTP_REQUEST_DURATION_SECONDS, HTTP_REQUESTS_IN_FLIGHT,
+        )
+        HTTP_REQUESTS_TOTAL.labels(method="GET", path="/healthz", status_code="200").inc()
+        HTTP_REQUEST_DURATION_SECONDS.labels(method="GET", path="/healthz").observe(0.001)
+        HTTP_REQUESTS_IN_FLIGHT.inc()
+        HTTP_REQUESTS_IN_FLIGHT.dec()
 
     def test_sanitise_known_path(self) -> None:
         from app.control_plane.metrics import sanitise_path
@@ -72,6 +105,7 @@ class TestMetricsModule(unittest.TestCase):
         self.assertIsInstance(body, bytes)
         self.assertIn("text/plain", ct)
 
+    @unittest.skipUnless(HAS_PROMETHEUS, _SKIP_PROM)
     def test_metrics_body_contains_known_metric(self) -> None:
         from app.control_plane.metrics import metrics_output
         body, _ = metrics_output()
@@ -189,6 +223,37 @@ class TestTracingModule(unittest.TestCase):
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+class TestInstrumentationErrorPath(unittest.TestCase):
+    """Defensive: a raising handler must still produce a response (no dropped conn)."""
+
+    def test_unhandled_handler_exception_returns_500(self) -> None:
+        from http import HTTPStatus
+        from app.control_plane.server import ControlPlaneHandler, Response
+
+        captured: list[tuple[int, bytes]] = []
+
+        class FakeHandler(ControlPlaneHandler):
+            def __init__(self) -> None:  # bypass BaseHTTPRequestHandler.__init__
+                self.path = "/healthz"
+                self.headers = {}  # type: ignore[assignment]
+
+            def _write_json(self, status, payload, extra_headers=None):  # type: ignore[override]
+                captured.append((int(status), repr(payload).encode()))
+
+            def _write_raw(self, status, body, extra_headers=None):  # type: ignore[override]
+                captured.append((int(status), body))
+
+        h = FakeHandler()
+
+        def boom() -> Response:
+            raise RuntimeError("synthetic failure")
+
+        h._instrument("GET", boom)
+        self.assertTrue(captured, "handler must always write a response")
+        status, _ = captured[0]
+        self.assertEqual(status, int(HTTPStatus.INTERNAL_SERVER_ERROR))
+
+
 class TestMetricsEndpoint(unittest.TestCase):
     def test_metrics_path_returns_200_with_raw_body(self) -> None:
         from app.control_plane.config import ControlPlaneConfig
@@ -200,7 +265,12 @@ class TestMetricsEndpoint(unittest.TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertIsNotNone(response.raw_body)
         assert response.raw_body is not None
-        self.assertIn(b"control_plane_http_requests_total", response.raw_body)
+        # When prometheus_client is installed, the body contains real metrics.
+        # When it is not, the body is the documented no-op placeholder.
+        if HAS_PROMETHEUS:
+            self.assertIn(b"control_plane_http_requests_total", response.raw_body)
+        else:
+            self.assertIn(b"metrics disabled", response.raw_body)
 
     def test_metrics_response_has_prometheus_content_type(self) -> None:
         from app.control_plane.config import ControlPlaneConfig
@@ -354,6 +424,7 @@ class TestDeployWorkflowObservability(unittest.TestCase):
 
 
 class TestContentPolicy(unittest.TestCase):
+    @unittest.skipUnless(HAS_PROMETHEUS, _SKIP_PROM)
     def test_metric_label_names_safe(self) -> None:
         from app.control_plane.metrics import (
             HTTP_REQUESTS_TOTAL,

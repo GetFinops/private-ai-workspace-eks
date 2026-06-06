@@ -7,22 +7,57 @@ Content policy (docs/07-observability.md):
   Label values MUST NOT contain prompt text, completion text, user content,
   tokens, or credentials.  Permitted labels: method, path (sanitised),
   status_code, error_class, environment.
+
+Graceful degradation:
+  When ``prometheus-client`` is not installed (e.g. the stdlib-only CI
+  environment described in AGENTS.md), this module falls back to no-op stubs
+  so that the rest of the application still imports cleanly.  All public
+  symbols remain available; calls to ``.inc()`` / ``.observe()`` / ``.labels()``
+  become no-ops and ``metrics_output()`` returns an empty Prometheus document.
 """
 
 from __future__ import annotations
 
-from prometheus_client import (  # type: ignore[import]
-    CONTENT_TYPE_LATEST,
-    CollectorRegistry,
-    Counter,
-    Gauge,
-    Histogram,
-    generate_latest,
-)
+try:
+    from prometheus_client import (  # type: ignore[import]
+        CONTENT_TYPE_LATEST,
+        Counter,
+        Gauge,
+        Histogram,
+        generate_latest,
+    )
+    PROMETHEUS_AVAILABLE = True
+except ImportError:  # pragma: no cover - exercised in CI without M5 deps
+    PROMETHEUS_AVAILABLE = False
+    CONTENT_TYPE_LATEST = "text/plain; version=0.0.4; charset=utf-8"
 
-# Use the default registry so standard process/platform collectors are included.
-# Do NOT import REGISTRY directly — reference via the module attribute so tests
-# can swap it.
+    class _NoopMetric:
+        """No-op stand-in for Counter / Gauge / Histogram when prometheus_client is absent."""
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self._labelnames: tuple[str, ...] = tuple(_kwargs.get("labelnames", ()) or ())
+            if len(_args) >= 3 and isinstance(_args[2], (list, tuple)):
+                self._labelnames = tuple(_args[2])
+
+        def labels(self, *_args: object, **_kwargs: object) -> "_NoopMetric":
+            return self
+
+        def inc(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        def dec(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        def observe(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        def set(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+    Counter = Gauge = Histogram = _NoopMetric  # type: ignore[assignment,misc]
+
+    def generate_latest() -> bytes:  # type: ignore[misc]
+        return b"# prometheus_client not installed; metrics disabled\n"
 
 # ── Request rate and error rate ───────────────────────────────────────────────
 

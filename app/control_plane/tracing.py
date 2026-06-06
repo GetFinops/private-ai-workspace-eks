@@ -109,7 +109,6 @@ def inject_trace_headers(headers: dict[str, str]) -> dict[str, str]:
     Returns the (mutated) dict for convenience.
     """
     try:
-        from opentelemetry.propagators.composite import CompositeHTTPPropagator  # type: ignore[import]
         from opentelemetry.propagate import inject  # type: ignore[import]
         inject(headers)
     except Exception:

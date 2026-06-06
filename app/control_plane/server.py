@@ -369,7 +369,12 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
             self._write_json(status, response.payload, response.headers)
 
     def _instrument(self, method: str, handler: Any) -> None:
-        """Wrap a request handler with metrics, logging context, and tracing."""
+        """Wrap a request handler with metrics, logging context, and tracing.
+
+        Always emits a response (5xx on unexpected handler errors) so the
+        client connection is never silently dropped.  Always records
+        metrics, even on failure paths.
+        """
         request_id = str(uuid.uuid4())
         correlation_id = self.headers.get("X-Correlation-ID", "")
         set_request_context(request_id, correlation_id)
@@ -377,6 +382,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
         safe_path = sanitise_path(self.path)
         HTTP_REQUESTS_IN_FLIGHT.inc()
         start = time.perf_counter()
+        response: Response | None = None
         try:
             from app.control_plane.tracing import get_tracer
             tracer = get_tracer()
@@ -384,7 +390,15 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                 span.set_attribute("http.method", method)
                 span.set_attribute("http.target", safe_path)
                 span.set_attribute("request_id", request_id)
-                response = handler()
+                try:
+                    response = handler()
+                except Exception as exc:  # noqa: BLE001 — defensive fallback
+                    logger.exception("Unhandled error in request handler")
+                    span.set_attribute("error.type", type(exc).__name__)
+                    response = Response(
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                        {"error": "internal_error"},
+                    )
                 span.set_attribute("http.status_code", int(response.status_code))
                 self._handle(method, response)
         finally:
