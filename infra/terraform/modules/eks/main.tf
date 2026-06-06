@@ -193,6 +193,10 @@ resource "helm_release" "aws_lb_controller" {
       value = module.eks.cluster_name
     },
     {
+      name  = "vpcId"
+      value = var.vpc_id
+    },
+    {
       name  = "serviceAccount.create"
       value = "true"
     },
