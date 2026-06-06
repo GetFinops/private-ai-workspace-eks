@@ -5,9 +5,22 @@ Applies a single bundled schema file (schema.sql) idempotently using
 No migration-version table is needed at this stage; all statements are
 safe to re-run.
 
-If the schema grows to require ordered, destructive migrations, replace
-this with a proper migration tool (Alembic, Flyway, etc.) and escalate
-the decision to maintainer review per the M3 escalation triggers.
+Concurrent-replica note
+-----------------------
+``apply_migrations`` runs on every pod startup.  The current schema uses
+``IF NOT EXISTS`` guards which are safe under concurrent execution by
+multiple replicas.  This pattern does **not** generalize to destructive or
+ordered migrations.
+
+Before introducing any non-idempotent migration, replace this runner with
+either:
+  - a dedicated pre-deploy Kubernetes Job that runs migrations once before
+    the Deployment is rolled out, or
+  - a proper migration tool with a versioning table (Alembic, Flyway, etc.)
+    and an advisory-lock-based concurrency guard.
+
+Either choice requires maintainer review per the M3 escalation triggers
+(database schema and migration strategy).
 """
 
 from __future__ import annotations

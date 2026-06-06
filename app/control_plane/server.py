@@ -316,8 +316,29 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
 
 
 def _build_session_store(config: ControlPlaneConfig) -> SessionStore:
-    """Return a PostgresSessionStore when DATABASE_URL is configured, else in-memory."""
+    """Return a PostgresSessionStore when DATABASE_URL is configured.
+
+    Behavior matrix:
+      DATABASE_URL set + connect OK     → PostgresSessionStore
+      DATABASE_URL set + connect fails  → development: warn and fall back to
+                                          InMemorySessionStore;
+                                          non-development: raise RuntimeError
+                                          (fail closed so the pod restarts via
+                                          the liveness probe rather than silently
+                                          serving inconsistent sessions across
+                                          replicas).
+      DATABASE_URL unset                → development: warn and fall back;
+                                          non-development: raise RuntimeError.
+    """
+    is_dev = config.environment == "development"
+
     if not config.database_url:
+        if not is_dev:
+            raise RuntimeError(
+                "DATABASE_URL is required outside of development. "
+                "Refusing to start with an in-memory session store in "
+                f"environment={config.environment!r}."
+            )
         logger.warning(
             "DATABASE_URL not configured — using in-memory session store. "
             "Not safe for multi-replica or production deployments."
@@ -334,8 +355,29 @@ def _build_session_store(config: ControlPlaneConfig) -> SessionStore:
         logger.info("Using PostgreSQL session store.")
         return PostgresSessionStore(pool)
     except Exception as exc:
+        # Scrub exception text: psycopg's OperationalError may echo the
+        # conninfo string (which can include host, port, dbname, and in
+        # libpq URI form may include credentials).  Log only the exception
+        # type name; the full traceback is available via exc_info for
+        # operators who need to diagnose.
+        exc_type = type(exc).__name__
+        if not is_dev:
+            logger.error(
+                "Failed to initialize database session store (%s). "
+                "Refusing to fall back to in-memory store in environment=%r.",
+                exc_type, config.environment,
+                exc_info=False,
+            )
+            raise RuntimeError(
+                f"Failed to initialize database session store ({exc_type}); "
+                f"refusing to fall back to in-memory store in "
+                f"environment={config.environment!r}."
+            ) from None
         logger.error(
-            "Failed to connect to database — falling back to in-memory session store: %s", exc
+            "Failed to initialize database session store (%s) — "
+            "falling back to in-memory session store (development only).",
+            exc_type,
+            exc_info=False,
         )
         return InMemorySessionStore()
 
