@@ -134,6 +134,15 @@ class VLLMInferenceClient:
         url = self.chat_completions_url
         payload_bytes = json.dumps(request.as_vllm_payload()).encode("utf-8")
 
+        # Propagate W3C traceparent so the inference span is linked to the
+        # control-plane span.  Falls back silently if tracing is not configured.
+        outgoing_headers: dict[str, str] = {"Content-Type": "application/json"}
+        try:
+            from app.control_plane.tracing import inject_trace_headers
+            inject_trace_headers(outgoing_headers)
+        except Exception:
+            pass
+
         last_exc: Exception | None = None
         for attempt in range(_MAX_RETRIES + 1):
             if attempt > 0:
@@ -143,7 +152,7 @@ class VLLMInferenceClient:
                     url,
                     data=payload_bytes,
                     method="POST",
-                    headers={"Content-Type": "application/json"},
+                    headers=outgoing_headers,
                 )
                 with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
                     return json.loads(resp.read())

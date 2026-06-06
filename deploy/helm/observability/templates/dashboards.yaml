@@ -1,0 +1,57 @@
+{{- $fullname := include "observability.fullname" . -}}
+{{- $namespace := .Release.Namespace -}}
+{{- $grafanaEnabled := .Values.kubePrometheusStack.grafana.enabled | default true -}}
+{{- if $grafanaEnabled -}}
+# ── DCGM GPU Dashboard ────────────────────────────────────────────────────────
+# Source: aws-samples/sample-genai-on-eks-starter-kit
+#         components/nvidia-platform/monitoring/dashboards/dcgm-metrics.json
+# License: Apache-2.0
+# Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Panels: GPU utilization, memory used/free, temperature, power, clock speeds,
+#         tensor-core engine activity, PCIe bandwidth.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-dashboard-dcgm-gpu
+  namespace: {{ $namespace }}
+  labels:
+    grafana_dashboard: "1"
+    grafana_folder: "GPU"
+data:
+  dcgm-gpu.json: |
+{{ .Files.Get "dashboards/dcgm-gpu.json" | indent 4 }}
+---
+# ── vLLM Performance Dashboard ───────────────────────────────────────────────
+# Source: vllm-project/vllm
+#         examples/observability/dashboards/grafana/performance_statistics.json
+# License: Apache-2.0
+# Panels: request latency p50/p95/p99, throughput (tokens/s), TTFT.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-dashboard-vllm-performance
+  namespace: {{ $namespace }}
+  labels:
+    grafana_dashboard: "1"
+    grafana_folder: "Inference"
+data:
+  vllm-performance.json: |
+{{ .Files.Get "dashboards/vllm-performance.json" | indent 4 }}
+---
+# ── vLLM Query Statistics Dashboard ──────────────────────────────────────────
+# Source: vllm-project/vllm
+#         examples/observability/dashboards/grafana/query_statistics.json
+# License: Apache-2.0
+# Panels: request volume, queue depth, active requests, error rates.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-dashboard-vllm-query
+  namespace: {{ $namespace }}
+  labels:
+    grafana_dashboard: "1"
+    grafana_folder: "Inference"
+data:
+  vllm-query.json: |
+{{ .Files.Get "dashboards/vllm-query.json" | indent 4 }}
+{{- end }}

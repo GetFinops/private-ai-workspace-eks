@@ -3,6 +3,7 @@
 GET  /healthz                  — liveness probe (no external deps required)
 GET  /readyz                   — readiness probe (503 until dependencies configured)
 GET  /v1/inference/status      — inference configuration state
+GET  /metrics                  — Prometheus metrics (golden signals, M5)
 POST /v1/chat/completions      — authenticated chat path; delegates to inference plane
 
 Authentication is enforced on the chat path:
@@ -19,12 +20,22 @@ structured degraded-mode response rather than propagating the error.
 The chat logic lives in build_chat_response() — a pure function that can be
 tested directly without HTTP plumbing, following the same pattern as
 build_response() for GET routes.
+
+Observability (M5):
+  - /metrics exposes Prometheus golden-signal counters and histograms.
+  - Every request generates a UUID request-id injected into the logging context.
+  - Incoming X-Correlation-ID headers are forwarded to the logging context.
+  - OTel spans wrap the request lifecycle when tracing is configured.
+  - Content policy: NEVER include prompt text, user content, or credentials
+    in metrics labels, log messages, or trace attributes.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import time
+import uuid
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -35,6 +46,18 @@ from app.control_plane.inference import (
     ChatCompletionRequest,
     ChatMessage,
     VLLMInferenceClient,
+)
+from app.control_plane.logging_config import clear_request_context, set_request_context
+from app.control_plane.metrics import (
+    AUTH_FAILURES_TOTAL,
+    HTTP_REQUEST_DURATION_SECONDS,
+    HTTP_REQUEST_ERRORS_TOTAL,
+    HTTP_REQUESTS_IN_FLIGHT,
+    HTTP_REQUESTS_TOTAL,
+    INFERENCE_LATENCY_SECONDS,
+    INFERENCE_REQUESTS_TOTAL,
+    metrics_output,
+    sanitise_path,
 )
 from app.control_plane.routing import InferenceRoutingError, InferenceUnavailableError
 from app.control_plane.session import InMemorySessionStore, SessionStore
@@ -47,6 +70,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _CHAT_PATH = "/v1/chat/completions"
+_METRICS_PATH = "/metrics"
 _MAX_REQUEST_BODY = 1 * 1024 * 1024  # 1 MiB
 
 
@@ -56,6 +80,9 @@ class Response:
     payload: dict[str, Any]
     # Optional extra HTTP headers (e.g. Retry-After on 503 degraded responses).
     headers: dict[str, str] | None = None
+    # When set, the handler writes this raw body instead of JSON-encoding payload.
+    # Used for the /metrics endpoint which emits Prometheus text format.
+    raw_body: bytes | None = None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -97,6 +124,15 @@ def build_response(path: str, config: ControlPlaneConfig) -> Response:
                 "backend": "vllm-openai-compatible",
                 "internal_only": True,
             },
+        )
+
+    if path == _METRICS_PATH:
+        body, content_type = metrics_output()
+        return Response(
+            HTTPStatus.OK,
+            {},
+            headers={"Content-Type": content_type},
+            raw_body=body,
         )
 
     return Response(
@@ -194,6 +230,7 @@ def build_chat_response(
     # 1. Require a bearer token.
     raw_token = _extract_bearer_token(authorization)
     if raw_token is None:
+        AUTH_FAILURES_TOTAL.labels(reason="missing_token").inc()
         return Response(
             HTTPStatus.UNAUTHORIZED,
             {"error": "unauthorized", "detail": "Bearer token required."},
@@ -201,6 +238,7 @@ def build_chat_response(
 
     # 2. Verify the token.
     if token_verifier is None:
+        AUTH_FAILURES_TOTAL.labels(reason="auth_not_configured").inc()
         return Response(
             HTTPStatus.SERVICE_UNAVAILABLE,
             {
@@ -213,6 +251,7 @@ def build_chat_response(
     try:
         token_verifier.verify(raw_token)
     except TokenVerificationError:
+        AUTH_FAILURES_TOTAL.labels(reason="invalid_token").inc()
         return Response(
             HTTPStatus.UNAUTHORIZED,
             {"error": "unauthorized", "detail": "Invalid or expired token."},
@@ -241,8 +280,11 @@ def build_chat_response(
     # All degraded 503 responses include a Retry-After header so clients can
     # back off without hammering the control plane during cold-start or outage.
     client = VLLMInferenceClient(base_url=config.inference_base_url)
+    _infer_start = time.perf_counter()
     try:
         result = client.chat_completions(chat_request)  # type: ignore[arg-type]
+        INFERENCE_LATENCY_SECONDS.observe(time.perf_counter() - _infer_start)
+        INFERENCE_REQUESTS_TOTAL.labels(status="success").inc()
         return Response(HTTPStatus.OK, result)  # type: ignore[arg-type]
     except InferenceUnavailableError as exc:
         # HTTP error from vLLM (e.g. 503 when the model is still loading).
@@ -251,6 +293,9 @@ def build_chat_response(
         if exc.status_code is not None and exc.status_code == 429:
             # Capacity exhausted — back off longer.
             retry_after = "60"
+        INFERENCE_LATENCY_SECONDS.observe(time.perf_counter() - _infer_start)
+        status_label = "capacity" if exc.status_code == 429 else "unavailable"
+        INFERENCE_REQUESTS_TOTAL.labels(status=status_label).inc()
         logger.warning("Inference unavailable (HTTP %s): %s", exc.status_code, type(exc).__name__)
         return Response(
             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -267,6 +312,8 @@ def build_chat_response(
             headers={"Retry-After": retry_after},
         )
     except InferenceRoutingError as exc:
+        INFERENCE_LATENCY_SECONDS.observe(time.perf_counter() - _infer_start)
+        INFERENCE_REQUESTS_TOTAL.labels(status="routing_error").inc()
         logger.warning("Inference routing error: %s", type(exc).__name__)
         return Response(
             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -279,6 +326,8 @@ def build_chat_response(
             headers={"Retry-After": "10"},
         )
     except TimeoutError as exc:
+        INFERENCE_LATENCY_SECONDS.observe(time.perf_counter() - _infer_start)
+        INFERENCE_REQUESTS_TOTAL.labels(status="timeout").inc()
         logger.warning("Inference timed out: %s", type(exc).__name__)
         return Response(
             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -305,26 +354,81 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     session_store: SessionStore = InMemorySessionStore()
     storage_client: S3StorageClient | None = None
 
+    # ── Request lifecycle ──────────────────────────────────────────────────────
+
+    def _handle(self, method: str, response: Response) -> None:
+        """Record metrics and emit the response, wrapping the full lifecycle."""
+        safe_path = sanitise_path(self.path)
+        status = int(response.status_code)
+        HTTP_REQUESTS_TOTAL.labels(method=method, path=safe_path, status_code=str(status)).inc()
+        if status >= 400:
+            HTTP_REQUEST_ERRORS_TOTAL.labels(method=method, path=safe_path, status_code=str(status)).inc()
+        if response.raw_body is not None:
+            self._write_raw(status, response.raw_body, response.headers)
+        else:
+            self._write_json(status, response.payload, response.headers)
+
+    def _instrument(self, method: str, handler: Any) -> None:
+        """Wrap a request handler with metrics, logging context, and tracing.
+
+        Always emits a response (5xx on unexpected handler errors) so the
+        client connection is never silently dropped.  Always records
+        metrics, even on failure paths.
+        """
+        request_id = str(uuid.uuid4())
+        correlation_id = self.headers.get("X-Correlation-ID", "")
+        set_request_context(request_id, correlation_id)
+
+        safe_path = sanitise_path(self.path)
+        HTTP_REQUESTS_IN_FLIGHT.inc()
+        start = time.perf_counter()
+        response: Response | None = None
+        try:
+            from app.control_plane.tracing import get_tracer
+            tracer = get_tracer()
+            with tracer.start_as_current_span(f"{method} {safe_path}") as span:
+                span.set_attribute("http.method", method)
+                span.set_attribute("http.target", safe_path)
+                span.set_attribute("request_id", request_id)
+                try:
+                    response = handler()
+                except Exception as exc:  # noqa: BLE001 — defensive fallback
+                    logger.exception("Unhandled error in request handler")
+                    span.set_attribute("error.type", type(exc).__name__)
+                    response = Response(
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                        {"error": "internal_error"},
+                    )
+                span.set_attribute("http.status_code", int(response.status_code))
+                self._handle(method, response)
+        finally:
+            elapsed = time.perf_counter() - start
+            HTTP_REQUEST_DURATION_SECONDS.labels(method=method, path=safe_path).observe(elapsed)
+            HTTP_REQUESTS_IN_FLIGHT.dec()
+            clear_request_context()
+
+    # ── Verb handlers ──────────────────────────────────────────────────────────
+
     def do_GET(self) -> None:  # noqa: N802
-        response = build_response(self.path, self.__class__.config)
-        self._write_json(response.status_code, response.payload, response.headers)
+        self._instrument("GET", lambda: build_response(self.path, self.__class__.config))
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path == _CHAT_PATH:
-            content_length = int(self.headers.get("Content-Length", 0) or 0)
-            if content_length > _MAX_REQUEST_BODY:
-                self._write_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "request_too_large"})
-                return
-            body = self.rfile.read(content_length) if content_length > 0 else b""
-            response = build_chat_response(
-                authorization=self.headers.get("Authorization"),
-                body=body,
-                config=self.__class__.config,
-                token_verifier=self.__class__.token_verifier,
-            )
-        else:
-            response = Response(HTTPStatus.NOT_FOUND, {"error": "not_found", "path": self.path})
-        self._write_json(response.status_code, response.payload, response.headers)
+        def _post() -> Response:
+            if self.path == _CHAT_PATH:
+                content_length = int(self.headers.get("Content-Length", 0) or 0)
+                if content_length > _MAX_REQUEST_BODY:
+                    return Response(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "request_too_large"})
+                body = self.rfile.read(content_length) if content_length > 0 else b""
+                return build_chat_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    config=self.__class__.config,
+                    token_verifier=self.__class__.token_verifier,
+                )
+            return Response(HTTPStatus.NOT_FOUND, {"error": "not_found", "path": self.path})
+        self._instrument("POST", _post)
+
+    # ── Writers ────────────────────────────────────────────────────────────────
 
     def _write_json(
         self,
@@ -339,6 +443,19 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
         if extra_headers:
             for name, value in extra_headers.items():
                 self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _write_raw(
+        self,
+        status: int,
+        body: bytes,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
+        self.send_response(status)
+        content_type = (extra_headers or {}).get("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 

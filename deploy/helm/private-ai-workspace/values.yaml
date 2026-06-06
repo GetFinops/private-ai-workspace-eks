@@ -27,9 +27,12 @@ ingress:
 config:
   environment: production
   logLevel: INFO
+  logFormat: json
   objectStorageBucket: ""
   inferenceBaseUrl: http://vllm-inference.inference.svc.cluster.local:8000
   secretsProvider: aws-secrets-manager
+  # OTEL gRPC collector endpoint.  Leave empty for no-op tracing.
+  otelEndpoint: ""
 
 externalSecrets:
   enabled: false
@@ -51,6 +54,18 @@ resources:
   limits:
     cpu: 500m
     memory: 512Mi
+
+# Prometheus metrics (M5).
+# Enables /metrics endpoint annotations and optionally creates a ServiceMonitor.
+metrics:
+  enabled: true
+  port: "8080"
+  path: /metrics
+  serviceMonitor:
+    enabled: false        # Enable when kube-prometheus-stack is installed.
+    interval: 30s
+    scrapeTimeout: 10s
+    additionalLabels: {}  # Add e.g. release: prometheus to match your Prometheus selector.
 
 # Route control-plane pods to the CPU node group; GPU nodes are tainted.
 nodeSelector:

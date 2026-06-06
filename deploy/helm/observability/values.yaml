@@ -81,18 +81,18 @@ kubePrometheusStack:
             url: http://{{ .Release.Name }}-kube-prometheus-stack-prometheus:9090
             isDefault: true
 
-    dashboardProviders:
-      dashboardproviders.yaml:
-        apiVersion: 1
-        providers:
-          - name: default
-            orgId: 1
-            folder: ""
-            type: file
-            disableDeletion: false
-            editable: true
-            options:
-              path: /var/lib/grafana/dashboards/default
+    # Sidecar auto-discovers ConfigMaps labelled grafana_dashboard="1" across
+    # all namespaces — the same pattern used by the upstream AWS sample repo.
+    # Dashboard ConfigMaps are shipped as Helm templates in this chart.
+    sidecar:
+      dashboards:
+        enabled: true
+        label: grafana_dashboard
+        labelValue: "1"
+        searchNamespace: ALL
+        folderAnnotation: grafana_folder
+        provider:
+          foldersFromFilesStructure: false
 
     resources:
       requests:

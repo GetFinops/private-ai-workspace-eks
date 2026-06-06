@@ -33,6 +33,12 @@ class ControlPlaneConfig:
     # Never set in staging or production environments.
     dev_auth_token: str | None = None
     log_level: str = "INFO"
+    # Observability (M5)
+    # LOG_FORMAT: "json" (default, for aggregators) | "text" (human-readable local dev)
+    log_format: str = "json"
+    # OTEL_EXPORTER_OTLP_ENDPOINT: gRPC endpoint for the OTel Collector.
+    # If unset, tracing runs in no-op mode (spans collected but not exported).
+    otel_endpoint: str | None = None
 
     @classmethod
     def from_env(
@@ -56,6 +62,8 @@ class ControlPlaneConfig:
             ),
             dev_auth_token=_clean(values.get("DEV_AUTH_TOKEN")),
             log_level=values.get("LOG_LEVEL", "INFO").upper(),
+            log_format=values.get("LOG_FORMAT", "json").lower(),
+            otel_endpoint=_clean(values.get("OTEL_EXPORTER_OTLP_ENDPOINT")),
         )
 
     def readiness_checks(self) -> dict[str, bool]:

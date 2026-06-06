@@ -9,6 +9,8 @@ kubePrometheusStack:
     prometheusSpec:
       retention: 3d
       retentionSize: "2GB"
+      podMonitorSelectorNilUsesHelmValues: false
+      serviceMonitorSelectorNilUsesHelmValues: false
       resources:
         requests:
           cpu: 100m
@@ -18,7 +20,13 @@ kubePrometheusStack:
           memory: 1Gi
 
   grafana:
-    adminPassword: "admin"  # Dev only — change in staging/prod.
+    adminPassword: "admin"  # Dev only — never commit real passwords.
+    sidecar:
+      dashboards:
+        enabled: true
+        label: grafana_dashboard
+        labelValue: "1"
+        searchNamespace: ALL
     resources:
       requests:
         cpu: 50m
