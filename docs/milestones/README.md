@@ -73,6 +73,12 @@ Stop and request maintainer input before implementing changes that touch:
 
 ## Milestone Index
 
+Execution order: **M0 – M6 → M7a → Phase 2 (M9–M14, adoption-gated) → M7b → M8.**
+See `../10-delivery-roadmap.md` for the full dependency graph and
+`../12-phase-2-feature-adoption.md` for Phase 2 governance.
+
+### Platform baseline
+
 - [M0 — Project Bootstrap](m0-project-bootstrap.md)
 - [M1 — Control Plane Skeleton](m1-control-plane-skeleton.md)
 - [M2 — EKS Baseline Deployment](m2-eks-baseline-deployment.md)
@@ -80,15 +86,25 @@ Stop and request maintainer input before implementing changes that touch:
 - [M4 — Inference Plane MVP](m4-inference-plane-mvp.md)
 - [M5 — Observability Baseline](m5-observability-baseline.md)
 - [M6 — Elastic GPU Scaling](m6-elastic-gpu-scaling.md)
-- [M7 — Staging Hardening](m7-staging-hardening.md)
-- [M8 — Production Release](m8-production-release.md)
 
-Milestones M0–M8 are the committed platform baseline. Proposed product features
-(GUI, retrieval, agents, MCP, integrations, media) are analyzed and sequenced as
-a candidate M9+ track in
-[`../12-phase-2-feature-adoption.md`](../12-phase-2-feature-adoption.md). That
-track is exploratory and gated by maintainer decision; it is not committed
-scope, so it does not yet have per-milestone instruction files.
+### Platform hardening (pre–Phase 2)
+
+- [M7a — Platform Hardening (minimal, pre–Phase 2)](m7a-platform-hardening-minimal.md)
+- [M7 — Staging Hardening (index)](m7-staging-hardening.md) — split into M7a + M7b
+
+### Phase 2 feature track (committed; individual features adoption-gated)
+
+The product-feature milestones M9–M14 (UI surface, retrieval, agents,
+MCP integration, personal-information integrations, media services) are
+analyzed and sequenced in
+[`../12-phase-2-feature-adoption.md`](../12-phase-2-feature-adoption.md).
+Per-milestone instruction files will be added when each feature is
+adopted by maintainer decision.
+
+### Closeout (post–Phase 2)
+
+- [M7b — Full Staging Hardening (post–Phase 2)](m7b-full-staging-hardening.md)
+- [M8 — Production Release](m8-production-release.md)
 
 ## File Structure
 

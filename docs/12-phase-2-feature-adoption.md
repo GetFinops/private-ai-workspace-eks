@@ -2,18 +2,23 @@
 
 ## Status
 
-**Proposed and exploratory. Not committed scope.**
+**Committed track. Each individual feature still requires explicit maintainer
+adoption before it enters a milestone.**
 
-The delivery roadmap (`docs/10-delivery-roadmap.md`, milestones M0–M8) defines a
-*platform baseline*: a secure, multi-user control plane with externalized state,
-isolated vLLM inference, observability, and elastic GPU scaling on EKS. That
-baseline is intentionally feature-light.
+The delivery roadmap (`docs/10-delivery-roadmap.md`, milestones M0–M6, then
+M7a) defines a *platform baseline*: a secure, multi-user control plane with
+externalized state, isolated vLLM inference, observability, and elastic GPU
+scaling on EKS, plus a minimum operational-hygiene pass (M7a) before features
+land on top of it. That baseline is intentionally feature-light.
 
-This document describes the *candidate* product-feature track that could be
-layered on top of the M8 baseline. Nothing here is approved for
-implementation. Each feature requires an explicit maintainer decision plus a
-licensing and security review before it enters a milestone. See the decision
-checklist at the end.
+This document describes the product-feature track layered on top of the
+M7a-validated baseline. The public production release (M8) and the full
+staging-hardening pass (M7b) occur **at the end of Phase 2**, exercising the
+combined platform + adopted-feature surface.
+
+Each individual feature in Phase 2 requires an explicit maintainer decision
+plus a licensing and security review before it enters a milestone. See the
+decision checklist at the end.
 
 ## Public Disclosure Scope
 
@@ -26,14 +31,24 @@ security-sensitive porting decisions stay in maintainer review and `NOTICE`, per
 ## Relationship to the Roadmap
 
 ```text
-M0 ── M8        Platform baseline (committed roadmap)
-   └── M9+      Phase 2 product features (this document, proposed)
+M0 ── M6        Platform baseline (committed)
+   └── M7a      Minimum operational-hygiene pass on the M6 surface (committed)
+        └── M9+     Phase 2 product features (this document, individually adoption-gated)
+             └── M7b   Full staging hardening across platform + adopted features
+                  └── M8   Public production release
 ```
 
-- M0–M8 must be complete and stable before Phase 2 begins.
+- M0–M6 plus M7a must be complete and stable before Phase 2 begins.
 - Phase 2 features are additive and individually optional.
 - Adopting a Phase 2 feature must not regress the baseline's security,
   isolation, or externalized-state guarantees.
+- The public production release (M8) is gated on M7b, which exercises the
+  full topology that by then includes any adopted Phase 2 surfaces. A
+  release that includes a Phase 2 feature requires that feature to have
+  passed M7b's expanded security and isolation review.
+
+This sequencing was confirmed in the maintainer decision recorded as the
+"Phase 2 kickoff and M7 split" decision in `NOTICE`.
 
 ## Adoption Principles
 

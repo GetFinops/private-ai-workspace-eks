@@ -5,11 +5,15 @@
 
 ## Status
 
-Not started.
+Not started. Blocked on M7b (full staging hardening), which is itself blocked
+on the Phase 2 milestones that the release intends to include. See
+`docs/12-phase-2-feature-adoption.md` for the sequencing rationale.
 
 ## Objective
 
 Launch the first public, production-capable version with operational coverage.
+The release scope is the platform baseline plus any Phase 2 features (M9–M14)
+that have been adopted and have passed M7b.
 
 ## Primary workstreams
 
@@ -17,11 +21,12 @@ Launch the first public, production-capable version with operational coverage.
 
 ## Prerequisites
 
-- M7 complete.
+- M7b complete (which itself requires M7a and all in-scope Phase 2
+  milestones).
 
 ## In scope
 
-- release notes
+- release notes that accurately reflect platform + Phase 2 scope
 - finalized public documentation
 - production deployment enablement
 - early production monitoring and incident-pattern review
@@ -33,14 +38,16 @@ Launch the first public, production-capable version with operational coverage.
 
 ## Build tasks
 
-1. Publish release notes for the first production-capable version.
-2. Finalize public documentation so it matches the released behavior, scope, and
-   non-goals. Keep marketing claims within the project's actual maturity.
+1. Publish release notes for the first production-capable version, including
+   the platform baseline and every adopted Phase 2 feature.
+2. Finalize public documentation so it matches the released behavior, scope,
+   and non-goals. Keep marketing claims within the project's actual maturity.
 3. Enable the gated production deployment path described in
    `docs/06-cloud-architecture.md`.
 4. Confirm baseline SLOs from `docs/07-observability.md` are tracked in
-   production.
-5. Confirm maintainers have runbooks for incidents, scaling, and rollback.
+   production. Confirm any additional Phase 2 SLOs are tracked too.
+5. Confirm maintainers have runbooks for incidents, scaling, and rollback
+   covering both platform and adopted Phase 2 features.
 6. Monitor early production usage and record incident patterns for follow-up.
 
 ## Provenance and licensing checkpoints

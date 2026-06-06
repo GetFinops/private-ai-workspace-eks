@@ -1,79 +1,36 @@
-# M7 — Staging Hardening
+# M7 — Staging Hardening (index)
 
-> Read `docs/milestones/README.md` first. The standing rules there apply to
-> this milestone and are not repeated here.
+> This milestone was **split** into two passes as part of the Phase 2
+> kickoff. The original single-pass M7 description is preserved in git
+> history; the active, current scope is in the two files linked below.
 
-## Status
+## Why it was split
 
-Not started.
+When Phase 2 was committed, M7's single "make staging look like production"
+pass was reorganized so that the platform baseline gets a minimum-hygiene
+review **before** Phase 2 features land on top of it, and the full
+production-like soak runs **after** Phase 2 against the combined surface.
 
-## Objective
+This means:
 
-Make the system a production candidate in a staging environment that behaves
-like production.
+- Phase 2 features do not land on an un-validated platform baseline.
+- The full staging soak validates the realistic combined topology, not a
+  feature-light placeholder.
+- The public production release (M8) is gated on the post-Phase-2 soak.
 
-## Primary workstreams
+The maintainer decision is recorded in `NOTICE` as the "Phase 2 kickoff and
+M7 split" decision record.
 
-- all workstreams
+## Where the active scope lives
 
-## Prerequisites
+- [M7a — Platform Hardening (minimal, pre–Phase 2)](m7a-platform-hardening-minimal.md)
+- [M7b — Full Staging Hardening (post–Phase 2)](m7b-full-staging-hardening.md)
 
-- M6 complete.
+## Sequencing summary
 
-## In scope
+```text
+M6 done → M7a → Phase 2 (M9-M14, adoption-gated) → M7b → M8
+```
 
-- staging soak testing under production-like topology
-- rollback and failed-deployment verification
-- data backup and restore verification
-- a security-posture and dependency review
-- verification that branch protection and contribution flow work as intended
-
-## Non-goals
-
-- the production launch itself (M8)
-- new feature development
-
-## Build tasks
-
-1. Run staging soak tests against the production-like topology and record
-   behavior under sustained load.
-2. Verify rollbacks and intentionally failed deployments recover cleanly.
-3. Verify data backup and restore for the managed database and object storage.
-4. Conduct a security-posture review: secret handling, network exposure,
-   isolation, image and dependency scanning.
-5. Confirm branch protection and the contribution flow operate as documented in
-   `docs/04-governance-and-contribution.md`.
-6. Document recovery procedures and known operational risks with owners.
-
-## Provenance and licensing checkpoints
-
-- Run a dependency and license review across the full deployed stack.
-- Confirm `NOTICE` reflects all adapted code currently in the build.
-- Confirm no copyleft-sensitive optional features have entered the default
-  build.
-
-## Security checkpoints
-
-- Validate that internal services remain non-public.
-- Validate tenant and user isolation under realistic load.
-- Validate that secrets are managed and never logged.
-- Validate image and supply-chain scanning in the promotion path.
-
-## Testing and validation
-
-- Soak test results captured.
-- Successful rollback and failed-deployment recovery captured.
-- Successful backup and restore captured.
-- Security-review findings recorded and triaged.
-
-## Exit criteria
-
-- Staging behaves like the production architecture.
-- Recovery procedures are documented.
-- Major operational risks are known and owned.
-
-## Escalation triggers
-
-- any security-review finding in a sensitive area
-- backup, restore, or data-durability gaps
-- governance or branch-protection gaps
+See `docs/10-delivery-roadmap.md` for the full graph, and
+`docs/12-phase-2-feature-adoption.md` for Phase 2 governance.

@@ -219,23 +219,32 @@ Enable demand-driven GPU capacity scaling with clear service behavior during col
 - cold-start behavior is documented and acceptable
 - production fallback policy is tested
 
-## Milestone 7: Staging Hardening
+## Milestone 7a: Platform Hardening (minimal, pre–Phase 2)
+
+> M7 is split into two passes. M7a runs **immediately after M6** and locks in
+> operational hygiene against the platform baseline before Phase 2 features
+> (M9–M14) land on top of it. M7b runs **at the end of Phase 2** and exercises
+> the full production-like topology that by then includes Phase 2 surfaces.
 
 ### Objective
 
-Make the system production-candidate in a staging environment.
+Make the M6 platform baseline operationally safe before any product features
+are layered on it.
 
 ### Main tasks
 
-- run staging soak tests
-- verify rollbacks and failed deployments
-- verify data backups and restore process
-- review security posture and dependency policy
-- verify branch protection and contribution flow operate as expected
+- run a security-posture review of what is shipped through M6 (auth, secret
+  handling, network exposure, IAM scoping for the M6 scaling controllers)
+- verify rollback and intentionally failed deployments recover cleanly
+- verify managed-database backup and restore on the dev environment
+- verify object-storage versioning/lifecycle policies are in force
+- verify branch protection and the contribution flow operate as documented in
+  `docs/04-governance-and-contribution.md`
 
 ### Primary workstreams
 
-- all workstreams
+- governance-security
+- platform-infra
 
 ### Dependencies
 
@@ -243,21 +252,66 @@ Make the system production-candidate in a staging environment.
 
 ### Exit criteria
 
-- staging behaves like production architecture
-- recovery procedures are documented
-- major operational risks are known and owned
+- security posture of the M0–M6 surface is reviewed and documented
+- backup/restore and rollback drills have been performed at least once
+- known operational risks at the platform layer are recorded and owned
+
+### Non-goals
+
+- staging soak under production-like load (deferred to M7b)
+- multi-tenant or feature-driven attack-surface review (deferred to M7b once
+  Phase 2 features exist)
+
+## Milestone 7b: Full Staging Hardening (post–Phase 2)
+
+### Objective
+
+Make the system a production candidate in a staging environment that behaves
+like production and includes the Phase 2 feature surface (M9–M14, whichever
+have been adopted).
+
+### Main tasks
+
+- run staging soak tests against the full production-like topology, now
+  including any adopted Phase 2 features
+- verify rollback and failed-deployment recovery across the expanded surface
+- re-verify data backup/restore (including any Phase 2 datastores such as a
+  vector index)
+- conduct a security-posture review focused on Phase 2 additions: agent/tool
+  sandbox boundaries, MCP credential scoping, per-tenant isolation, and
+  prompt-injection defenses
+- confirm branch protection and the contribution flow remain in force
+
+### Primary workstreams
+
+- all workstreams
+
+### Dependencies
+
+- Milestone 7a complete
+- All Phase 2 milestones that the release intends to include are complete
+
+### Exit criteria
+
+- staging behaves like production architecture across the platform + adopted
+  Phase 2 features
+- recovery procedures are documented for every datastore in the build
+- major operational risks across platform and features are known and owned
 
 ## Milestone 8: Production Release
 
 ### Objective
 
-Launch the first public production-capable version.
+Launch the first public production-capable version with operational coverage,
+including any Phase 2 features that have passed M7b.
 
 ### Main tasks
 
-- publish release notes
+- publish release notes that accurately reflect platform + Phase 2 scope
 - finalize public docs
 - enable production deployment
+- confirm baseline SLOs from `docs/07-observability.md` and any Phase 2 SLOs
+  are tracked in production
 - monitor early production usage and incident patterns
 
 ### Primary workstreams
@@ -266,15 +320,20 @@ Launch the first public production-capable version.
 
 ### Dependencies
 
-- Milestone 7 complete
+- Milestone 7b complete
 
 ### Exit criteria
 
 - production deployment succeeds
 - baseline SLOs are being tracked
-- maintainers have runbooks for incidents, scaling, and rollback
+- maintainers have runbooks for incidents, scaling, and rollback covering both
+  platform and adopted Phase 2 features
 
 ## Dependency Graph
+
+The execution order is M0–M6 → M7a → Phase 2 (M9–M14, adoption-gated) → M7b →
+M8. Phase 2 milestones are individually optional; M7b and M8 close out
+whatever set has been adopted.
 
 ```mermaid
 flowchart TD
@@ -284,8 +343,10 @@ flowchart TD
     M3 --> M4[Milestone4InferenceMvp]
     M4 --> M5[Milestone5Observability]
     M5 --> M6[Milestone6ElasticGpuScaling]
-    M6 --> M7[Milestone7StagingHardening]
-    M7 --> M8[Milestone8ProductionRelease]
+    M6 --> M7a[Milestone7aPlatformHardening]
+    M7a --> Phase2[Phase2FeatureTrackM9toM14]
+    Phase2 --> M7b[Milestone7bFullStagingHardening]
+    M7b --> M8[Milestone8ProductionRelease]
 ```
 
 ## Suggested Team Focus Per Milestone

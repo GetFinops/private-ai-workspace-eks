@@ -41,6 +41,8 @@ class RoadmapArtifactTests(TestCase):
             "m5-observability-baseline.md",
             "m6-elastic-gpu-scaling.md",
             "m7-staging-hardening.md",
+            "m7a-platform-hardening-minimal.md",
+            "m7b-full-staging-hardening.md",
             "m8-production-release.md",
         ]
         for name in expected:
