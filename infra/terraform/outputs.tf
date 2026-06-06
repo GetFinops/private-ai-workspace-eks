@@ -67,3 +67,20 @@ output "irsa_vllm_role_arn" {
   description = "IAM role ARN to annotate on the vLLM ServiceAccount (IRSA)."
   value       = module.irsa_vllm.role_arn
 }
+
+# ── M6 — Elastic GPU Scaling ────────────────────────────────────────────────
+
+output "irsa_cluster_autoscaler_role_arn" {
+  description = "IAM role ARN to annotate on the cluster-autoscaler ServiceAccount."
+  value       = module.irsa_cluster_autoscaler.role_arn
+}
+
+output "karpenter_controller_role_arn" {
+  description = "IAM role ARN to annotate on the karpenter ServiceAccount (controller)."
+  value       = module.karpenter.controller_role_arn
+}
+
+output "karpenter_node_role_name" {
+  description = "Name of the IAM role that Karpenter-provisioned EC2 instances assume. Reference this in EC2NodeClass.spec.role."
+  value       = module.karpenter.node_role_name
+}

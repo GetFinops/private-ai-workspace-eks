@@ -51,12 +51,32 @@ nodeSelector:
 affinity: {}
 
 # HPA settings — scale based on custom vLLM Prometheus metrics (M6).
+# Requires:
+#   - kube-prometheus-stack (observability chart)
+#   - prometheus-adapter (cluster-addons chart, enabled in M6)
+#   - vllm.metrics.serviceMonitor.enabled = true (below)
 autoscaling:
   enabled: false
   minReplicas: 1
   maxReplicas: 4
-  # Requires kube-prometheus-stack and custom metrics adapter (M5/M6).
   targetQueueDepth: 10
+
+# Prometheus metrics (M6).
+# When serviceMonitor.enabled = true, the Prometheus Operator scrapes /metrics
+# and prometheus-adapter exposes `vllm_num_requests_waiting` to the HPA.
+metrics:
+  serviceMonitor:
+    enabled: false        # Enable when kube-prometheus-stack is installed.
+    interval: 30s
+    scrapeTimeout: 10s
+    additionalLabels: {}  # e.g. release: observability — match your Prometheus selector.
+
+# PodDisruptionBudget (M6) — protect the warm replica during voluntary
+# disruptions (node drains, rolling updates). See docs/09-scaling-policy.md.
+podDisruptionBudget:
+  enabled: false          # Enable in prod where warm-pool > 0.
+  minAvailable: 1
+  # maxUnavailable: 1     # Alternative — set this OR minAvailable, not both.
 
 # Persistent volume for model weights (optional).
 # If model.id references Hugging Face, set modelWeights.enabled: false.

@@ -1,22 +1,20 @@
-# deploy/values/dev/vllm.yaml
-# Development overrides for the vllm-inference Helm chart.
-# Usage: helm upgrade --install vllm deploy/helm/vllm -f deploy/values/dev/vllm.yaml
+# Example production vLLM overrides.
+# Copy to prod/vllm.yaml and adjust for your environment; review with maintainers
+# before deploying to a production cluster.
+#
+# See docs/09-scaling-policy.md for the policy this file implements.
 
-replicaCount: 1
+replicaCount: 1                # Warm pool — always one ready replica.
 
 image:
   tag: "v0.9.0"
 
 model:
-  # Mistral-7B-Instruct-v0.3 (Apache-2.0).
-  # Gated on Hugging Face — accept the license at:
-  #   https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3
-  # then set the HF token secret in Secrets Manager before deploying.
   id: "mistralai/Mistral-7B-Instruct-v0.3"
   dtype: "float16"
   maxModelLen: 8192
   tensorParallelSize: 1
-  maxNumSeqs: 64
+  maxNumSeqs: 128
 
 resources:
   requests:
@@ -40,21 +38,23 @@ networkPolicy:
   enabled: true
   controlPlaneNamespace: app
 
+# HPA — bursts up to 6 replicas (constrained by Karpenter NodePool maxGpus).
 autoscaling:
   enabled: true
   minReplicas: 1
-  maxReplicas: 2          # Dev: small cap to control spend.
-  targetQueueDepth: 10
+  maxReplicas: 6
+  targetQueueDepth: 8
 
 metrics:
   serviceMonitor:
     enabled: true
     additionalLabels:
-      release: observability  # Match the Prometheus Operator selector in dev.
+      release: observability
 
-# No PDB in dev — single replica, warm pool is 0.
+# Protect the warm replica during node drains.
 podDisruptionBudget:
-  enabled: false
+  enabled: true
+  minAvailable: 1
 
 podAnnotations:
   prometheus.io/scrape: "true"

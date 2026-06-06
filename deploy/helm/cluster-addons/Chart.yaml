@@ -2,10 +2,12 @@ apiVersion: v2
 name: cluster-addons
 description: >
   Umbrella chart for cluster-level add-ons required before application charts
-  are deployed. Installs External Secrets Operator (ESO) and the NVIDIA device
-  plugin so GPU nodes advertise nvidia.com/gpu resources to the scheduler.
+  are deployed. Installs External Secrets Operator (ESO), the NVIDIA device
+  plugin (GPU resource advertisement), DCGM exporter (GPU metrics), and the
+  M6 elastic-scaling controllers: cluster-autoscaler, Karpenter, and
+  prometheus-adapter (custom metrics API for HPA).
 type: application
-version: 0.2.0
+version: 0.3.0
 dependencies:
   - name: external-secrets
     version: "0.x.x"
@@ -19,3 +21,15 @@ dependencies:
     version: "3.x.x"
     repository: "https://nvidia.github.io/dcgm-exporter/helm-charts"
     condition: dcgmExporter.enabled
+  - name: cluster-autoscaler
+    version: "9.x.x"
+    repository: "https://kubernetes.github.io/autoscaler"
+    condition: clusterAutoscaler.enabled
+  - name: karpenter
+    version: "1.x.x"
+    repository: "oci://public.ecr.aws/karpenter"
+    condition: karpenter.enabled
+  - name: prometheus-adapter
+    version: "4.x.x"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: prometheusAdapter.enabled
