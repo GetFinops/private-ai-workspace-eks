@@ -1,0 +1,29 @@
+{{- if .Values.networkPolicy.enabled }}
+# Restricts ingress to the vLLM service so only the control-plane namespace
+# can reach it.  All other traffic — including any public-facing or
+# cross-namespace callers — is denied by default.
+#
+# Egress is unrestricted so the pod can pull model weights from Hugging Face,
+# reach Secrets Manager via the VPC endpoint, and send metrics.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "vllm-inference.fullname" . }}
+  labels:
+    {{- include "vllm-inference.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "vllm-inference.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow traffic only from the control-plane namespace.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.controlPlaneNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.service.port }}
+{{- end }}

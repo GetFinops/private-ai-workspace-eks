@@ -57,10 +57,17 @@ spec:
             failureThreshold: 6
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.extraEnv }}
           env:
+            {{- if .Values.externalSecrets.enabled }}
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vllm-inference.fullname" . }}-hf-token
+                  key: HUGGING_FACE_HUB_TOKEN
+            {{- end }}
+            {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
-          {{- end }}
+            {{- end }}
           {{- if .Values.modelWeights.enabled }}
           volumeMounts:
             - name: model-weights

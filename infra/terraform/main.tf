@@ -120,6 +120,34 @@ module "irsa_app" {
   tags = local.tags
 }
 
+# Hugging Face Hub token: operators set the secret value out-of-band via the
+# AWS console or CLI.  The secret placeholder is created here so the vLLM
+# IRSA policy can reference its ARN before the value is populated.
+resource "aws_secretsmanager_secret" "hf_token" {
+  name                    = "${var.project_name}/${var.environment}/hf-token"
+  description             = "Hugging Face Hub token for gated model downloads (vLLM). Value set by operators."
+  recovery_window_in_days = var.environment == "prod" ? 30 : 0
+
+  tags = local.tags
+}
+
+module "irsa_vllm" {
+  source = "./modules/irsa-vllm"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  oidc_provider_arn = module.eks.cluster_oidc_provider_arn
+  oidc_provider_url = module.eks.cluster_oidc_provider_url
+
+  service_account_namespace = var.inference_namespace
+  service_account_name      = var.vllm_service_account_name
+
+  hf_token_secret_arn = aws_secretsmanager_secret.hf_token.arn
+
+  tags = local.tags
+}
+
 module "github_actions_role" {
   source = "./modules/github-actions-role"
 

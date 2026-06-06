@@ -7,6 +7,9 @@
 externalSecrets:
   enabled: true
 
+nvidiaDevicePlugin:
+  enabled: true
+
 # External Secrets Operator values.
 # Full reference: https://external-secrets.io/latest/introduction/getting-started/
 external-secrets:
@@ -37,3 +40,22 @@ external-secrets:
       requests:
         cpu: 50m
         memory: 64Mi
+
+# NVIDIA device plugin — advertises nvidia.com/gpu resources on GPU nodes.
+# Runs as a DaemonSet with a toleration for the nvidia.com/gpu:NoSchedule taint
+# so it lands on inference nodes and makes GPUs visible to the scheduler.
+# Full reference: https://github.com/NVIDIA/k8s-device-plugin
+nvidia-device-plugin:
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi

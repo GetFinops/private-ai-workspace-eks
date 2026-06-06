@@ -2,5 +2,8 @@ dependencies:
 - name: external-secrets
   repository: https://charts.external-secrets.io
   version: 0.20.4
-digest: sha256:8504c4db931597cc5ff949150a81a31ccdceb2edd7c0ad1cf796e0c6eb48879e
-generated: "2026-06-06T12:43:45.346326597Z"
+- name: nvidia-device-plugin
+  repository: https://nvidia.github.io/k8s-device-plugin
+  version: 0.19.2
+digest: sha256:a564728d8b0ae324faefb712f0917a02c1939cc710c03c37881ee99bfd5b01eb
+generated: "2026-06-06T13:16:46.816071388Z"

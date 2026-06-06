@@ -77,6 +77,25 @@ extraEnv: []
 serviceAccount:
   create: true
   name: ""
+  # Set from Terraform output: $(terraform -chdir=infra/terraform output -raw irsa_vllm_role_arn)
+  irsaRoleArn: ""
+
+# External Secrets wiring for the Hugging Face Hub token.
+# Requires ESO to be installed (cluster-addons chart).
+externalSecrets:
+  enabled: false
+  awsRegion: us-east-1
+  # Set from Terraform output: $(terraform -chdir=infra/terraform output -raw hf_token_secret_name)
+  hfTokenSecretName: ""
+  refreshInterval: "12h"
+
+# Network policy — restricts ingress to the control-plane namespace only.
+# Requires the cluster CNI to enforce NetworkPolicy (VPC CNI with policy mode
+# enabled, or Calico).  Set enabled: true in production.
+networkPolicy:
+  enabled: true
+  # Namespace from which the control plane is allowed to call the inference service.
+  controlPlaneNamespace: app
 
 podAnnotations:
   prometheus.io/scrape: "true"

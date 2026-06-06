@@ -17,6 +17,14 @@ on:
         options:
           - dev
           - staging
+      deploy_inference:
+        description: "Deploy vLLM inference chart (requires GPU nodes and HF token configured)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 # Prevent concurrent deploys to the same environment.
 concurrency:
@@ -124,6 +132,19 @@ jobs:
             --wait \
             --timeout 5m
 
+      - name: Deploy vLLM inference chart (opt-in)
+        if: ${{ github.event.inputs.deploy_inference == 'true' }}
+        run: |
+          helm upgrade --install vllm deploy/helm/vllm \
+            --namespace inference \
+            --create-namespace \
+            --set serviceAccount.irsaRoleArn="${{ vars.IRSA_VLLM_ROLE_ARN }}" \
+            --set externalSecrets.awsRegion="${{ vars.AWS_REGION }}" \
+            --set externalSecrets.hfTokenSecretName="${{ vars.HF_TOKEN_SECRET_NAME }}" \
+            -f "deploy/values/${ENV}/vllm.yaml" \
+            --wait \
+            --timeout 15m
+
       - name: Verify health
         run: |
           kubectl wait deployment/private-ai-workspace-private-ai-workspace \
@@ -131,3 +152,12 @@ jobs:
             --for=condition=Available \
             --timeout=120s
           kubectl get ingress --namespace app
+
+      - name: Verify inference health (opt-in)
+        if: ${{ github.event.inputs.deploy_inference == 'true' }}
+        run: |
+          kubectl wait deployment/vllm-vllm-inference \
+            --namespace inference \
+            --for=condition=Available \
+            --timeout=600s
+          kubectl get pods --namespace inference
