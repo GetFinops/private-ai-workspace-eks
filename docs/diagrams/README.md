@@ -21,15 +21,36 @@ scripts/generate-diagrams.sh
 
 ## AWS Infrastructure (awsdac)
 
-### Phase 1 — Platform Baseline (M0–M8)
+### Phase 1 — Platform Baseline (M0–M6 + M7a)
+
+Target topology for the platform baseline plus the minimum pre-Phase-2
+hardening pass.  GPU capacity is elastic (Karpenter, M6) but the diagram
+shows the static structural picture: 2 AZ VPC, public/private subnets,
+ALB at the edge, CPU control-plane and GPU inference node groups, managed
+state, and observability.
 
 Source: [`src/phase1_baseline.yaml`](src/phase1_baseline.yaml)
 
 ![Phase 1 platform baseline](phase1_baseline.png)
 
+### Phase 2 + Closeout — Post–Phase-2 Production Topology (Phase 2 + M7b + M8)
+
+Target topology after Phase 2 features (M9–M14, individually adoption-gated)
+have been adopted and pass M7b's full staging soak.  Compared to the Phase 1
+diagram this adds: UI tier (M9), agent runtime (M11, sandboxed), MCP gateway
+(M12), media services (M14, optional, on GPU), pgvector annotation on RDS
+(M10), and an optional external-integrations egress lane (M13).
+
+Source: [`src/phase2_baseline.yaml`](src/phase2_baseline.yaml)
+
+![Phase 2 + closeout platform baseline](phase2_baseline.png)
+
 ## Conceptual AWS Diagrams (Python `diagrams`)
 
 ### Phase 2 — Proposed Feature Additions (M9+)
+
+Component-level view of the Phase 2 feature track, complementary to the
+awsdac topology diagram above.
 
 Source: [`src/phase2_features.py`](src/phase2_features.py)
 

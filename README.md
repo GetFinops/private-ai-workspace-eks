@@ -17,9 +17,14 @@ AWS-endorsed derivative.
 
 ## Current Status
 
-The project is delivered as a sequence of milestones (`docs/10-delivery-roadmap.md`).
-The committed roadmap (M0–M8) builds the platform baseline; per-milestone build
-instructions live in `docs/milestones/`.
+The project is delivered as a sequence of milestones
+(`docs/10-delivery-roadmap.md`). The platform baseline (M0–M6) and a
+minimum pre-Phase-2 hardening pass (M7a) precede a committed Phase 2 feature
+track (M9–M14, individually adoption-gated). The original single-pass M7 has
+been split: M7a runs before Phase 2 and M7b runs after, against the combined
+platform + feature surface. M8 is the public production release at the end.
+
+Per-milestone build instructions live in `docs/milestones/`.
 
 | Milestone | Scope | Status |
 | --- | --- | --- |
@@ -29,13 +34,17 @@ instructions live in `docs/milestones/`.
 | M3 | Stateful dependency externalization (managed DB, object storage, session store) | Complete |
 | M4 | Inference plane MVP (isolated vLLM on GPU) | Complete |
 | M5 | Observability baseline (metrics, logs, traces) | Complete |
-| M6 | Elastic GPU scaling (Karpenter + HPA + degrade-only fallback) | In progress |
-| M7 | Staging hardening | Planned |
-| M8 | Production release | Planned |
+| M6 | Elastic GPU scaling (Karpenter + HPA + degrade-only fallback) | Complete |
+| M7a | Platform hardening (minimum pass on M6 surface) | In progress |
+| M9–M14 | Phase 2 product features (UI, retrieval, agents, MCP, integrations, media) — individually adoption-gated | Planned |
+| M7b | Full staging hardening across platform + adopted Phase 2 features | Planned (post–Phase 2) |
+| M8 | Public production release | Planned (post–Phase 2) |
+
+Execution order: **M0–M6 → M7a → Phase 2 (M9–M14) → M7b → M8.**
 
 A component-level comparison of what is built versus planned is maintained in
-`docs/11-gap-analysis.md`. Proposed product features beyond the baseline are
-sequenced as a candidate M9+ track in `docs/12-phase-2-feature-adoption.md`.
+`docs/11-gap-analysis.md`. The Phase 2 feature track and its adoption
+governance live in `docs/12-phase-2-feature-adoption.md`.
 
 ## Architecture Direction
 
@@ -57,9 +66,9 @@ UML with PlantUML. Sources and regeneration instructions are in
 [`docs/diagrams/`](docs/diagrams/README.md); regenerate with
 `scripts/generate-diagrams.sh`.
 
-### Phase 1 — Platform Baseline (M0–M8)
+### Phase 1 — Platform Baseline (M0–M6 + M7a)
 
-The committed baseline, drawn in the classic AWS reference style: an AWS Cloud
+The platform baseline, drawn in the classic AWS reference style: an AWS Cloud
 frame containing the VPC with public and private subnets across two Availability
 Zones. A public ALB fronts the CPU control-plane node group; the GPU inference
 node group (vLLM) stays private/internal-only; regional managed services hold
@@ -68,14 +77,25 @@ against an OIDC issuer.
 
 ![Phase 1 platform baseline architecture](docs/diagrams/phase1_baseline.png)
 
-### Phase 2 — Proposed Feature Additions (M9+)
+### Phase 2 + Closeout — Target Production Topology
 
-Proposed, maintainer-gated product features layered on the Phase 1 baseline.
-This track is exploratory and not committed scope; see
-`docs/12-phase-2-feature-adoption.md` for the licensing and security analysis.
-Components in the right-hand group are excluded from the default build
-(AGPL-sensitive or non-vendored, e.g. arbitrary shell execution) and shown only
-for context.
+Target topology after Phase 2 features (M9–M14, individually adoption-gated)
+have been adopted and have passed M7b's full staging soak. This is the
+surface the public production release (M8) will ship. Compared to the
+Phase 1 diagram it adds a UI tier (M9), a sandboxed agent runtime (M11),
+an MCP gateway (M12), optional media services on the GPU node group (M14),
+the pgvector extension on RDS for retrieval (M10), and an optional
+external-integrations egress lane (M13).
+
+![Phase 2 + closeout platform baseline](docs/diagrams/phase2_baseline.png)
+
+### Phase 2 — Component view (proposed features)
+
+Component-level view of the Phase 2 feature track, complementary to the AWS
+topology above. See `docs/12-phase-2-feature-adoption.md` for the licensing
+and security analysis. Components in the right-hand group are excluded from
+the default build (AGPL-sensitive or non-vendored, e.g. arbitrary shell
+execution) and shown only for context.
 
 ![Phase 2 proposed feature additions architecture](docs/diagrams/phase2_features.png)
 

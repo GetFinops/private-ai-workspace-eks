@@ -33,6 +33,7 @@ class RoadmapArtifactTests(TestCase):
         self.assertTrue((milestones / "README.md").is_file())
 
         expected = [
+            # Platform baseline (Phase 1)
             "m0-project-bootstrap.md",
             "m1-control-plane-skeleton.md",
             "m2-eks-baseline-deployment.md",
@@ -40,7 +41,18 @@ class RoadmapArtifactTests(TestCase):
             "m4-inference-plane-mvp.md",
             "m5-observability-baseline.md",
             "m6-elastic-gpu-scaling.md",
+            # Platform hardening (pre-Phase 2)
             "m7-staging-hardening.md",
+            "m7a-platform-hardening-minimal.md",
+            # Phase 2 feature track (M9-M14, adoption-gated)
+            "m9-product-surface.md",
+            "m10-retrieval.md",
+            "m11-agent-tool-framework.md",
+            "m12-mcp-integration.md",
+            "m13-personal-info-integrations.md",
+            "m14-media-services.md",
+            # Closeout (post-Phase 2)
+            "m7b-full-staging-hardening.md",
             "m8-production-release.md",
         ]
         for name in expected:

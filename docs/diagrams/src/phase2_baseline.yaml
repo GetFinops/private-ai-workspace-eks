@@ -1,0 +1,388 @@
+# Phase 2 + closeout baseline AWS architecture.
+#
+# Sequencing context (see docs/10-delivery-roadmap.md):
+#   M0–M6 platform baseline → M7a minimum hygiene pass → Phase 2 features
+#   (M9–M14, individually adoption-gated) → M7b full staging hardening →
+#   M8 public production release.
+#
+# This diagram shows the target topology after Phase 2 has been adopted and
+# is the surface that M7b validates and M8 ships. Compared to the Phase 1
+# baseline (src/phase1_baseline.yaml) it adds:
+#   - a UI tier on the CPU node group (M9 product surface)
+#   - an agent + tool runtime on the CPU node group (M11, sandboxed)
+#   - an MCP integration gateway on the CPU node group (M12)
+#   - optional media services on the GPU node group (M14)
+#   - PostgreSQL is annotated as pgvector for M10 retrieval
+#   - a separate, optional external-integrations egress lane for M13
+#
+# Rendered with awslabs/diagram-as-code (awsdac):
+#   https://github.com/awslabs/diagram-as-code
+# Regenerate with: scripts/generate-diagrams.sh
+Diagram:
+  DefinitionFiles:
+    - Type: URL
+      Url: "https://raw.githubusercontent.com/awslabs/diagram-as-code/main/definitions/definition-for-aws-icons-light.yaml"
+
+  Resources:
+    Canvas:
+      Type: AWS::Diagram::Canvas
+      Direction: horizontal
+      Children:
+        - User
+        - AWSCloud
+
+    User:
+      Type: AWS::Diagram::Resource
+      Preset: User
+      Title: "Users / API clients / UI"
+
+    AWSCloud:
+      Type: AWS::Diagram::Cloud
+      Direction: vertical
+      Align: center
+      Children:
+        - EdgeIdentity
+        - VPC
+        - ManagedData
+        - Observability
+        - ExternalIntegrations
+
+    # Regional edge and identity services (unchanged from Phase 1).
+    EdgeIdentity:
+      Type: AWS::Diagram::Resource
+      Title: "Edge & identity"
+      BorderColor: "rgba(120,120,120,255)"
+      BorderType: Dashed
+      Direction: horizontal
+      Children:
+        - Route53
+        - ACM
+        - Cognito
+    Route53:
+      Type: AWS::Route53::HostedZone
+      Title: "Route 53"
+    ACM:
+      Type: AWS::CertificateManager
+      Title: "ACM (TLS)"
+    Cognito:
+      Type: AWS::Cognito::UserPool
+      Title: "OIDC issuer (Cognito)"
+
+    # VPC with an internet gateway and two Availability Zones.
+    VPC:
+      Type: AWS::EC2::VPC
+      Direction: vertical
+      Title: "VPC"
+      BorderChildren:
+        - Position: N
+          Resource: IGW
+      Children:
+        - ALB
+        - AZStack
+    IGW:
+      Type: AWS::EC2::InternetGateway
+      Title: "Internet gateway"
+      IconFill:
+        Type: rect
+    ALB:
+      Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+      Title: "Application Load Balancer (public)"
+
+    AZStack:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - AZ1
+        - AZ2
+
+    # ── AZ A ─────────────────────────────────────────────────────────────
+    AZ1:
+      Type: AWS::EC2::AvailabilityZone
+      Title: "Availability Zone A"
+      Direction: vertical
+      Children:
+        - PublicSubnet1
+        - PrivateSubnet1
+    PublicSubnet1:
+      Type: AWS::EC2::Subnet
+      Preset: PublicSubnet
+      Title: "Public subnet"
+      Children:
+        - NatGW1
+    NatGW1:
+      Type: AWS::EC2::NatGateway
+      Title: "NAT gateway"
+    PrivateSubnet1:
+      Type: AWS::EC2::Subnet
+      Preset: PrivateSubnet
+      Title: "Private subnet"
+      Direction: horizontal
+      Children:
+        - CpNG1
+        - GpuNG1
+    CpNG1:
+      Type: AWS::Diagram::Resource
+      Title: "Control-plane NG (CPU)"
+      BorderColor: "rgba(52,168,83,255)"
+      Direction: vertical
+      Children:
+        - CpNode1
+        - UiNode1
+        - AgentNode1
+        - McpNode1
+    CpNode1:
+      Type: AWS::EC2::Instance
+      Title: "control-plane API"
+    UiNode1:
+      Type: AWS::EC2::Instance
+      Title: "UI tier (M9)"
+    AgentNode1:
+      Type: AWS::EC2::Instance
+      Title: "agent runtime (M11, sandboxed)"
+    McpNode1:
+      Type: AWS::EC2::Instance
+      Title: "MCP gateway (M12)"
+    GpuNG1:
+      Type: AWS::Diagram::Resource
+      Title: "Inference NG (GPU) — Karpenter-managed"
+      BorderColor: "rgba(217,48,37,255)"
+      Direction: vertical
+      Children:
+        - GpuNode1
+        - MediaNode1
+    GpuNode1:
+      Type: AWS::EC2::Instance
+      Title: "vLLM (internal)"
+    MediaNode1:
+      Type: AWS::EC2::Instance
+      Title: "media services (M14, optional)"
+
+    # ── AZ B ─────────────────────────────────────────────────────────────
+    AZ2:
+      Type: AWS::EC2::AvailabilityZone
+      Title: "Availability Zone B"
+      Direction: vertical
+      Children:
+        - PublicSubnet2
+        - PrivateSubnet2
+    PublicSubnet2:
+      Type: AWS::EC2::Subnet
+      Preset: PublicSubnet
+      Title: "Public subnet"
+      Children:
+        - NatGW2
+    NatGW2:
+      Type: AWS::EC2::NatGateway
+      Title: "NAT gateway"
+    PrivateSubnet2:
+      Type: AWS::EC2::Subnet
+      Preset: PrivateSubnet
+      Title: "Private subnet"
+      Direction: horizontal
+      Children:
+        - CpNG2
+        - GpuNG2
+    CpNG2:
+      Type: AWS::Diagram::Resource
+      Title: "Control-plane NG (CPU)"
+      BorderColor: "rgba(52,168,83,255)"
+      Direction: vertical
+      Children:
+        - CpNode2
+        - UiNode2
+        - AgentNode2
+        - McpNode2
+    CpNode2:
+      Type: AWS::EC2::Instance
+      Title: "control-plane API"
+    UiNode2:
+      Type: AWS::EC2::Instance
+      Title: "UI tier (M9)"
+    AgentNode2:
+      Type: AWS::EC2::Instance
+      Title: "agent runtime (M11, sandboxed)"
+    McpNode2:
+      Type: AWS::EC2::Instance
+      Title: "MCP gateway (M12)"
+    GpuNG2:
+      Type: AWS::Diagram::Resource
+      Title: "Inference NG (GPU) — Karpenter-managed"
+      BorderColor: "rgba(217,48,37,255)"
+      Direction: vertical
+      Children:
+        - GpuNode2
+        - MediaNode2
+    GpuNode2:
+      Type: AWS::EC2::Instance
+      Title: "vLLM (internal)"
+    MediaNode2:
+      Type: AWS::EC2::Instance
+      Title: "media services (M14, optional)"
+
+    # EKS cluster overlay spanning every worker node across both AZs.
+    EKSCluster:
+      Type: AWS::EKS
+      Title: "Amazon EKS cluster (Karpenter elasticity, M6)"
+      SpanResources:
+        - CpNode1
+        - UiNode1
+        - AgentNode1
+        - McpNode1
+        - GpuNode1
+        - MediaNode1
+        - CpNode2
+        - UiNode2
+        - AgentNode2
+        - McpNode2
+        - GpuNode2
+        - MediaNode2
+      BorderType: dashed
+      BorderColor: "rgba(105,59,197,255)"
+
+    # Managed data & container registry.
+    # RDS PostgreSQL is annotated as the host for the pgvector extension
+    # used by retrieval (M10) per docs/12-phase-2-feature-adoption.md.
+    ManagedData:
+      Type: AWS::Diagram::Resource
+      Title: "Managed data & registry"
+      BorderColor: "rgba(120,120,120,255)"
+      BorderType: Dashed
+      Direction: horizontal
+      Children:
+        - RDS
+        - S3
+        - Secrets
+        - ECR
+    RDS:
+      Type: AWS::RDS::DBInstance
+      Title: "RDS PostgreSQL + pgvector (M10)"
+    S3:
+      Type: AWS::S3::Bucket
+      Title: "S3 (artifacts, uploads)"
+    Secrets:
+      Type: AWS::SecretsManager::Secret
+      Title: "Secrets Manager"
+    ECR:
+      Type: AWS::ECR
+      Title: "ECR (images)"
+
+    # Observability (unchanged from Phase 1; M5 baseline).
+    Observability:
+      Type: AWS::Diagram::Resource
+      Title: "Observability"
+      BorderColor: "rgba(120,120,120,255)"
+      BorderType: Dashed
+      Direction: horizontal
+      Children:
+        - AMP
+        - AMG
+        - Logs
+    AMP:
+      Type: AWS::APS::Workspace
+      Title: "Managed Prometheus"
+    AMG:
+      Type: AWS::Grafana::Workspace
+      Title: "Managed Grafana"
+    Logs:
+      Type: AWS::Logs
+      Title: "CloudWatch logs"
+
+    # Optional outbound integrations (M13). All egress is mediated by the
+    # hardened secret + URL-validation layer introduced in M3.  This block
+    # is dashed to signal it is opt-in and per-tenant scoped.
+    ExternalIntegrations:
+      Type: AWS::Diagram::Resource
+      Title: "External integrations (M13, optional, opt-in)"
+      BorderColor: "rgba(217,48,37,255)"
+      BorderType: Dashed
+      Direction: horizontal
+      Children:
+        - Calendar
+        - Mail
+        - Contacts
+    Calendar:
+      Type: AWS::Diagram::Resource
+      Title: "Calendar API (external)"
+    Mail:
+      Type: AWS::Diagram::Resource
+      Title: "Mail API (external)"
+    Contacts:
+      Type: AWS::Diagram::Resource
+      Title: "Contacts API (external)"
+
+  Links:
+    # User traffic into the UI tier first (M9), then the API.
+    - Source: User
+      SourcePosition: E
+      Target: ALB
+      TargetPosition: NW
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+    - Source: ALB
+      SourcePosition: S
+      Target: UiNode1
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+    - Source: UiNode1
+      SourcePosition: S
+      Target: CpNode1
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+    # Control plane reaches the agent runtime and MCP gateway.
+    - Source: CpNode1
+      SourcePosition: E
+      Target: AgentNode1
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+    - Source: AgentNode1
+      SourcePosition: E
+      Target: McpNode1
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+    # Inference path (M4) — unchanged from Phase 1.
+    - Source: CpNode1
+      SourcePosition: E
+      Target: GpuNode1
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+    - Source: CpNode2
+      SourcePosition: E
+      Target: GpuNode2
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+    # Stateful dependencies.
+    - Source: CpNode1
+      SourcePosition: S
+      Target: RDS
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+    - Source: CpNode1
+      SourcePosition: S
+      Target: Secrets
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+    # M13 external integrations egress through the hardened layer
+    # (drawn from the agent runtime which owns tool execution).
+    - Source: AgentNode1
+      SourcePosition: S
+      Target: Calendar
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
