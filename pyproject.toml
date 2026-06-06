@@ -19,3 +19,17 @@ dependencies = [
     "boto3>=1.35",
 ]
 
+[project.optional-dependencies]
+# Install with: pip install -e '.[test]'
+test = [
+    # moto (Apache-2.0) — in-process AWS service mock for S3 integration tests.
+    # Does not require live AWS credentials or a running AWS endpoint.
+    "moto[s3]>=5.0",
+]
+
+[tool.setuptools.packages.find]
+# Restrict package discovery to the app/ source tree.
+# infra/, deploy/, docs/, and scripts/ are not Python packages.
+where = ["."]
+include = ["app*"]
+
