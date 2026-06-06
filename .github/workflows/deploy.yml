@@ -25,6 +25,14 @@ on:
         options:
           - "false"
           - "true"
+      deploy_observability:
+        description: "Deploy observability stack (kube-prometheus-stack + dashboards)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 # Prevent concurrent deploys to the same environment.
 concurrency:
@@ -145,6 +153,17 @@ jobs:
             --wait \
             --timeout 15m
 
+      - name: Deploy observability stack (opt-in)
+        if: ${{ github.event.inputs.deploy_observability == 'true' }}
+        run: |
+          helm dependency update deploy/helm/observability
+          helm upgrade --install observability deploy/helm/observability \
+            --namespace monitoring \
+            --create-namespace \
+            -f "deploy/values/${ENV}/observability.yaml" \
+            --wait \
+            --timeout 10m
+
       - name: Verify health
         run: |
           kubectl wait deployment/private-ai-workspace-private-ai-workspace \
@@ -161,3 +180,12 @@ jobs:
             --for=condition=Available \
             --timeout=600s
           kubectl get pods --namespace inference
+
+      - name: Verify observability health (opt-in)
+        if: ${{ github.event.inputs.deploy_observability == 'true' }}
+        run: |
+          kubectl wait deployment/observability-grafana \
+            --namespace monitoring \
+            --for=condition=Available \
+            --timeout=120s
+          kubectl get pods --namespace monitoring

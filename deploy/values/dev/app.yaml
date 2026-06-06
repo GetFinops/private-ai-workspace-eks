@@ -24,9 +24,18 @@ image:
 config:
   environment: development
   logLevel: INFO
+  logFormat: json
   objectStorageBucket: ""      # Set from: terraform output -raw s3_artifacts_bucket
   inferenceBaseUrl: "http://vllm-inference.inference.svc.cluster.local:8000"
   secretsProvider: aws-secrets-manager
+  otelEndpoint: ""             # Set to OTel Collector ClusterIP when observability stack is deployed
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    additionalLabels:
+      release: observability   # Must match the Prometheus Operator's serviceMonitorSelector
 
 ingress:
   enabled: true

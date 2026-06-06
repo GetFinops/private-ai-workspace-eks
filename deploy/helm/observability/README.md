@@ -4,9 +4,10 @@ Umbrella chart for the `private-ai-workspace` observability baseline (M5 milesto
 
 ## Components
 
-- **kube-prometheus-stack** — Prometheus, Grafana, Alertmanager, and node exporters
+- **kube-prometheus-stack** — Prometheus, Grafana, Alertmanager, and node/kube-state exporters
+- **Grafana sidecar dashboards** — three pre-built dashboards auto-loaded from ConfigMaps
 - **vLLM metrics scraping** — collects from inference pods via pod annotations
-- **DCGM GPU metrics** — scrapes the DCGM exporter DaemonSet on GPU nodes
+- **DCGM GPU metrics** — scraped from the `dcgm-exporter` DaemonSet deployed by `cluster-addons`
 - **Alert rules** — inference queue depth, replica availability, control-plane liveness
 
 ## Install
@@ -18,23 +19,44 @@ helm upgrade --install observability deploy/helm/observability \
   -f deploy/values/<env>/observability.yaml
 ```
 
-## What To Set Per Environment
+## Dashboard delivery
 
-| Key | Description |
-|-----|-------------|
-| `kubePrometheusStack.grafana.adminPassword` | Grafana admin password (use ExternalSecrets) |
-| `kubePrometheusStack.grafana.grafana.ini.server.root_url` | Public Grafana URL |
-| `kubePrometheusStack.prometheus.prometheusSpec.retention` | Metric retention window |
+Dashboards are shipped as Helm ConfigMap templates in `templates/dashboards.yaml`.
+The Grafana sidecar (`sidecar.dashboards.enabled: true`) watches for ConfigMaps with
+`grafana_dashboard: "1"` label across all namespaces and hot-loads them automatically.
+No manual Grafana import step is required.
+
+| Dashboard | Source | License | Folder |
+|---|---|---|---|
+| DCGM GPU Monitoring | aws-samples/sample-genai-on-eks-starter-kit | Apache-2.0 (NVIDIA) | GPU |
+| vLLM Performance Statistics | vllm-project/vllm | Apache-2.0 | Inference |
+| vLLM Query Statistics | vllm-project/vllm | Apache-2.0 | Inference |
+
+See `NOTICE` for full provenance records.
 
 ## DCGM Exporter
 
-The DCGM exporter is not bundled here. Install it separately via the NVIDIA
-GPU Operator or standalone chart. Once running on GPU nodes, the Prometheus
-scrape config in this chart will pick it up automatically via pod label
-`app.kubernetes.io/name: dcgm-exporter`.
+The `dcgm-exporter` DaemonSet is installed by the `cluster-addons` umbrella chart (not here).
+Once running on GPU nodes, Prometheus scrapes it via the `dcgm-exporter` job configured in
+`additionalScrapeConfigs`.
 
-## Grafana Dashboards
+## What to set per environment
 
-Import dashboards from:
-- [vLLM dashboard](https://grafana.com/grafana/dashboards/21073) — token throughput, queue depth, request latency
-- [DCGM exporter](https://grafana.com/grafana/dashboards/12239) — GPU utilisation, memory, temperature
+| Key | Description |
+|-----|-------------|
+| `kubePrometheusStack.grafana.adminPassword` | Grafana admin password — use ExternalSecrets in prod |
+| `kubePrometheusStack.grafana.grafana\.ini.server.root_url` | Public Grafana URL |
+| `kubePrometheusStack.prometheus.prometheusSpec.retention` | Metric retention window |
+
+## Access (port-forward, no Ingress by default)
+
+```bash
+# Grafana
+kubectl port-forward svc/observability-grafana 3000:80 -n monitoring
+
+# Prometheus
+kubectl port-forward svc/observability-kube-prometheus-stack-prometheus 9090:9090 -n monitoring
+```
+
+No Ingress is created by this chart. Expose Grafana through the control-plane ingress
+or a separate ingress in staging/production (M7).

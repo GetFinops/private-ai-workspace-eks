@@ -10,6 +10,9 @@ externalSecrets:
 nvidiaDevicePlugin:
   enabled: true
 
+dcgmExporter:
+  enabled: true
+
 # External Secrets Operator values.
 # Full reference: https://external-secrets.io/latest/introduction/getting-started/
 external-secrets:
@@ -40,6 +43,27 @@ external-secrets:
       requests:
         cpu: 50m
         memory: 64Mi
+
+# DCGM Exporter — GPU metrics DaemonSet on GPU nodes.
+# Exposes DCGM_FI_* Prometheus metrics scraped by the observability chart.
+# Reference: https://github.com/NVIDIA/dcgm-exporter (Apache-2.0)
+dcgm-exporter:
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+  nodeSelector:
+    private-ai-workspace/plane: inference
+  serviceMonitor:
+    enabled: false   # Enable when kube-prometheus-stack is installed.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 # NVIDIA device plugin — advertises nvidia.com/gpu resources on GPU nodes.
 # Runs as a DaemonSet with a toleration for the nvidia.com/gpu:NoSchedule taint

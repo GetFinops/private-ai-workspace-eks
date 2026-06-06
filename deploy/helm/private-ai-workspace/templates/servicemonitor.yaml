@@ -1,0 +1,28 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+# ServiceMonitor — tells the Prometheus Operator to scrape the control-plane
+# /metrics endpoint.  Requires kube-prometheus-stack (or any Prometheus Operator
+# installation) with serviceMonitorSelectorNilUsesHelmValues: false to pick up
+# monitors across namespaces.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "private-ai-workspace.fullname" . }}
+  labels:
+    {{- include "private-ai-workspace.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "private-ai-workspace.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: http
+      path: {{ .Values.metrics.path | default "/metrics" }}
+      interval: {{ .Values.metrics.serviceMonitor.interval | default "30s" }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout | default "10s" }}
+{{- end }}

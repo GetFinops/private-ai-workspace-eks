@@ -16,8 +16,19 @@ spec:
       labels:
         app.kubernetes.io/name: {{ include "private-ai-workspace.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
+      {{- if .Values.metrics.enabled }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.metrics.port | default "8080" | quote }}
+        prometheus.io/path: {{ .Values.metrics.path | default "/metrics" | quote }}
+      {{- end }}
     spec:
       serviceAccountName: {{ include "private-ai-workspace.serviceAccountName" . }}
+      {{- if .Values.metrics.enabled }}
+      # Prometheus pod annotations for scrape discovery (annotation-based scrape).
+      # The ServiceMonitor below is the preferred path; these annotations are a
+      # belt-and-suspenders fallback for clusters without the Prometheus Operator.
+      {{- end }}
       containers:
         - name: control-plane
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

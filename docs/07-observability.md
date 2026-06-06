@@ -175,9 +175,25 @@ Recommended routing:
 - short-retention cluster logs in CloudWatch
 - optional long-term analytics in a secondary log backend if needed
 
-Important rule:
+**Strict content policy (mandatory for this project):**
 
-- never log prompts, secrets, or user content without explicit policy and redaction controls
+Metrics, logs, and traces MUST NOT contain:
+- prompt text or completion text
+- user-submitted message content
+- tokens, credentials, API keys, or session tokens
+- personally identifiable information
+
+Permitted in telemetry:
+- request counts, status codes, HTTP methods
+- latency measurements (p50/p95/p99)
+- token counts (input/output/total) as integers
+- error class names (not full exception messages)
+- sanitized request IDs and correlation IDs (opaque, not derived from content)
+- model names and inference backend identifiers
+
+This policy is implemented in the control-plane server and enforced by code
+review. Any change that relaxes this policy is an escalation trigger requiring
+maintainer sign-off.
 
 ## Tracing Strategy
 

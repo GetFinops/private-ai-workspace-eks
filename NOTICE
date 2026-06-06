@@ -170,6 +170,80 @@ referenced in M4 and reviewed for license compatibility.
     No nvidia-device-plugin source is copied into this repository.
 
 ────────────────────────────────────────────────────────────────────────────────
+Third-party dependency and asset license record (M5 — observability baseline)
+────────────────────────────────────────────────────────────────────────────────
+
+The following runtime dependencies, Helm charts, and vendored files were added
+or explicitly referenced in M5 and reviewed for license compatibility.
+
+  prometheus-client (prometheus-client>=0.20)
+    Source: https://github.com/prometheus/client_python
+    License: Apache License 2.0
+    Use: Prometheus metrics registry and /metrics text-format endpoint in
+         app/control_plane/metrics.py.  No source is copied.
+
+  opentelemetry-sdk (opentelemetry-sdk>=1.24)
+  opentelemetry-exporter-otlp-proto-grpc (>=1.24)
+  opentelemetry-instrumentation-urllib (>=0.45b0)
+    Source: https://github.com/open-telemetry/opentelemetry-python
+            https://github.com/open-telemetry/opentelemetry-python-contrib
+    License: Apache License 2.0
+    Copyright: Copyright (c) 2019-2025 OpenTelemetry Authors.
+    Use: Distributed tracing (W3C traceparent propagation, OTLP gRPC export)
+         in app/control_plane/tracing.py.  No source is copied.
+
+  kube-prometheus-stack (Helm chart)
+    Chart: https://github.com/prometheus-community/helm-charts
+    Chart version: see deploy/helm/observability/Chart.lock
+    License: Apache License 2.0
+    Copyright: Copyright (c) 2021-2025 The Prometheus Authors.
+    Use: Bundles Prometheus, Grafana, Alertmanager, node-exporter, and
+         kube-state-metrics.  Deployed via deploy/helm/observability.
+    No chart source is copied into this repository.
+
+  dcgm-exporter (Helm chart)
+    Chart: https://github.com/NVIDIA/dcgm-exporter
+    Chart version: see deploy/helm/cluster-addons/Chart.lock
+    License: Apache License 2.0
+    Copyright: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES.
+    Use: GPU metrics DaemonSet on inference node groups.  Deployed via
+         deploy/helm/cluster-addons.
+    No chart source is copied into this repository.
+
+  DCGM GPU Grafana dashboard (vendored JSON file)
+    Source file: deploy/helm/observability/dashboards/dcgm-gpu.json
+    Origin: aws-samples/sample-genai-on-eks-starter-kit
+            components/nvidia-platform/monitoring/dashboards/dcgm-metrics.json
+    Dashboard author: NVIDIA CORPORATION & AFFILIATES
+    Wrapper repo license: MIT-0 (No Attribution Required)
+    Dashboard content license: Apache License 2.0
+    Copyright: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES.
+                All rights reserved.
+    Modification: None — unmodified copy.
+    Use: Loaded into Grafana via ConfigMap sidecar for GPU utilization,
+         memory, temperature, power, and PCIe bandwidth panels.
+
+  vLLM Performance Statistics dashboard (vendored JSON file)
+    Source file: deploy/helm/observability/dashboards/vllm-performance.json
+    Origin: vllm-project/vllm
+            examples/observability/dashboards/grafana/performance_statistics.json
+    License: Apache License 2.0
+    Copyright: Copyright (c) 2023-2025 vLLM Team.
+    Modification: None — unmodified copy.
+    Use: Loaded into Grafana via ConfigMap sidecar for inference latency
+         and throughput panels.
+
+  vLLM Query Statistics dashboard (vendored JSON file)
+    Source file: deploy/helm/observability/dashboards/vllm-query.json
+    Origin: vllm-project/vllm
+            examples/observability/dashboards/grafana/query_statistics.json
+    License: Apache License 2.0
+    Copyright: Copyright (c) 2023-2025 vLLM Team.
+    Modification: None — unmodified copy.
+    Use: Loaded into Grafana via ConfigMap sidecar for request volume,
+         queue depth, and error rate panels.
+
+────────────────────────────────────────────────────────────────────────────────
 Vector-storage decision record (M3 deferral)
 ────────────────────────────────────────────────────────────────────────────────
 
