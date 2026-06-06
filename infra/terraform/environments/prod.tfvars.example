@@ -1,0 +1,24 @@
+# Example Terraform variable values for the prod environment.
+# Copy to prod.tfvars and adjust for your AWS account; do NOT commit prod.tfvars.
+
+aws_region   = "us-east-1"
+environment  = "prod"
+project_name = "private-ai-workspace"
+
+# Control-plane CPU node group.
+control_plane_min_size     = 2
+control_plane_desired_size = 3
+control_plane_max_size     = 10
+
+# GPU warm-pool (M6): prod keeps one warm replica for first-user latency.
+# Karpenter provisions burst capacity above this on the spot market.
+gpu_min_size      = 1
+gpu_desired_size  = 1
+gpu_max_size      = 1   # Cap the managed NG; Karpenter handles everything beyond.
+gpu_capacity_type = "ON_DEMAND"   # Warm pool must not be interrupted; burst via Karpenter is spot.
+
+# Production reliability.
+enable_single_nat_gateway = false
+rds_instance_class        = "db.m7g.large"
+rds_multi_az              = true
+rds_backup_retention_days = 14

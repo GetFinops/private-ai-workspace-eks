@@ -13,6 +13,16 @@ nvidiaDevicePlugin:
 dcgmExporter:
   enabled: true
 
+# ── M6 Elastic GPU Scaling ──────────────────────────────────────────────────
+# Each scaling controller is opt-in. Operators set the IRSA role ARN via
+# Helm --set or env values files; see scaling-policy.md for the policy.
+
+clusterAutoscaler:
+  enabled: false        # Set true after `terraform output irsa_cluster_autoscaler_role_arn` exists.
+
+prometheusAdapter:
+  enabled: false        # Set true after the observability stack is deployed.
+
 # External Secrets Operator values.
 # Full reference: https://external-secrets.io/latest/introduction/getting-started/
 external-secrets:
@@ -83,3 +93,114 @@ nvidia-device-plugin:
     limits:
       cpu: 200m
       memory: 128Mi
+
+# Kubernetes cluster-autoscaler — scales managed node groups based on pod
+# scheduling pressure. Discovers ASGs via the `k8s.io/cluster-autoscaler/*`
+# tags applied by the Terraform EKS module.
+# Reference: https://github.com/kubernetes/autoscaler (Apache-2.0)
+cluster-autoscaler:
+  cloudProvider: aws
+  # awsRegion and autoDiscovery.clusterName are set by the deploy workflow
+  # via --set so the same chart works across environments.
+  awsRegion: ""
+  autoDiscovery:
+    clusterName: ""
+  rbac:
+    serviceAccount:
+      create: true
+      name: cluster-autoscaler
+      annotations:
+        # Set via --set serviceAccount.annotations from the deploy workflow.
+        # eks.amazonaws.com/role-arn: arn:aws:iam::<acct>:role/<project>-<env>-cluster-autoscaler
+        eks.amazonaws.com/role-arn: ""
+  extraArgs:
+    balance-similar-node-groups: true
+    expander: least-waste
+    scale-down-unneeded-time: 5m
+    scale-down-delay-after-add: 5m
+    skip-nodes-with-system-pods: false
+  tolerations: []
+  nodeSelector:
+    private-ai-workspace/plane: control
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Karpenter — dynamic GPU node provisioning. The NodePool and EC2NodeClass
+# custom resources are shipped as Helm templates in this chart (see
+# templates/karpenter-gpu-nodepool.yaml).
+# Reference: https://karpenter.sh (Apache-2.0)
+karpenter:
+  enabled: false        # Set true after `terraform output karpenter_*` exist.
+  settings:
+    clusterName: ""        # Set via --set from deploy workflow.
+    interruptionQueue: ""  # Optional: SQS queue for spot-interruption signals.
+  serviceAccount:
+    create: true
+    name: karpenter
+    annotations:
+      # Set via --set from the deploy workflow.
+      # eks.amazonaws.com/role-arn: arn:aws:iam::<acct>:role/<project>-<env>-karpenter-controller
+      eks.amazonaws.com/role-arn: ""
+  controller:
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+  nodeSelector:
+    private-ai-workspace/plane: control
+  # NodePool + EC2NodeClass values consumed by templates/karpenter-gpu-nodepool.yaml
+  nodePool:
+    name: gpu-inference
+    nodeRoleName: ""                  # Set from terraform output karpenter_node_role_name
+    instanceCategories: ["g"]         # g5, g6, g6e families
+    instanceFamilies: ["g5", "g6", "g6e"]
+    capacityTypes: ["spot", "on-demand"]
+    maxGpus: 8                        # Total GPU count cap across all Karpenter-provisioned nodes
+    consolidationPolicy: WhenEmpty    # Conservative — only consolidate empty nodes
+    consolidateAfter: 30m
+    # AMI selector: latest EKS-optimized AMI with NVIDIA drivers, matching the
+    # cluster's Kubernetes version. Set per-environment from the deploy workflow.
+    amiSelectorTerms:
+      - alias: "al2023@latest"
+    subnetSelectorTags: {}            # e.g. { "karpenter.sh/discovery": "<cluster>" }
+    securityGroupSelectorTags: {}     # e.g. { "karpenter.sh/discovery": "<cluster>" }
+
+# prometheus-adapter — exposes vLLM Prometheus metrics to the Kubernetes
+# custom-metrics API so HPA can target `vllm_num_requests_waiting`.
+# Reference: https://github.com/kubernetes-sigs/prometheus-adapter (Apache-2.0)
+prometheus-adapter:
+  # Default prometheus URL points to the kube-prometheus-stack service
+  # installed by the observability chart in the `monitoring` namespace.
+  prometheus:
+    url: http://observability-kube-prometheus-stack-prometheus.monitoring.svc.cluster.local
+    port: 9090
+  rules:
+    default: false        # Disable the default kube-state-metrics rules; only ship our vLLM rule.
+    custom:
+      - seriesQuery: 'vllm:num_requests_waiting{namespace!="",pod!=""}'
+        resources:
+          overrides:
+            namespace: { resource: "namespace" }
+            pod: { resource: "pod" }
+        name:
+          matches: "^(.*)$"
+          as: "${1}"
+        metricsQuery: |
+          avg by (<<.GroupBy>>) (<<.Series>>{<<.LabelMatchers>>})
+  nodeSelector:
+    private-ai-workspace/plane: control
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi

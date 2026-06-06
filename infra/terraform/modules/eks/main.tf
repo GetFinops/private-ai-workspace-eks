@@ -102,11 +102,23 @@ module "eks" {
       labels = {
         "private-ai-workspace/plane" = "control"
       }
+
+      # cluster-autoscaler autodiscovery tags (M6) — required so CA can find
+      # and scale this Auto Scaling Group.  The "enabled" tag opts the ASG
+      # into discovery; the cluster-name tag scopes the IRSA permissions.
+      tags = {
+        "k8s.io/cluster-autoscaler/enabled"     = "true"
+        "k8s.io/cluster-autoscaler/${local.name}" = "owned"
+      }
     }
 
+    # NOTE (M6): the managed GPU node group remains as an optional warm-pool
+    # safety net.  Karpenter (installed by the cluster-addons chart) provisions
+    # GPU capacity dynamically.  In production, set gpu_warm_pool_size = 1 to
+    # keep one warm replica; Karpenter handles burst above that.
     gpu_inference = {
       name                     = "${local.name}-gpu"
-      description              = "GPU nodes for the isolated inference plane (vLLM)"
+      description              = "GPU warm-pool node group (Karpenter handles burst above this)"
       instance_types           = var.gpu_instance_types
       capacity_type            = var.gpu_capacity_type
       desired_size             = var.gpu_desired_size

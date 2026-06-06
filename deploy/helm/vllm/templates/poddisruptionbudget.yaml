@@ -1,0 +1,25 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+# PodDisruptionBudget — protects the warm replica during voluntary
+# disruptions (node drains, rolling updates).  With minAvailable: 1 the
+# scheduler will not evict the last vLLM replica during a node drain,
+# which preserves the warm pool described in docs/09-scaling-policy.md.
+#
+# Note: spot interruption is an involuntary disruption and is NOT covered
+# by PDB; that case is handled by the control plane's 503 + Retry-After
+# response (see app/control_plane/server.py::build_chat_response).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "vllm-inference.fullname" . }}
+  labels:
+    {{- include "vllm-inference.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- else if .Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "vllm-inference.selectorLabels" . | nindent 6 }}
+{{- end }}

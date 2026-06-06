@@ -1,0 +1,78 @@
+{{- if .Values.karpenter.enabled }}
+# Karpenter EC2NodeClass — describes how to provision the underlying EC2
+# instances (AMI, IAM role, subnets, security groups, tags).
+#
+# Reference: https://karpenter.sh/docs/concepts/nodeclasses/ (Apache-2.0)
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: {{ .Values.karpenter.nodePool.name }}
+spec:
+  role: {{ required "karpenter.nodePool.nodeRoleName must be set (terraform output karpenter_node_role_name)" .Values.karpenter.nodePool.nodeRoleName | quote }}
+  amiFamily: AL2023
+  amiSelectorTerms:
+    {{- toYaml .Values.karpenter.nodePool.amiSelectorTerms | nindent 4 }}
+  subnetSelectorTerms:
+    - tags:
+        {{- toYaml .Values.karpenter.nodePool.subnetSelectorTags | nindent 8 }}
+  securityGroupSelectorTerms:
+    - tags:
+        {{- toYaml .Values.karpenter.nodePool.securityGroupSelectorTags | nindent 8 }}
+  tags:
+    karpenter.sh/managed: "true"
+    private-ai-workspace/plane: inference
+---
+# Karpenter NodePool — describes when and how Karpenter provisions nodes for
+# GPU workloads (taint, instance constraints, capacity caps, consolidation).
+#
+# Reference: https://karpenter.sh/docs/concepts/nodepools/
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: {{ .Values.karpenter.nodePool.name }}
+spec:
+  template:
+    metadata:
+      labels:
+        private-ai-workspace/plane: inference
+        nvidia.com/gpu.present: "true"
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: {{ .Values.karpenter.nodePool.name }}
+      taints:
+        - key: nvidia.com/gpu
+          value: "true"
+          effect: NoSchedule
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values:
+            {{- range .Values.karpenter.nodePool.capacityTypes }}
+            - {{ . | quote }}
+            {{- end }}
+        - key: karpenter.k8s.aws/instance-category
+          operator: In
+          values:
+            {{- range .Values.karpenter.nodePool.instanceCategories }}
+            - {{ . | quote }}
+            {{- end }}
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values:
+            {{- range .Values.karpenter.nodePool.instanceFamilies }}
+            - {{ . | quote }}
+            {{- end }}
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+  # Cap total GPU count across all nodes managed by this NodePool.
+  limits:
+    "nvidia.com/gpu": {{ .Values.karpenter.nodePool.maxGpus }}
+  # Conservative consolidation — only remove empty nodes, after a delay.
+  # Aggressive consolidation can interrupt long-running inference batches.
+  disruption:
+    consolidationPolicy: {{ .Values.karpenter.nodePool.consolidationPolicy }}
+    consolidateAfter: {{ .Values.karpenter.nodePool.consolidateAfter | quote }}
+{{- end }}

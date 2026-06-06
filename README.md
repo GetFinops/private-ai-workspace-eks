@@ -26,10 +26,10 @@ instructions live in `docs/milestones/`.
 | M0 | Project bootstrap, governance, docs | Complete |
 | M1 | Control-plane skeleton: authenticated chat path, OIDC token verification, session-store interface | Complete |
 | M2 | EKS baseline: Terraform (VPC/EKS/ECR/RDS/S3), IRSA, ingress, External Secrets, CI/CD | Complete |
-| M3 | Stateful dependency externalization (managed DB, object storage, session store) | Planned |
-| M4 | Inference plane MVP (isolated vLLM on GPU) | Planned |
-| M5 | Observability baseline (metrics, logs, traces) | Planned |
-| M6 | Elastic GPU scaling | Planned |
+| M3 | Stateful dependency externalization (managed DB, object storage, session store) | Complete |
+| M4 | Inference plane MVP (isolated vLLM on GPU) | Complete |
+| M5 | Observability baseline (metrics, logs, traces) | Complete |
+| M6 | Elastic GPU scaling (Karpenter + HPA + degrade-only fallback) | In progress |
 | M7 | Staging hardening | Planned |
 | M8 | Production release | Planned |
 
@@ -104,6 +104,12 @@ Non-goals:
 - bundled AGPL-sensitive optional features
 - local bind-mounted production state
 - SQLite as a production database default
+- **external-provider inference fallback** (OpenAI, Bedrock, etc.) — the
+  platform is self-hosted and organization-private by design; when GPU
+  capacity is unavailable the control plane returns `503 + Retry-After`
+  rather than forwarding prompts to a third party.  See
+  [`docs/09-scaling-policy.md`](docs/09-scaling-policy.md) for the full
+  fallback policy.
 
 ## Initial AWS Stack Decisions
 
@@ -172,6 +178,8 @@ python3 -m app.control_plane
 - Gap analysis: `docs/11-gap-analysis.md`
 - Phase 2 feature adoption track (proposed): `docs/12-phase-2-feature-adoption.md`
 - Per-milestone build instructions: `docs/milestones/`
+- Observability content & telemetry policy: `docs/07-observability.md`
+- Scaling and fallback policy (M6): `docs/09-scaling-policy.md`
 - Cost estimates: `ESTIMATION_COSTS.md`
 
 ## Governance

@@ -1,0 +1,23 @@
+# Example Terraform variable values for the dev environment.
+# Copy to dev.tfvars and adjust for your AWS account; do NOT commit dev.tfvars.
+
+aws_region   = "us-east-1"
+environment  = "dev"
+project_name = "private-ai-workspace"
+
+# Control-plane CPU node group.
+control_plane_min_size     = 1
+control_plane_desired_size = 2
+control_plane_max_size     = 4
+
+# GPU warm-pool (M6): dev runs cold; Karpenter provisions on demand.
+gpu_min_size      = 0
+gpu_desired_size  = 0
+gpu_max_size      = 0   # Karpenter owns burst — disable the managed NG for GPU in dev.
+gpu_capacity_type = "SPOT"
+
+# Cost optimizations for dev.
+enable_single_nat_gateway = true
+rds_instance_class        = "db.t3.medium"
+rds_multi_az              = false
+rds_backup_retention_days = 1

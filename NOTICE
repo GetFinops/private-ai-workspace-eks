@@ -244,6 +244,79 @@ or explicitly referenced in M5 and reviewed for license compatibility.
          queue depth, and error rate panels.
 
 ────────────────────────────────────────────────────────────────────────────────
+Third-party Helm chart license record (M6 — elastic GPU scaling)
+────────────────────────────────────────────────────────────────────────────────
+
+The following Helm charts and runtime controllers were added in M6 and
+reviewed for license compatibility.  None are vendored — all are fetched at
+install time from upstream chart repositories.
+
+  cluster-autoscaler (Helm chart + controller)
+    Chart: https://github.com/kubernetes/autoscaler/tree/master/charts/cluster-autoscaler
+    Project: https://github.com/kubernetes/autoscaler
+    Chart version: see deploy/helm/cluster-addons/Chart.lock
+    License: Apache License 2.0
+    Copyright: Copyright (c) 2016-2025 The Kubernetes Authors.
+    Use: Discovers EKS managed node groups via tags and scales their desired
+         size up/down based on pod scheduling pressure.  Deployed on the CPU
+         node group via deploy/helm/cluster-addons.
+    No source is copied into this repository.
+
+  Karpenter (Helm chart + controller + CRDs)
+    Chart: oci://public.ecr.aws/karpenter/karpenter
+    Project: https://github.com/aws/karpenter-provider-aws
+    Chart version: see deploy/helm/cluster-addons/Chart.lock
+    License: Apache License 2.0
+    Copyright: Copyright (c) 2021-2025 Amazon.com, Inc. or its affiliates.
+    Use: Dynamic GPU node provisioning for inference burst capacity.
+         EC2NodeClass + NodePool custom resources defined in
+         deploy/helm/cluster-addons/templates/karpenter-gpu-nodepool.yaml are
+         configuration only (not derived from upstream source).
+    IAM scaffolding: infra/terraform/modules/karpenter/ — original code
+         informed by upstream guidance at
+         https://karpenter.sh/docs/reference/cloudformation/ but written from
+         scratch; no source is copied.
+
+  prometheus-adapter (Helm chart + controller)
+    Chart: https://github.com/prometheus-community/helm-charts
+    Project: https://github.com/kubernetes-sigs/prometheus-adapter
+    Chart version: see deploy/helm/cluster-addons/Chart.lock
+    License: Apache License 2.0
+    Copyright: Copyright (c) 2018-2025 The Kubernetes Authors.
+    Use: Exposes the vLLM Prometheus metric `vllm:num_requests_waiting` to
+         the Kubernetes custom-metrics API so the HPA in
+         deploy/helm/vllm/templates/hpa.yaml can target it.
+    No source is copied into this repository.
+
+────────────────────────────────────────────────────────────────────────────────
+External-provider fallback decision record (M6)
+────────────────────────────────────────────────────────────────────────────────
+
+M6 considered an external-provider inference fallback (OpenAI / Bedrock / etc.)
+that would forward user prompts to a third-party API when in-cluster GPU
+capacity is unavailable.
+
+Decision: NOT implemented; will not be implemented in any future milestone
+          without explicit maintainer review.
+
+Rationale:
+- The platform's stance per AGENTS.md is "self-hosted, organization-private,
+  maintainer-controlled, not a shared multi-tenant SaaS".  An implicit
+  external fallback would materially change the data-privacy posture.
+- The observability content policy (docs/07-observability.md) explicitly
+  forbids prompt/completion content in any telemetry surface; an external
+  fallback would create a third-party data flow that conflicts with that
+  posture absent a separate reviewed policy.
+
+What we ship instead:
+- Aggressive in-cluster elasticity via Karpenter on spot capacity.
+- Honest 503 + Retry-After responses on capacity shortage (already in M4).
+- Optional warm-pool replica in production (configured per-environment).
+- Per-environment HPA tuning on vLLM queue depth.
+
+See docs/09-scaling-policy.md for the full degraded-mode response policy.
+
+────────────────────────────────────────────────────────────────────────────────
 Vector-storage decision record (M3 deferral)
 ────────────────────────────────────────────────────────────────────────────────
 
