@@ -1,0 +1,273 @@
+# Phase 1 - platform baseline AWS architecture (milestones M0-M8).
+#
+# Rendered with awslabs/diagram-as-code (awsdac): https://github.com/awslabs/diagram-as-code
+# Regenerate with: scripts/generate-diagrams.sh
+#
+# Classic AWS reference style. The VPC is split into two Availability Zones; each
+# AZ has a public subnet (NAT gateway) and a private subnet (EKS worker nodes).
+# The EKS cluster and its two managed node groups (CPU control plane, GPU
+# inference) are drawn as overlays that span the worker nodes across both AZs,
+# making the cluster topology explicit. The internet-facing ALB lives at the
+# VPC edge; the GPU inference nodes stay private/internal-only.
+Diagram:
+  DefinitionFiles:
+    - Type: URL
+      Url: "https://raw.githubusercontent.com/awslabs/diagram-as-code/main/definitions/definition-for-aws-icons-light.yaml"
+
+  Resources:
+    Canvas:
+      Type: AWS::Diagram::Canvas
+      Direction: horizontal
+      Children:
+        - User
+        - AWSCloud
+
+    User:
+      Type: AWS::Diagram::Resource
+      Preset: User
+      Title: "Users / API clients"
+
+    AWSCloud:
+      Type: AWS::Diagram::Cloud
+      Direction: vertical
+      Align: center
+      Children:
+        - EdgeIdentity
+        - VPC
+        - ManagedData
+        - Observability
+
+    # Regional edge and identity services
+    EdgeIdentity:
+      Type: AWS::Diagram::Resource
+      Title: "Edge & identity"
+      BorderColor: "rgba(120,120,120,255)"
+      BorderType: Dashed
+      Direction: horizontal
+      Children:
+        - Route53
+        - ACM
+        - Cognito
+    Route53:
+      Type: AWS::Route53::HostedZone
+      Title: "Route 53"
+    ACM:
+      Type: AWS::CertificateManager
+      Title: "ACM (TLS)"
+    Cognito:
+      Type: AWS::Cognito::UserPool
+      Title: "OIDC issuer (Cognito)"
+
+    # Network: VPC with an internet gateway and two Availability Zones.
+    VPC:
+      Type: AWS::EC2::VPC
+      Direction: vertical
+      Title: "VPC"
+      BorderChildren:
+        - Position: N
+          Resource: IGW
+      Children:
+        - ALB
+        - AZStack
+    IGW:
+      Type: AWS::EC2::InternetGateway
+      Title: "Internet gateway"
+      IconFill:
+        Type: rect
+    ALB:
+      Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+      Title: "Application Load Balancer (public)"
+
+    AZStack:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - AZ1
+        - AZ2
+
+    AZ1:
+      Type: AWS::EC2::AvailabilityZone
+      Title: "Availability Zone A"
+      Direction: vertical
+      Children:
+        - PublicSubnet1
+        - PrivateSubnet1
+    PublicSubnet1:
+      Type: AWS::EC2::Subnet
+      Preset: PublicSubnet
+      Title: "Public subnet"
+      Children:
+        - NatGW1
+    NatGW1:
+      Type: AWS::EC2::NatGateway
+      Title: "NAT gateway"
+    PrivateSubnet1:
+      Type: AWS::EC2::Subnet
+      Preset: PrivateSubnet
+      Title: "Private subnet"
+      Direction: horizontal
+      Children:
+        - CpNG1
+        - GpuNG1
+    CpNG1:
+      Type: AWS::Diagram::Resource
+      Title: "Control-plane NG (CPU)"
+      BorderColor: "rgba(52,168,83,255)"
+      Children:
+        - CpNode1
+    CpNode1:
+      Type: AWS::EC2::Instance
+      Title: "control-plane API"
+    GpuNG1:
+      Type: AWS::Diagram::Resource
+      Title: "Inference NG (GPU)"
+      BorderColor: "rgba(217,48,37,255)"
+      Children:
+        - GpuNode1
+    GpuNode1:
+      Type: AWS::EC2::Instance
+      Title: "vLLM (internal)"
+
+    AZ2:
+      Type: AWS::EC2::AvailabilityZone
+      Title: "Availability Zone B"
+      Direction: vertical
+      Children:
+        - PublicSubnet2
+        - PrivateSubnet2
+    PublicSubnet2:
+      Type: AWS::EC2::Subnet
+      Preset: PublicSubnet
+      Title: "Public subnet"
+      Children:
+        - NatGW2
+    NatGW2:
+      Type: AWS::EC2::NatGateway
+      Title: "NAT gateway"
+    PrivateSubnet2:
+      Type: AWS::EC2::Subnet
+      Preset: PrivateSubnet
+      Title: "Private subnet"
+      Direction: horizontal
+      Children:
+        - CpNG2
+        - GpuNG2
+    CpNG2:
+      Type: AWS::Diagram::Resource
+      Title: "Control-plane NG (CPU)"
+      BorderColor: "rgba(52,168,83,255)"
+      Children:
+        - CpNode2
+    CpNode2:
+      Type: AWS::EC2::Instance
+      Title: "control-plane API"
+    GpuNG2:
+      Type: AWS::Diagram::Resource
+      Title: "Inference NG (GPU)"
+      BorderColor: "rgba(217,48,37,255)"
+      Children:
+        - GpuNode2
+    GpuNode2:
+      Type: AWS::EC2::Instance
+      Title: "vLLM (internal)"
+
+    # EKS cluster drawn as an overlay spanning every worker node across both AZs.
+    EKSCluster:
+      Type: AWS::EKS
+      Title: "Amazon EKS cluster"
+      SpanResources:
+        - CpNode1
+        - GpuNode1
+        - CpNode2
+        - GpuNode2
+      BorderType: dashed
+      BorderColor: "rgba(105,59,197,255)"
+
+    # Managed data & container registry
+    ManagedData:
+      Type: AWS::Diagram::Resource
+      Title: "Managed data & registry"
+      BorderColor: "rgba(120,120,120,255)"
+      BorderType: Dashed
+      Direction: horizontal
+      Children:
+        - RDS
+        - S3
+        - Secrets
+        - ECR
+    RDS:
+      Type: AWS::RDS::DBInstance
+      Title: "RDS PostgreSQL"
+    S3:
+      Type: AWS::S3::Bucket
+      Title: "S3 (artifacts)"
+    Secrets:
+      Type: AWS::SecretsManager::Secret
+      Title: "Secrets Manager"
+    ECR:
+      Type: AWS::ECR
+      Title: "ECR (images)"
+
+    # Observability
+    Observability:
+      Type: AWS::Diagram::Resource
+      Title: "Observability"
+      BorderColor: "rgba(120,120,120,255)"
+      BorderType: Dashed
+      Direction: horizontal
+      Children:
+        - AMP
+        - AMG
+        - Logs
+    AMP:
+      Type: AWS::APS::Workspace
+      Title: "Managed Prometheus"
+    AMG:
+      Type: AWS::Grafana::Workspace
+      Title: "Managed Grafana"
+    Logs:
+      Type: AWS::Logs
+      Title: "CloudWatch logs"
+
+  Links:
+    - Source: User
+      SourcePosition: E
+      Target: ALB
+      TargetPosition: NW
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+    - Source: ALB
+      SourcePosition: S
+      Target: CpNode1
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+    - Source: CpNode1
+      SourcePosition: E
+      Target: GpuNode1
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+    - Source: CpNode2
+      SourcePosition: E
+      Target: GpuNode2
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+    - Source: CpNode1
+      SourcePosition: S
+      Target: RDS
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+    - Source: CpNode1
+      SourcePosition: S
+      Target: Secrets
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal

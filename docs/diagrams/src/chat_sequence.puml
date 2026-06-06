@@ -1,0 +1,51 @@
+@startuml chat_sequence
+title POST /v1/chat/completions - Authenticated Request Flow (UML)
+
+autonumber
+skinparam shadowing false
+
+actor Client
+participant "ControlPlaneHandler\n(server.do_POST)" as H
+participant "build_chat_response" as B
+participant "TokenVerifier\n(OIDC / Dev)" as TV
+participant "OIDC issuer" as OIDC
+participant "VLLMInferenceClient" as IC
+participant "vLLM service\n(internal-only)" as V
+
+Client -> H : POST /v1/chat/completions\nAuthorization: Bearer <token>
+H -> B : authorization, body, config, verifier
+
+alt no / malformed bearer token
+  B --> Client : 401 unauthorized
+end
+
+B -> TV : verify(token)
+TV -> OIDC : fetch JWKS / validate JWT
+alt invalid or expired token
+  TV --> B : TokenVerificationError
+  B --> Client : 401 unauthorized
+end
+TV --> B : TokenClaims
+
+alt inference not configured
+  B --> Client : 503 degraded
+end
+
+B -> B : parse + validate JSON body
+alt invalid body
+  B --> Client : 400 bad_request
+end
+
+B -> IC : chat_completions(request)
+IC -> V : POST /v1/chat/completions
+alt success
+  V --> IC : completion
+  IC --> B : result
+  B --> Client : 200 OK
+else unavailable / timeout
+  V --> IC : error / timeout
+  IC --> B : InferenceUnavailableError / TimeoutError
+  B --> Client : 503 degraded
+end
+
+@enduml
