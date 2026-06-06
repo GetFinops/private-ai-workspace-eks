@@ -111,3 +111,45 @@ Files in this repository adapted from the above source:
     TokenVerifier Protocol are new types aligned to our AuthSettings contract;
     OIDCTokenVerifier supports any OIDC-compliant provider via standard JWKS;
     DevTokenVerifier is a new development-only stub with no upstream analogue.
+
+────────────────────────────────────────────────────────────────────────────────
+Third-party dependency license record (M3 — state externalization)
+────────────────────────────────────────────────────────────────────────────────
+
+The following runtime dependencies were added in M3 and reviewed for license
+compatibility before adoption.
+
+  psycopg (psycopg[binary]>=3.1)
+    License: GNU Lesser General Public License v2.1 or later (LGPL-2.1+)
+    Use: PostgreSQL adapter used in app/db/ and app/control_plane/session_postgres.py
+         to back the externalized session store and connection pool.
+    LGPL note: psycopg is dynamically linked; the LGPL requirement to allow
+    users to replace the library is satisfied by the standard packaging model.
+    Binary extra bundles libpq under the PostgreSQL License (permissive).
+    No psycopg source is copied into this repository.
+
+  boto3 (boto3>=1.35)
+    License: Apache License 2.0
+    Use: AWS SDK used in app/storage/s3.py for S3 object-storage flows
+         (artifact upload, retrieval, presigned URLs).
+    No boto3 source is copied into this repository.
+
+────────────────────────────────────────────────────────────────────────────────
+Vector-storage decision record (M3 deferral)
+────────────────────────────────────────────────────────────────────────────────
+
+M3 build task 4 requires a vector-storage strategy decision.
+
+Decision: deferred to M4 (inference plane MVP).
+
+Rationale:
+- Vector retrieval is tightly coupled to the inference model and its embedding
+  dimensionality; the vLLM integration (M4) must be in place before a
+  meaningful retrieval-augmented generation (RAG) design can be validated.
+- No production-critical M3 feature depends on vector storage.
+- Introducing a vector database (pgvector, Qdrant, etc.) before the inference
+  contract is validated would risk over-engineering or premature lock-in.
+
+Escalation: the vector-storage strategy requires maintainer review before
+adoption, per the M3 escalation triggers.  A recommendation will be brought
+to review at the start of M4.
