@@ -1,0 +1,37 @@
+@startuml control_plane_components
+title Control Plane - Component View (UML)
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+left to right direction
+
+actor "User / API client" as user
+cloud "OIDC issuer\n(Cognito / Okta / Keycloak)" as oidc
+node "vLLM service\n(internal-only)" as vllm
+
+package "app.control_plane" {
+  component "__main__\n(run_server)" as main
+  component "server\n(ControlPlaneHandler,\nbuild_chat_response)" as server
+  component "config\n(ControlPlaneConfig)" as config
+  component "auth\n(Principal, Role,\nAuthSettings)" as auth
+  component "token_verifier\n(OIDC / Dev,\nTokenClaims)" as tokenv
+  component "session\n(SessionStore,\nWorkspaceSession)" as session
+  component "inference\n(VLLMInferenceClient,\nChatCompletionRequest)" as inference
+  component "routing\n(InferenceEndpoint,\nURL normalize)" as routing
+}
+
+user --> server : HTTPS
+main --> server : configures
+main --> config : from_env
+server --> config : reads
+server --> tokenv : verify bearer
+server --> session : create / get
+server --> inference : chat_completions
+config ..> tokenv : make_token_verifier
+config --> auth : AuthSettings
+tokenv --> auth : produces Principal
+inference --> routing : resolve endpoint
+tokenv --> oidc : fetch JWKS / verify JWT
+inference --> vllm : POST /v1/chat/completions
+
+@enduml

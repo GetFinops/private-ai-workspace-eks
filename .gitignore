@@ -16,3 +16,6 @@ venv/
 .env
 .env.*
 !.env.example
+
+# Local cache for diagram tooling (PlantUML jar, etc.)
+.cache/
