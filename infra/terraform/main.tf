@@ -119,3 +119,38 @@ module "irsa_app" {
 
   tags = local.tags
 }
+
+module "github_actions_role" {
+  source = "./modules/github-actions-role"
+
+  project_name      = var.project_name
+  environment       = var.environment
+  github_repository = var.github_repository
+
+  ecr_repository_arn = module.ecr.control_plane_repository_arn
+  eks_cluster_arn    = module.eks.cluster_arn
+
+  tags = local.tags
+}
+
+# Grant the GitHub Actions deploy role cluster-admin access so the CI runner
+# can install cluster-addons (ESO) and deploy the control-plane Helm chart.
+# Scope this down to a namespace-scoped role in production.
+resource "aws_eks_access_entry" "github_actions" {
+  cluster_name  = module.eks.cluster_name
+  principal_arn = module.github_actions_role.role_arn
+  type          = "STANDARD"
+  tags          = local.tags
+}
+
+resource "aws_eks_access_policy_association" "github_actions_admin" {
+  cluster_name  = module.eks.cluster_name
+  principal_arn = module.github_actions_role.role_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+
+  depends_on = [aws_eks_access_entry.github_actions]
+}

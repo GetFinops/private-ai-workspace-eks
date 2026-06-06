@@ -1,6 +1,9 @@
 name: Deploy
 
 on:
+  # push trigger re-enabled once GitHub Actions vars/secrets are configured
+  # (AWS_DEPLOY_ROLE_ARN, ECR_CONTROL_PLANE_URL, EKS_CLUSTER_NAME, etc.).
+  # See deploy/values/dev/app.yaml and docs/milestones/m2-eks-baseline-deployment.md.
   # push:
   #   branches:
   #     - main

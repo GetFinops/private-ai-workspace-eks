@@ -52,3 +52,8 @@ output "irsa_app_role_arn" {
   description = "IAM role ARN to set on the control-plane ServiceAccount annotation."
   value       = module.irsa_app.role_arn
 }
+
+output "github_actions_deploy_role_arn" {
+  description = "IAM role ARN for GitHub Actions CI/CD. Set as AWS_DEPLOY_ROLE_ARN in GitHub Actions secrets."
+  value       = module.github_actions_role.role_arn
+}
