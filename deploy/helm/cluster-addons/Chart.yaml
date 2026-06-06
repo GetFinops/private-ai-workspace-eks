@@ -2,12 +2,16 @@ apiVersion: v2
 name: cluster-addons
 description: >
   Umbrella chart for cluster-level add-ons required before application charts
-  are deployed. Installs External Secrets Operator (ESO) so ExternalSecret
-  resources in the control-plane chart can sync secrets from AWS Secrets Manager.
+  are deployed. Installs External Secrets Operator (ESO) and the NVIDIA device
+  plugin so GPU nodes advertise nvidia.com/gpu resources to the scheduler.
 type: application
-version: 0.1.0
+version: 0.2.0
 dependencies:
   - name: external-secrets
     version: "0.x.x"
     repository: "https://charts.external-secrets.io"
     condition: externalSecrets.enabled
+  - name: nvidia-device-plugin
+    version: "0.x.x"
+    repository: "https://nvidia.github.io/k8s-device-plugin"
+    condition: nvidiaDevicePlugin.enabled

@@ -4,11 +4,19 @@
 
 replicaCount: 1
 
+image:
+  tag: "v0.9.0"
+
 model:
-  id: "meta-llama/Llama-3.2-1B-Instruct"
-  maxModelLen: 2048
+  # Mistral-7B-Instruct-v0.3 (Apache-2.0).
+  # Gated on Hugging Face — accept the license at:
+  #   https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3
+  # then set the HF token secret in Secrets Manager before deploying.
+  id: "mistralai/Mistral-7B-Instruct-v0.3"
+  dtype: "float16"
+  maxModelLen: 8192
   tensorParallelSize: 1
-  maxNumSeqs: 32
+  maxNumSeqs: 64
 
 resources:
   requests:
@@ -16,10 +24,25 @@ resources:
   limits:
     nvidia.com/gpu: 1
 
+serviceAccount:
+  create: true
+  # Set from: terraform -chdir=infra/terraform output -raw irsa_vllm_role_arn
+  irsaRoleArn: ""
+
+externalSecrets:
+  enabled: true
+  awsRegion: us-east-1
+  # Set from: terraform -chdir=infra/terraform output -raw hf_token_secret_name
+  hfTokenSecretName: ""
+  refreshInterval: "12h"
+
+networkPolicy:
+  enabled: true
+  controlPlaneNamespace: app
+
 autoscaling:
   enabled: false
 
-# In dev, allow pod scheduling on the single GPU node even before Prometheus is set up.
 podAnnotations:
   prometheus.io/scrape: "true"
   prometheus.io/port: "8000"

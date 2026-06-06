@@ -25,7 +25,7 @@ config:
   environment: development
   logLevel: INFO
   objectStorageBucket: ""      # Set from: terraform output -raw s3_artifacts_bucket
-  inferenceBaseUrl: ""         # Not configured until M4
+  inferenceBaseUrl: "http://vllm-inference.inference.svc.cluster.local:8000"
   secretsProvider: aws-secrets-manager
 
 ingress:

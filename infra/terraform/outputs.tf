@@ -57,3 +57,13 @@ output "github_actions_deploy_role_arn" {
   description = "IAM role ARN for GitHub Actions CI/CD. Set as AWS_DEPLOY_ROLE_ARN in GitHub Actions secrets."
   value       = module.github_actions_role.role_arn
 }
+
+output "hf_token_secret_name" {
+  description = "Secrets Manager secret name for the Hugging Face Hub token. Populate value out-of-band before deploying vLLM."
+  value       = aws_secretsmanager_secret.hf_token.name
+}
+
+output "irsa_vllm_role_arn" {
+  description = "IAM role ARN to annotate on the vLLM ServiceAccount (IRSA)."
+  value       = module.irsa_vllm.role_arn
+}

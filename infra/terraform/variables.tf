@@ -128,3 +128,15 @@ variable "github_repository" {
   type        = string
   default     = "GetFinops/private-ai-workspace-eks"
 }
+
+variable "inference_namespace" {
+  description = "Kubernetes namespace where the vLLM inference chart is deployed."
+  type        = string
+  default     = "inference"
+}
+
+variable "vllm_service_account_name" {
+  description = "Kubernetes ServiceAccount name for the vLLM pod."
+  type        = string
+  default     = "vllm-inference"
+}

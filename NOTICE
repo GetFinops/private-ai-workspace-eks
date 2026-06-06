@@ -135,6 +135,41 @@ compatibility before adoption.
     No boto3 source is copied into this repository.
 
 ────────────────────────────────────────────────────────────────────────────────
+Third-party dependency and image license record (M4 — inference plane MVP)
+────────────────────────────────────────────────────────────────────────────────
+
+The following runtime dependencies and container images were added or explicitly
+referenced in M4 and reviewed for license compatibility.
+
+  vllm/vllm-openai (container image)
+    Source: https://hub.docker.com/r/vllm/vllm-openai
+    License: Apache License 2.0
+    Use: inference-plane runtime deployed via deploy/helm/vllm.  The image is
+         pulled from Docker Hub at pod start time; no vLLM source is copied into
+         this repository.
+    Note: vLLM bundles CUDA kernels from NVIDIA (proprietary).  GPU workloads
+          require the operator to accept the NVIDIA CUDA End-User License
+          Agreement for their specific AWS GPU instance type.
+
+  mistralai/Mistral-7B-Instruct-v0.3 (model weights)
+    Source: https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3
+    License: Apache License 2.0
+    Use: default inference model for the dev environment; weights are
+         downloaded at pod start time from the Hugging Face Hub using the
+         HF token stored in Secrets Manager.  No model weights are stored
+         in this repository or in the container image.
+    Note: the model is gated on Hugging Face.  Operators must accept the
+          Mistral license agreement at the above URL and populate the
+          HUGGING_FACE_HUB_TOKEN secret before deploying.
+
+  nvidia-device-plugin (Helm chart)
+    Chart: https://github.com/NVIDIA/k8s-device-plugin
+    License: Apache License 2.0
+    Use: DaemonSet deployed via deploy/helm/cluster-addons to expose
+         nvidia.com/gpu resources on GPU node group nodes.
+    No nvidia-device-plugin source is copied into this repository.
+
+────────────────────────────────────────────────────────────────────────────────
 Vector-storage decision record (M3 deferral)
 ────────────────────────────────────────────────────────────────────────────────
 

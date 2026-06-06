@@ -54,6 +54,8 @@ _MAX_REQUEST_BODY = 1 * 1024 * 1024  # 1 MiB
 class Response:
     status_code: int
     payload: dict[str, Any]
+    # Optional extra HTTP headers (e.g. Retry-After on 503 degraded responses).
+    headers: dict[str, str] | None = None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -236,29 +238,57 @@ def build_chat_response(
         )
 
     # 5. Forward to inference plane; degrade gracefully on failure.
+    # All degraded 503 responses include a Retry-After header so clients can
+    # back off without hammering the control plane during cold-start or outage.
     client = VLLMInferenceClient(base_url=config.inference_base_url)
     try:
         result = client.chat_completions(chat_request)  # type: ignore[arg-type]
         return Response(HTTPStatus.OK, result)  # type: ignore[arg-type]
-    except (InferenceUnavailableError, InferenceRoutingError) as exc:
-        logger.warning("Inference unavailable: %s", exc)
+    except InferenceUnavailableError as exc:
+        # HTTP error from vLLM (e.g. 503 when the model is still loading).
+        # Suggest a longer back-off to allow the GPU pod to warm up.
+        retry_after = "30"
+        if exc.status_code is not None and exc.status_code == 429:
+            # Capacity exhausted — back off longer.
+            retry_after = "60"
+        logger.warning("Inference unavailable (HTTP %s): %s", exc.status_code, type(exc).__name__)
         return Response(
             HTTPStatus.SERVICE_UNAVAILABLE,
             {
                 "error": "inference_unavailable",
-                "detail": "The inference service is currently unavailable.",
+                "detail": (
+                    "The inference service is at capacity."
+                    if exc.status_code == 429
+                    else "The inference service is currently unavailable."
+                ),
                 "status": "degraded",
+                "retry_after": int(retry_after),
             },
+            headers={"Retry-After": retry_after},
+        )
+    except InferenceRoutingError as exc:
+        logger.warning("Inference routing error: %s", type(exc).__name__)
+        return Response(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            {
+                "error": "inference_not_reachable",
+                "detail": "The inference endpoint could not be reached.",
+                "status": "degraded",
+                "retry_after": 10,
+            },
+            headers={"Retry-After": "10"},
         )
     except TimeoutError as exc:
-        logger.warning("Inference timed out: %s", exc)
+        logger.warning("Inference timed out: %s", type(exc).__name__)
         return Response(
             HTTPStatus.SERVICE_UNAVAILABLE,
             {
                 "error": "inference_timeout",
-                "detail": "The inference request timed out.",
+                "detail": "The inference request timed out. The model may be loading — retry shortly.",
                 "status": "degraded",
+                "retry_after": 30,
             },
+            headers={"Retry-After": "30"},
         )
 
 
@@ -277,7 +307,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         response = build_response(self.path, self.__class__.config)
-        self._write_json(response.status_code, response.payload)
+        self._write_json(response.status_code, response.payload, response.headers)
 
     def do_POST(self) -> None:  # noqa: N802
         if self.path == _CHAT_PATH:
@@ -294,13 +324,21 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
             )
         else:
             response = Response(HTTPStatus.NOT_FOUND, {"error": "not_found", "path": self.path})
-        self._write_json(response.status_code, response.payload)
+        self._write_json(response.status_code, response.payload, response.headers)
 
-    def _write_json(self, status: int, payload: dict[str, Any]) -> None:
+    def _write_json(
+        self,
+        status: int,
+        payload: dict[str, Any],
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
         body = json.dumps(payload, sort_keys=True).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if extra_headers:
+            for name, value in extra_headers.items():
+                self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
