@@ -3,8 +3,8 @@
 Generated with the `diagrams` library (https://diagrams.mingrammer.com/).
 Regenerate with: scripts/generate-diagrams.sh
 
-Shows how code reaches the EKS baseline: CI lint/test, image build and push to
-ECR, Helm-based deploy, and Terraform-provisioned infrastructure and IRSA.
+Two clear lanes: a build-and-deploy pipeline (GitHub Actions -> ECR -> Helm ->
+EKS) and an infrastructure-provisioning lane (Terraform -> EKS + IRSA).
 """
 
 from __future__ import annotations
@@ -24,9 +24,13 @@ _OUT = os.path.join(os.path.dirname(__file__), "..", "cicd_pipeline")
 _GRAPH_ATTR = {
     "fontsize": "16",
     "labelloc": "t",
-    "pad": "0.5",
-    "splines": "spline",
+    "pad": "0.6",
+    "ranksep": "1.1",
+    "nodesep": "0.8",
+    "splines": "ortho",
 }
+
+_DASH = {"style": "dashed", "color": "#555555"}
 
 
 def main() -> None:
@@ -40,26 +44,27 @@ def main() -> None:
     ):
         repo = Github("Source repo\n(pull request)")
 
-        with Cluster("GitHub Actions"):
-            ci = GithubActions("CI: lint + tests")
+        with Cluster("GitHub Actions pipeline"):
+            ci = GithubActions("lint + tests")
             build = GithubActions("build image")
             deploy = GithubActions("deploy (Helm)")
+            ci >> Edge(label="on success") >> build >> Edge(label="on success") >> deploy
 
-        with Cluster("AWS"):
+        with Cluster("Runtime (Amazon EKS)"):
             ecr = ECR("ECR (images)")
-            eks = EKS("EKS cluster")
-            irsa = IAMRole("IRSA role")
-            tf = Terraform("Terraform\n(VPC/EKS/RDS/S3)")
             helm = Helm("Helm chart")
+            eks = EKS("EKS cluster")
 
-        repo >> ci >> build
-        build >> Edge(label="push") >> ecr
-        build >> Edge(label="on success") >> deploy
-        deploy >> helm >> eks
-        ecr >> Edge(style="dashed", label="pull") >> eks
-        tf >> Edge(style="dashed", label="provision") >> eks
-        tf >> Edge(style="dashed") >> irsa
-        irsa >> Edge(style="dashed", label="pod AWS access") >> eks
+        with Cluster("Provisioning"):
+            tf = Terraform("Terraform\nVPC/EKS/RDS/S3")
+            irsa = IAMRole("IRSA role")
+
+        repo >> ci
+        build >> Edge(label="push image") >> ecr
+        deploy >> helm >> Edge(label="apply") >> eks
+        ecr >> Edge(label="pull", **_DASH) >> eks
+        tf >> Edge(label="provision", **_DASH) >> eks
+        tf >> Edge(**_DASH) >> irsa >> Edge(label="pod AWS access", **_DASH) >> eks
 
 
 if __name__ == "__main__":

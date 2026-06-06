@@ -4,8 +4,9 @@ Generated with the `diagrams` library (https://diagrams.mingrammer.com/).
 Regenerate with: scripts/generate-diagrams.sh
 
 This track is exploratory and maintainer-gated; see
-docs/12-phase-2-feature-adoption.md. Red dashed nodes/edges are excluded from
-the default build (AGPL-sensitive or non-vendored) and shown only for context.
+docs/12-phase-2-feature-adoption.md. Left to right: client -> proposed feature
+services -> the Phase 1 baseline they build on, with AGPL/excluded components
+grouped on the right.
 """
 
 from __future__ import annotations
@@ -28,9 +29,16 @@ _RED = "#d93025"
 _GRAPH_ATTR = {
     "fontsize": "16",
     "labelloc": "t",
-    "pad": "0.5",
-    "splines": "spline",
+    "pad": "0.6",
+    "ranksep": "1.0",
+    "nodesep": "0.6",
+    "splines": "ortho",
 }
+
+_BASE = {"color": "#34a853"}
+_FEAT = {"color": "#4285f4"}
+_DASH_RED = {"style": "dashed", "color": _RED}
+_DASH = {"style": "dashed", "color": "#888888"}
 
 
 def main() -> None:
@@ -39,40 +47,52 @@ def main() -> None:
         filename=_OUT,
         outformat="png",
         show=False,
-        direction="LR",
+        direction="TB",
         graph_attr=_GRAPH_ATTR,
     ):
+        client = Client("M9 Web UI / API client")
+
+        with Cluster("Phase 2 feature services (proposed, gated)"):
+            agents = Deploy("M11 Agents + tools\n(sandboxed)")
+            rag = Deploy("M10 Retrieval / RAG")
+            mcp = Deploy("M12 MCP layer")
+            media = Deploy("M14 Media (optional)")
+            pim = Deploy("M13 PIM (optional)")
+
         with Cluster("Phase 1 baseline (committed)"):
             api = Deploy("control-plane API")
             vllm = Deploy("vLLM inference")
-            rds = RDS("PostgreSQL")
-            s3 = S3("S3")
+            pg = RDS("PostgreSQL")
+            s3 = S3("S3 artifacts")
             secrets = SecretsManager("Secrets Manager")
-
-        with Cluster("Phase 2 product features (proposed, gated)"):
-            gui = Client("M9 Web UI / API client")
-            rag = Deploy("M10 Retrieval / RAG")
-            agents = Deploy("M11 Agents + tools\n(sandboxed)")
-            mcp = Deploy("M12 MCP layer")
-            pim = Deploy("M13 PIM integrations\n(optional)")
-            media = Deploy("M14 Media services\n(optional)")
 
         with Cluster("External / excluded by default"):
             vec = RDS("Vector store\n(pgvector / managed)")
-            search = Server("External search\n(AGPL, not vendored)")
-            shell = Blank("Arbitrary shell exec\n(EXCLUDED)")
+            search = Server("Search (AGPL,\nnot vendored)")
+            shell = Blank("Shell exec\n(EXCLUDED)")
 
-        gui >> api
-        api >> agents
-        agents >> Edge(label="internal-only") >> vllm
-        agents >> mcp
-        agents >> rag
-        rag >> vec
-        rag >> s3
-        media >> vllm
-        pim >> Edge(style="dashed", label="hardened secret + URL layer") >> secrets
-        mcp >> Edge(style="dashed", label="opt-in, per-tenant") >> search
-        agents >> Edge(style="dashed", color=_RED, label="excluded (multi-tenant)") >> shell
+        # Primary request path
+        client >> Edge(**_FEAT) >> api
+        api >> Edge(**_FEAT) >> agents
+
+        # Agent orchestration to feature services and inference
+        agents >> Edge(**_FEAT) >> rag
+        agents >> Edge(**_FEAT) >> mcp
+        agents >> Edge(label="internal-only", **_BASE) >> vllm
+
+        # Optional features
+        api >> Edge(**_FEAT) >> media
+        api >> Edge(**_FEAT) >> pim
+        media >> Edge(**_BASE) >> vllm
+
+        # Backend dependencies
+        rag >> Edge(**_FEAT) >> vec
+        rag >> Edge(**_BASE) >> s3
+        pim >> Edge(label="hardened secret + URL", **_DASH) >> secrets
+
+        # External and excluded
+        mcp >> Edge(label="opt-in, per-tenant", **_DASH) >> search
+        agents >> Edge(label="excluded (multi-tenant)", **_DASH_RED) >> shell
 
 
 if __name__ == "__main__":
