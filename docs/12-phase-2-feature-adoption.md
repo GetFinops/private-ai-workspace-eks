@@ -167,7 +167,7 @@ Decision Checklist below before implementation begins.
 | Milestone | Instruction file | Risk |
 | --- | --- | --- |
 | M9 — Product Surface | [`milestones/m9-product-surface.md`](milestones/m9-product-surface.md) | standard |
-| M10 — Retrieval (RAG) | [`milestones/m10-retrieval.md`](milestones/m10-retrieval.md) | standard |
+| M10 — Retrieval and Memory | [`milestones/m10-retrieval.md`](milestones/m10-retrieval.md) | standard |
 | M11 — Agent and Tool Framework | [`milestones/m11-agent-tool-framework.md`](milestones/m11-agent-tool-framework.md) | **high — sandbox design is an escalation gate** |
 | M12 — MCP Integration Layer | [`milestones/m12-mcp-integration.md`](milestones/m12-mcp-integration.md) | standard |
 | M13 — Personal-Information Integrations | [`milestones/m13-personal-info-integrations.md`](milestones/m13-personal-info-integrations.md) | **high — credential-handling review required per integration** |
@@ -188,22 +188,27 @@ Decision Checklist below before implementation begins.
 - **Exit criteria**: an authenticated user can drive the existing API
   (including the chat path) through the new surface.
 
-### M10 — Retrieval (RAG) on Externalized Vector Storage
+### M10 — Retrieval and Memory on Externalized Vector Storage
 
 - **Objective**: document/knowledge retrieval grounded in tenant-isolated
-  indexes.
+  indexes, and per-user long-term memory grounded in user-isolated storage.
 - **Depends on**: M9 (or the API baseline), M3 externalized state.
 - **Adopt / adapt**: retrieval and ranking *logic* patterns.
 - **Build fresh / rebuild**: storage on managed or in-cluster vector services
   chosen in M3 (for example PostgreSQL with a vector extension, or a dedicated
-  vector service).
+  vector service). Memory uses the same backend with a distinct, user-scoped
+  schema.
 - **Exclude**: embedded/local vector store implementations and local-FS index
-  assumptions.
+  assumptions; cross-user/cross-tenant memory sharing; implicit memory capture
+  without user-visible opt-in.
 - **Licensing gate**: review embedding-model and vector-engine licenses.
-- **Security gate**: strict per-tenant index isolation; no cross-tenant
-  retrieval; size and rate limits.
+- **Security gate**: strict per-tenant index isolation for retrieval and
+  strict per-user isolation for memory; no cross-tenant retrieval or
+  cross-user memory recall; size and rate limits; explicit user-controlled
+  list/export/delete for memories.
 - **Exit criteria**: retrieval works against externalized, per-tenant-isolated
-  storage with no local-FS dependency.
+  storage with no local-FS dependency; memory works against externalized,
+  per-user-isolated storage with explicit user controls.
 
 ### M11 — Agent and Tool Framework (Sandboxed)
 

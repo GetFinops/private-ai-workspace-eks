@@ -53,6 +53,16 @@ isolated, allow-listed, per-tenant sandbox with auditable execution.
 - MCP-exposed tools (M12)
 - personal-information integrations (M13)
 
+## In-scope optional sub-feature: "deep-research"-style multi-step agent
+
+The upstream-Odysseus surface includes a "deep-research" component documented
+in the Phase 2 licensing analysis as Apache-2.0. Functionally it is a
+multi-step agent workflow (planning → retrieval → synthesis), so it is a
+natural fit for this milestone rather than its own.
+
+If adopted, treat it as an optional sub-feature subject to a separate adoption
+decision recorded in `NOTICE`, and apply the additional rules below.
+
 ## Build tasks
 
 1. **Sandbox design review (escalation gate).** Before any code is
@@ -85,6 +95,19 @@ isolated, allow-listed, per-tenant sandbox with auditable execution.
 - Review tool dependencies for license compatibility.
 - Reject tools whose default build pulls in AGPL-sensitive components.
 - Record provenance in `NOTICE` for every adapted tool-framework pattern.
+- **Apache-2.0 attribution checkpoint for the "deep-research" sub-feature.**
+  If adopted, the upstream "deep-research" component carries Apache-2.0
+  attribution and `NOTICE` obligations per the licensing analysis in
+  `12-phase-2-feature-adoption.md`. Before merging any deep-research code:
+  1. Confirm the upstream source file licenses are Apache-2.0.
+  2. Preserve the upstream `LICENSE` and `NOTICE` content for the adapted
+     portions; copy required notices into this repository's `NOTICE`.
+  3. Record provenance per adapted file (upstream path, commit, license).
+  4. Treat retrieval-as-a-tool inside deep-research as a tool call governed
+     by the same per-tenant allow-list and audit-logging rules as any other
+     tool, with no special bypass.
+  5. Apply the same sandbox boundary and kill-switch to deep-research as to
+     any other tool — multi-step agents do not get a relaxed sandbox.
 
 ## Security checkpoints
 
@@ -123,3 +146,5 @@ isolated, allow-listed, per-tenant sandbox with auditable execution.
 - any cross-tenant isolation finding
 - any tool framework whose default build cannot meet the sandbox
   requirements
+- adopting the "deep-research" sub-feature (requires a separate decision
+  record in `NOTICE` plus the Apache-2.0 attribution checkpoint above)

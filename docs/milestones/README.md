@@ -102,7 +102,7 @@ explicit maintainer adoption per the Phase 2 Decision Checklist before
 implementation begins.
 
 - [M9 — Product Surface (API client / Web UI)](m9-product-surface.md)
-- [M10 — Retrieval (RAG) on externalized vector storage](m10-retrieval.md)
+- [M10 — Retrieval and Memory on externalized vector storage](m10-retrieval.md)
 - [M11 — Agent and Tool Framework (sandboxed) — high-risk](m11-agent-tool-framework.md)
 - [M12 — MCP Integration Layer](m12-mcp-integration.md)
 - [M13 — Personal-Information Integrations (optional) — high-risk](m13-personal-info-integrations.md)
@@ -112,6 +112,22 @@ implementation begins.
 
 - [M7b — Full Staging Hardening (post–Phase 2)](m7b-full-staging-hardening.md)
 - [M8 — Production Release](m8-production-release.md)
+
+### Currently unowned (tracked for future decision)
+
+These upstream-Odysseus surfaces are referenced in the planning bundle but are
+not owned by any current milestone. They are listed here so they are not lost;
+adopting any of them requires opening a follow-up milestone (or folding the
+scope into an existing milestone with an explicit decision record).
+
+- **Notifications service** — referenced in
+  [`../03-implementation-plan.md`](../03-implementation-plan.md) target topology
+  but not assigned to M0–M8 or M9–M14. Likely belongs in the platform baseline
+  rather than the Phase 2 feature track if adopted.
+- **"Deep-research" component (Apache-2.0)** — referenced in the licensing
+  analysis of [`../12-phase-2-feature-adoption.md`](../12-phase-2-feature-adoption.md).
+  If adopted, the most natural home is M11 (as a multi-step agent workflow);
+  see the M11 file for the attribution checkpoint.
 
 ## File Structure
 
