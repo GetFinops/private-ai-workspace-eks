@@ -155,11 +155,23 @@ Based on the upstream attribution and license records:
 - Model weights and media models carry their own licenses and must be reviewed
   per model; an MIT codebase does not imply permissively licensed models.
 
-## Proposed M9+ Sequence
+## M9+ Sequence
 
 The ordering reflects dependencies and risk: enable a usable surface first,
 then retrieval, then the higher-risk agentic and integration features. Each
-milestone is a candidate, not a commitment.
+milestone is **scaffolded** as a build-ready instruction file under
+`docs/milestones/` (mirroring the Phase 1 milestone format), but each
+individual feature still requires explicit maintainer adoption per the
+Decision Checklist below before implementation begins.
+
+| Milestone | Instruction file | Risk |
+| --- | --- | --- |
+| M9 — Product Surface | [`milestones/m9-product-surface.md`](milestones/m9-product-surface.md) | standard |
+| M10 — Retrieval (RAG) | [`milestones/m10-retrieval.md`](milestones/m10-retrieval.md) | standard |
+| M11 — Agent and Tool Framework | [`milestones/m11-agent-tool-framework.md`](milestones/m11-agent-tool-framework.md) | **high — sandbox design is an escalation gate** |
+| M12 — MCP Integration Layer | [`milestones/m12-mcp-integration.md`](milestones/m12-mcp-integration.md) | standard |
+| M13 — Personal-Information Integrations | [`milestones/m13-personal-info-integrations.md`](milestones/m13-personal-info-integrations.md) | **high — credential-handling review required per integration** |
+| M14 — Media Services | [`milestones/m14-media-services.md`](milestones/m14-media-services.md) | standard, per-model license review required |
 
 ### M9 — Product Surface (API client / Web UI)
 

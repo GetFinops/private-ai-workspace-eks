@@ -94,12 +94,19 @@ See `../10-delivery-roadmap.md` for the full dependency graph and
 
 ### Phase 2 feature track (committed; individual features adoption-gated)
 
-The product-feature milestones M9–M14 (UI surface, retrieval, agents,
-MCP integration, personal-information integrations, media services) are
-analyzed and sequenced in
-[`../12-phase-2-feature-adoption.md`](../12-phase-2-feature-adoption.md).
-Per-milestone instruction files will be added when each feature is
-adopted by maintainer decision.
+The product-feature milestones M9–M14 are analyzed and sequenced in
+[`../12-phase-2-feature-adoption.md`](../12-phase-2-feature-adoption.md);
+the per-milestone instruction files below are scaffolds that mirror the
+Phase 1 instruction format. Each individual feature still requires
+explicit maintainer adoption per the Phase 2 Decision Checklist before
+implementation begins.
+
+- [M9 — Product Surface (API client / Web UI)](m9-product-surface.md)
+- [M10 — Retrieval (RAG) on externalized vector storage](m10-retrieval.md)
+- [M11 — Agent and Tool Framework (sandboxed) — high-risk](m11-agent-tool-framework.md)
+- [M12 — MCP Integration Layer](m12-mcp-integration.md)
+- [M13 — Personal-Information Integrations (optional) — high-risk](m13-personal-info-integrations.md)
+- [M14 — Media Services (optional)](m14-media-services.md)
 
 ### Closeout (post–Phase 2)
 
