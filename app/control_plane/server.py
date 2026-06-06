@@ -38,6 +38,7 @@ from app.control_plane.inference import (
 )
 from app.control_plane.routing import InferenceRoutingError, InferenceUnavailableError
 from app.control_plane.session import InMemorySessionStore, SessionStore
+from app.storage.s3 import S3StorageClient, StorageError
 from app.control_plane.token_verifier import TokenVerificationError, TokenVerifier
 
 if TYPE_CHECKING:
@@ -272,6 +273,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     config: ControlPlaneConfig = ControlPlaneConfig.from_env()
     token_verifier: TokenVerifier | None = None
     session_store: SessionStore = InMemorySessionStore()
+    storage_client: S3StorageClient | None = None
 
     def do_GET(self) -> None:  # noqa: N802
         response = build_response(self.path, self.__class__.config)
@@ -313,17 +315,94 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+def _build_session_store(config: ControlPlaneConfig) -> SessionStore:
+    """Return a PostgresSessionStore when DATABASE_URL is configured.
+
+    Behavior matrix:
+      DATABASE_URL set + connect OK     → PostgresSessionStore
+      DATABASE_URL set + connect fails  → development: warn and fall back to
+                                          InMemorySessionStore;
+                                          non-development: raise RuntimeError
+                                          (fail closed so the pod restarts via
+                                          the liveness probe rather than silently
+                                          serving inconsistent sessions across
+                                          replicas).
+      DATABASE_URL unset                → development: warn and fall back;
+                                          non-development: raise RuntimeError.
+    """
+    is_dev = config.environment == "development"
+
+    if not config.database_url:
+        if not is_dev:
+            raise RuntimeError(
+                "DATABASE_URL is required outside of development. "
+                "Refusing to start with an in-memory session store in "
+                f"environment={config.environment!r}."
+            )
+        logger.warning(
+            "DATABASE_URL not configured — using in-memory session store. "
+            "Not safe for multi-replica or production deployments."
+        )
+        return InMemorySessionStore()
+
+    try:
+        from app.db.connection import open_pool
+        from app.db.migrations import apply_migrations
+        from app.control_plane.session_postgres import PostgresSessionStore
+
+        pool = open_pool(config.database_url)
+        apply_migrations(pool)
+        logger.info("Using PostgreSQL session store.")
+        return PostgresSessionStore(pool)
+    except Exception as exc:
+        # Scrub exception text: psycopg's OperationalError may echo the
+        # conninfo string (which can include host, port, dbname, and in
+        # libpq URI form may include credentials).  Log only the exception
+        # type name; the full traceback is available via exc_info for
+        # operators who need to diagnose.
+        exc_type = type(exc).__name__
+        if not is_dev:
+            logger.error(
+                "Failed to initialize database session store (%s). "
+                "Refusing to fall back to in-memory store in environment=%r.",
+                exc_type, config.environment,
+                exc_info=False,
+            )
+            raise RuntimeError(
+                f"Failed to initialize database session store ({exc_type}); "
+                f"refusing to fall back to in-memory store in "
+                f"environment={config.environment!r}."
+            ) from None
+        logger.error(
+            "Failed to initialize database session store (%s) — "
+            "falling back to in-memory session store (development only).",
+            exc_type,
+            exc_info=False,
+        )
+        return InMemorySessionStore()
+
+
+def _build_storage_client(config: ControlPlaneConfig) -> S3StorageClient | None:
+    """Return an S3StorageClient when OBJECT_STORAGE_BUCKET is configured."""
+    if not config.object_storage_bucket:
+        logger.warning("OBJECT_STORAGE_BUCKET not configured — object storage unavailable.")
+        return None
+    return S3StorageClient(bucket=config.object_storage_bucket)
+
+
 def run_server(
     host: str = "0.0.0.0",
     port: int = 8080,
     config: ControlPlaneConfig | None = None,
     session_store: SessionStore | None = None,
+    storage_client: S3StorageClient | None = None,
 ) -> None:
     """Run the development HTTP server."""
     resolved_config = config or ControlPlaneConfig.from_env()
     ControlPlaneHandler.config = resolved_config
     ControlPlaneHandler.token_verifier = resolved_config.make_token_verifier()
-    ControlPlaneHandler.session_store = session_store or InMemorySessionStore()
+    ControlPlaneHandler.session_store = session_store or _build_session_store(resolved_config)
+    ControlPlaneHandler.storage_client = storage_client or _build_storage_client(resolved_config)
 
     server = ThreadingHTTPServer((host, port), ControlPlaneHandler)
     server.serve_forever()

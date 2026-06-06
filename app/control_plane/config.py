@@ -59,7 +59,12 @@ class ControlPlaneConfig:
         )
 
     def readiness_checks(self) -> dict[str, bool]:
-        """Return dependency checks that are safe to expose operationally."""
+        """Return dependency checks that are safe to expose operationally.
+
+        Checks reflect whether each dependency is *configured* (URL/bucket
+        present in environment).  Deep connectivity probes are not performed
+        here to keep the readiness endpoint fast and avoid probe-induced load.
+        """
         return {
             "database_configured": bool(self.database_url),
             "object_storage_configured": bool(self.object_storage_bucket),
@@ -69,7 +74,12 @@ class ControlPlaneConfig:
         }
 
     def is_ready(self) -> bool:
-        """Whether the control plane is ready for production traffic."""
+        """Whether the control plane is ready for production traffic.
+
+        Requires database, object storage, secrets provider, and auth to be
+        configured.  Inference is not required for readiness (the chat endpoint
+        degrades gracefully when inference is unavailable).
+        """
         checks = self.readiness_checks()
         return (
             checks["database_configured"]

@@ -10,5 +10,26 @@ dependencies = [
     # Approved for use in M1 (see docs/milestones/m1-control-plane-skeleton.md).
     "PyJWT>=2.7",
     "cryptography>=42.0",
+    # psycopg (LGPL-2.1) — PostgreSQL adapter for the externalized session store
+    # and persistence layer (M3). Binary distribution bundles libpq.
+    # License reviewed and approved for M3; see NOTICE.
+    "psycopg[binary]>=3.1",
+    # boto3 (Apache-2.0) — AWS SDK for S3 object-storage flows (M3).
+    # License reviewed and approved for M3; see NOTICE.
+    "boto3>=1.35",
 ]
+
+[project.optional-dependencies]
+# Install with: pip install -e '.[test]'
+test = [
+    # moto (Apache-2.0) — in-process AWS service mock for S3 integration tests.
+    # Does not require live AWS credentials or a running AWS endpoint.
+    "moto[s3]>=5.0",
+]
+
+[tool.setuptools.packages.find]
+# Restrict package discovery to the app/ source tree.
+# infra/, deploy/, docs/, and scripts/ are not Python packages.
+where = ["."]
+include = ["app*"]
 
