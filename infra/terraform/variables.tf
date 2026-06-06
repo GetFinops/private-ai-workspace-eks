@@ -122,3 +122,9 @@ variable "app_service_account_name" {
   type        = string
   default     = "private-ai-workspace-control-plane"
 }
+
+variable "github_repository" {
+  description = "GitHub repository (org/repo) trusted by the GitHub Actions deploy role, e.g. GetFinops/private-ai-workspace-eks."
+  type        = string
+  default     = "GetFinops/private-ai-workspace-eks"
+}
