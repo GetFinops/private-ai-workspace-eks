@@ -12,6 +12,7 @@ venv/
 *.tfstate.*
 *.tfvars
 *.tfvars.json
+*.tfplan
 
 .env
 .env.*

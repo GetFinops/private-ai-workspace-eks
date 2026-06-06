@@ -12,7 +12,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 5.0"
+      version = ">= 6.42"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
@@ -20,7 +20,11 @@ terraform {
     }
     helm = {
       source  = "hashicorp/helm"
-      version = ">= 2.10"
+      version = "~> 3.0"
+    }
+    http = {
+      source  = "hashicorp/http"
+      version = ">= 3.0"
     }
   }
 }
@@ -33,7 +37,7 @@ locals {
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "21.3.1"
+  version = "~> 21.0"
 
   name               = local.name
   kubernetes_version = var.kubernetes_version
@@ -45,13 +49,23 @@ module "eks" {
 
   enable_cluster_creator_admin_permissions = true
 
-  cluster_addons = {
-    coredns                = { most_recent = true }
-    eks-pod-identity-agent = { most_recent = true }
-    kube-proxy             = { most_recent = true }
+  addons = {
+    coredns = {
+      most_recent                 = true
+      resolve_conflicts_on_create = "OVERWRITE"
+    }
+    eks-pod-identity-agent = {
+      most_recent                 = true
+      resolve_conflicts_on_create = "OVERWRITE"
+    }
+    kube-proxy = {
+      most_recent                 = true
+      resolve_conflicts_on_create = "OVERWRITE"
+    }
     vpc-cni = {
-      before_compute = true
-      most_recent    = true
+      before_compute              = true
+      most_recent                 = true
+      resolve_conflicts_on_create = "OVERWRITE"
       configuration_values = jsonencode({
         env = {
           ENABLE_PREFIX_DELEGATION = "true"
@@ -74,14 +88,16 @@ module "eks" {
 
   eks_managed_node_groups = {
     control_plane = {
-      name            = "${local.name}-cpu"
-      description     = "CPU nodes for the application control plane"
-      instance_types  = var.control_plane_instance_types
-      capacity_type   = "ON_DEMAND"
-      desired_size    = var.control_plane_desired_size
-      min_size        = var.control_plane_min_size
-      max_size        = var.control_plane_max_size
-      disk_size       = 50
+      name                     = "${local.name}-cpu"
+      description              = "CPU nodes for the application control plane"
+      instance_types           = var.control_plane_instance_types
+      capacity_type            = "ON_DEMAND"
+      desired_size             = var.control_plane_desired_size
+      min_size                 = var.control_plane_min_size
+      max_size                 = var.control_plane_max_size
+      disk_size                = 50
+      iam_role_name            = "${local.name}-cpu-ng"
+      iam_role_use_name_prefix = false
 
       labels = {
         "private-ai-workspace/plane" = "control"
@@ -89,29 +105,31 @@ module "eks" {
     }
 
     gpu_inference = {
-      name            = "${local.name}-gpu"
-      description     = "GPU nodes for the isolated inference plane (vLLM)"
-      instance_types  = var.gpu_instance_types
-      capacity_type   = var.gpu_capacity_type
-      desired_size    = var.gpu_desired_size
-      min_size        = var.gpu_min_size
-      max_size        = var.gpu_max_size
-      disk_size       = 200
+      name                     = "${local.name}-gpu"
+      description              = "GPU nodes for the isolated inference plane (vLLM)"
+      instance_types           = var.gpu_instance_types
+      capacity_type            = var.gpu_capacity_type
+      desired_size             = var.gpu_desired_size
+      min_size                 = var.gpu_min_size
+      max_size                 = var.gpu_max_size
+      disk_size                = 200
+      iam_role_name            = "${local.name}-gpu-ng"
+      iam_role_use_name_prefix = false
 
-      ami_type = "AL2_x86_64_GPU"
+      ami_type = "AL2023_x86_64_NVIDIA"
 
       labels = {
         "private-ai-workspace/plane"  = "inference"
         "nvidia.com/gpu.present"       = "true"
       }
 
-      taints = [
-        {
+      taints = {
+        nvidia_gpu = {
           key    = "nvidia.com/gpu"
           value  = "true"
           effect = "NO_SCHEDULE"
         }
-      ]
+      }
     }
   }
 
@@ -145,13 +163,18 @@ resource "aws_iam_role" "aws_lb_controller" {
   tags = var.tags
 }
 
-data "aws_iam_policy" "aws_lb_controller" {
-  name = "AWSLoadBalancerControllerIAMPolicy"
+data "http" "aws_lb_controller_policy" {
+  url = "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.9.0/docs/install/iam_policy.json"
+}
+
+resource "aws_iam_policy" "aws_lb_controller" {
+  name   = "${local.name}-aws-lb-controller"
+  policy = data.http.aws_lb_controller_policy.response_body
 }
 
 resource "aws_iam_role_policy_attachment" "aws_lb_controller" {
   role       = aws_iam_role.aws_lb_controller.name
-  policy_arn = data.aws_iam_policy.aws_lb_controller.arn
+  policy_arn = aws_iam_policy.aws_lb_controller.arn
 }
 
 resource "helm_release" "aws_lb_controller" {
@@ -159,28 +182,33 @@ resource "helm_release" "aws_lb_controller" {
   namespace  = "kube-system"
   repository = "https://aws.github.io/eks-charts"
   chart      = "aws-load-balancer-controller"
-  version    = "1.12.0"
-  wait       = true
+  version         = "3.4.0"
+  wait            = true
+  timeout         = 600
+  cleanup_on_fail = true
 
-  set {
-    name  = "clusterName"
-    value = module.eks.cluster_name
-  }
-
-  set {
-    name  = "serviceAccount.create"
-    value = "true"
-  }
-
-  set {
-    name  = "serviceAccount.name"
-    value = "aws-load-balancer-controller"
-  }
-
-  set {
-    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-    value = aws_iam_role.aws_lb_controller.arn
-  }
+  set = [
+    {
+      name  = "clusterName"
+      value = module.eks.cluster_name
+    },
+    {
+      name  = "vpcId"
+      value = var.vpc_id
+    },
+    {
+      name  = "serviceAccount.create"
+      value = "true"
+    },
+    {
+      name  = "serviceAccount.name"
+      value = "aws-load-balancer-controller"
+    },
+    {
+      name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+      value = aws_iam_role.aws_lb_controller.arn
+    },
+  ]
 
   depends_on = [module.eks]
 }
