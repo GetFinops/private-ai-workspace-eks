@@ -35,7 +35,7 @@ Per-milestone build instructions live in `docs/milestones/`.
 | M4 | Inference plane MVP (isolated vLLM on GPU) | Complete |
 | M5 | Observability baseline (metrics, logs, traces) | Complete |
 | M6 | Elastic GPU scaling (Karpenter + HPA + degrade-only fallback) | Complete |
-| M7a | Platform hardening (minimum pass on M6 surface) | In progress |
+| M7a | Platform hardening (minimum pass on M6 surface) | Paper review + sweeps complete; operator drills pending ([report](docs/m7a-report.md)) |
 | M9–M14 | Phase 2 product features (UI, retrieval, agents, MCP, integrations, media) — individually adoption-gated | Planned |
 | M7b | Full staging hardening across platform + adopted Phase 2 features | Planned (post–Phase 2) |
 | M8 | Public production release | Planned (post–Phase 2) |

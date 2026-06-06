@@ -317,6 +317,35 @@ What we ship instead:
 See docs/09-scaling-policy.md for the full degraded-mode response policy.
 
 ────────────────────────────────────────────────────────────────────────────────
+M7a license-sweep remediations
+────────────────────────────────────────────────────────────────────────────────
+
+The M7a license-sweep script (scripts/m7a/license-sweep.sh) identified two
+runtime artifacts missing from the per-milestone provenance records above.
+Both are recorded here to keep the M7a sweep clean without rewriting earlier
+milestone sections.
+
+  cryptography (cryptography>=42.0)
+    License: Apache License 2.0 or BSD-3-Clause (dual-licensed)
+    Copyright: Copyright (c) Individual contributors.
+    Use: required by PyJWT for RS256/ES256 signature verification in
+         app/control_plane/token_verifier.py (M1). Pulled in transitively as
+         well as declared explicitly in pyproject.toml so the dependency is
+         visible in license tooling.
+    No cryptography source is copied into this repository.
+
+  external-secrets (Helm chart)
+    Chart: https://github.com/external-secrets/external-secrets
+    Chart version: see deploy/helm/cluster-addons/Chart.lock
+    License: Apache License 2.0
+    Copyright: Copyright (c) 2022-2025 The External Secrets Authors.
+    Use: deployed via deploy/helm/cluster-addons to synchronise AWS Secrets
+         Manager values into Kubernetes Secrets via IRSA-authenticated
+         SecretStore CRs. Used by the control-plane chart's ExternalSecret
+         template (M2).
+    No chart source is copied into this repository.
+
+────────────────────────────────────────────────────────────────────────────────
 Vector-storage decision record (M3 deferral)
 ────────────────────────────────────────────────────────────────────────────────
 

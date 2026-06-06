@@ -130,3 +130,45 @@ class RoadmapArtifactTests(TestCase):
 
     def test_dev_app_values_exist(self) -> None:
         self.assertTrue((ROOT / "deploy" / "values" / "dev" / "app.yaml").is_file())
+
+    # ── M7a artifact tests ───────────────────────────────────────────────────
+
+    def test_m7a_report_is_published(self) -> None:
+        self.assertTrue((ROOT / "docs" / "m7a-report.md").is_file())
+
+    def test_m7a_harness_scripts_exist_and_are_executable(self) -> None:
+        m7a = ROOT / "scripts" / "m7a"
+        expected = [
+            "README.md",
+            "license-sweep.sh",
+            "governance-check.sh",
+            "rollback-drill.sh",
+            "backup-restore-drill.sh",
+        ]
+        for name in expected:
+            with self.subTest(name=name):
+                path = m7a / name
+                self.assertTrue(path.is_file(), f"missing: {path}")
+                if name.endswith(".sh"):
+                    import os
+                    self.assertTrue(
+                        os.access(path, os.X_OK),
+                        f"script is not executable: {path}",
+                    )
+
+    def test_m7a_report_references_all_harness_scripts(self) -> None:
+        report = (ROOT / "docs" / "m7a-report.md").read_text()
+        for script in (
+            "scripts/m7a/license-sweep.sh",
+            "scripts/m7a/governance-check.sh",
+            "scripts/m7a/rollback-drill.sh",
+            "scripts/m7a/backup-restore-drill.sh",
+        ):
+            with self.subTest(script=script):
+                self.assertIn(script, report)
+
+    def test_m7a_notice_remediation_records_present(self) -> None:
+        notice = (ROOT / "NOTICE").read_text()
+        self.assertIn("M7a license-sweep remediations", notice)
+        self.assertIn("cryptography", notice)
+        self.assertIn("external-secrets", notice)
