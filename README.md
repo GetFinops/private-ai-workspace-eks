@@ -36,7 +36,8 @@ Per-milestone build instructions live in `docs/milestones/`.
 | M5 | Observability baseline (metrics, logs, traces) | Complete |
 | M6 | Elastic GPU scaling (Karpenter + HPA + degrade-only fallback) | Complete |
 | M7a | Platform hardening (minimum pass on M6 surface) | Paper review + sweeps complete; operator drills pending ([report](docs/m7a-report.md)) |
-| M9–M14 | Phase 2 product features (UI, retrieval, agents, MCP, integrations, media) — individually adoption-gated | Planned |
+| M9 | Product surface: vanilla JS SPA (Odysseus design system, OIDC PKCE), notifications service, nginx chart | In progress |
+| M10–M14 | Phase 2: retrieval+memory, agents, MCP, integrations, media — individually adoption-gated | Planned |
 | M7b | Full staging hardening across platform + adopted Phase 2 features | Planned (post–Phase 2) |
 | M8 | Public production release | Planned (post–Phase 2) |
 

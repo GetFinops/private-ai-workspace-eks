@@ -59,6 +59,13 @@ from app.control_plane.metrics import (
     metrics_output,
     sanitise_path,
 )
+from app.control_plane.notifications import (
+    InMemoryNotificationStore,
+    NotificationStore,
+    build_notification_publish_response,
+    build_notification_read_response,
+    build_notifications_list_response,
+)
 from app.control_plane.routing import InferenceRoutingError, InferenceUnavailableError
 from app.control_plane.session import InMemorySessionStore, SessionStore
 from app.storage.s3 import S3StorageClient, StorageError
@@ -70,6 +77,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _CHAT_PATH = "/v1/chat/completions"
+_NOTIFICATIONS_PATH = "/v1/notifications"
 _METRICS_PATH = "/metrics"
 _MAX_REQUEST_BODY = 1 * 1024 * 1024  # 1 MiB
 
@@ -353,6 +361,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     token_verifier: TokenVerifier | None = None
     session_store: SessionStore = InMemorySessionStore()
     storage_client: S3StorageClient | None = None
+    notification_store: NotificationStore = InMemoryNotificationStore()  # type: ignore[assignment]
 
     # ── Request lifecycle ──────────────────────────────────────────────────────
 
@@ -410,21 +419,60 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     # ── Verb handlers ──────────────────────────────────────────────────────────
 
     def do_GET(self) -> None:  # noqa: N802
+        path = self.path.split("?", 1)[0]  # strip query string for routing
+        if path == _NOTIFICATIONS_PATH:
+            params = self.path.split("?", 1)[1] if "?" in self.path else ""
+            include_read = "include_read=true" in params
+            status, payload = build_notifications_list_response(
+                authorization=self.headers.get("Authorization"),
+                token_verifier=self.__class__.token_verifier,
+                store=self.__class__.notification_store,
+                include_read=include_read,
+            )
+            self._instrument("GET", lambda s=status, p=payload: Response(s, p))
+            return
         self._instrument("GET", lambda: build_response(self.path, self.__class__.config))
 
     def do_POST(self) -> None:  # noqa: N802
         def _post() -> Response:
-            if self.path == _CHAT_PATH:
-                content_length = int(self.headers.get("Content-Length", 0) or 0)
-                if content_length > _MAX_REQUEST_BODY:
-                    return Response(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "request_too_large"})
-                body = self.rfile.read(content_length) if content_length > 0 else b""
+            path = self.path.split("?", 1)[0]
+            content_length = int(self.headers.get("Content-Length", 0) or 0)
+            if content_length > _MAX_REQUEST_BODY:
+                return Response(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "request_too_large"})
+            body = self.rfile.read(content_length) if content_length > 0 else b""
+
+            if path == _CHAT_PATH:
                 return build_chat_response(
                     authorization=self.headers.get("Authorization"),
                     body=body,
                     config=self.__class__.config,
                     token_verifier=self.__class__.token_verifier,
                 )
+
+            if path == _NOTIFICATIONS_PATH:
+                status, payload = build_notification_publish_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    store=self.__class__.notification_store,
+                )
+                return Response(status, payload)
+
+            # POST /v1/notifications/{id}/read
+            if path.startswith(_NOTIFICATIONS_PATH + "/") and path.endswith("/read"):
+                # Extract the notification ID from between the prefix and "/read"
+                prefix = _NOTIFICATIONS_PATH + "/"
+                suffix = "/read"
+                notification_id = path[len(prefix):-len(suffix)]
+                if notification_id:
+                    status, payload = build_notification_read_response(
+                        authorization=self.headers.get("Authorization"),
+                        notification_id=notification_id,
+                        token_verifier=self.__class__.token_verifier,
+                        store=self.__class__.notification_store,
+                    )
+                    return Response(status, payload)
+
             return Response(HTTPStatus.NOT_FOUND, {"error": "not_found", "path": self.path})
         self._instrument("POST", _post)
 
@@ -545,12 +593,46 @@ def _build_storage_client(config: ControlPlaneConfig) -> S3StorageClient | None:
     return S3StorageClient(bucket=config.object_storage_bucket)
 
 
+def _build_notification_store(config: ControlPlaneConfig) -> NotificationStore:
+    """Return a PostgresNotificationStore when DATABASE_URL is configured."""
+    if not config.database_url:
+        logger.warning(
+            "DATABASE_URL not configured — using in-memory notification store. "
+            "Not safe for multi-replica or production deployments."
+        )
+        return InMemoryNotificationStore()  # type: ignore[return-value]
+
+    try:
+        from app.db.connection import open_pool
+        from app.control_plane.notifications import PostgresNotificationStore
+
+        pool = open_pool(config.database_url)
+        logger.info("Using PostgreSQL notification store.")
+        return PostgresNotificationStore(pool)  # type: ignore[return-value]
+    except Exception as exc:
+        exc_type = type(exc).__name__
+        is_dev = config.environment == "development"
+        if not is_dev:
+            raise RuntimeError(
+                f"Failed to initialize PostgreSQL notification store ({exc_type}); "
+                f"refusing to fall back in environment={config.environment!r}."
+            ) from None
+        logger.error(
+            "Failed to initialize PostgreSQL notification store (%s) — "
+            "falling back to in-memory store (development only).",
+            exc_type,
+            exc_info=False,
+        )
+        return InMemoryNotificationStore()  # type: ignore[return-value]
+
+
 def run_server(
     host: str = "0.0.0.0",
     port: int = 8080,
     config: ControlPlaneConfig | None = None,
     session_store: SessionStore | None = None,
     storage_client: S3StorageClient | None = None,
+    notification_store: NotificationStore | None = None,
 ) -> None:
     """Run the development HTTP server."""
     resolved_config = config or ControlPlaneConfig.from_env()
@@ -558,6 +640,9 @@ def run_server(
     ControlPlaneHandler.token_verifier = resolved_config.make_token_verifier()
     ControlPlaneHandler.session_store = session_store or _build_session_store(resolved_config)
     ControlPlaneHandler.storage_client = storage_client or _build_storage_client(resolved_config)
+    ControlPlaneHandler.notification_store = (  # type: ignore[assignment]
+        notification_store or _build_notification_store(resolved_config)
+    )
 
     server = ThreadingHTTPServer((host, port), ControlPlaneHandler)
     server.serve_forever()

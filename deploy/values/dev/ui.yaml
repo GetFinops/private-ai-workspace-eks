@@ -1,0 +1,61 @@
+# Dev-environment values for the private-ai-ui Helm chart.
+# Override the defaults in deploy/helm/private-ai-ui/values.yaml.
+#
+# These values configure the UI to talk to a dev EKS cluster.
+# Sensitive values (clientId, redirectUri) reference Secrets Manager
+# via ExternalSecrets in production; for dev they may be set directly.
+#
+# Dev deployment smoke test (M9 exit criterion):
+#   1. Deploy with: helm upgrade --install pai-ui deploy/helm/private-ai-ui \
+#        -f deploy/values/dev/ui.yaml --namespace private-ai-dev
+#   2. Visit https://<ingress.host>, sign in with a dev user.
+#   3. Send a message via the chat path; confirm the response is returned.
+#   4. Publish a synthetic notification:
+#        curl -X POST https://<control-plane>/v1/notifications \
+#          -H "Authorization: Bearer <dev-token>" \
+#          -d '{"event_class":"system_notice","resource_id":"smoke-test-001"}'
+#   5. Verify the notification bell shows "1" and the item appears in the feed.
+#   6. Mark the notification read; confirm the badge clears.
+#   7. Confirm cross-user access returns 0 results (use a second dev token).
+
+replicaCount: 1
+
+image:
+  repository: ""          # Set to dev ECR URI, e.g. 123456789.dkr.ecr.us-east-1.amazonaws.com/private-ai-ui
+  tag: "dev"
+  pullPolicy: Always
+
+oidc:
+  issuer: ""              # Dev OIDC issuer URL (e.g. Cognito dev pool)
+  clientId: ""            # Dev client ID
+  redirectUri: ""         # Must match registered callback, e.g. https://ai-dev.example.com/callback
+  scope: "openid email profile"
+
+controlPlane:
+  host: "private-ai-workspace-control-plane"
+  port: 8080
+
+models:
+  default: "llama-3-8b"
+  available:
+    - "llama-3-8b"
+
+ingress:
+  enabled: true
+  className: "alb"
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: ""  # Set to dev ACM cert ARN
+  host: ""                # e.g. ai-dev.example.com
+  tlsSecretName: ""
+
+resources:
+  requests:
+    cpu: "50m"
+    memory: "32Mi"
+  limits:
+    cpu: "200m"
+    memory: "64Mi"

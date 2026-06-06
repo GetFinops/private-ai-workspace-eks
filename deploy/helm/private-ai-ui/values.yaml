@@ -1,0 +1,103 @@
+# Default values for private-ai-ui.
+# Override per-environment in deploy/values/<env>/ui.yaml.
+
+replicaCount: 2
+
+image:
+  repository: ""          # Set per-environment: e.g. 123456789.dkr.ecr.region.amazonaws.com/private-ai-ui
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# OIDC / authentication config (rendered into /config.json inside the container)
+#
+# This is a Public Client + PKCE flow (RFC 8252; OAuth 2.0 for Browser-Based
+# Apps BCP).  No client_secret is used in the SPA.  The control plane verifies
+# the access token cryptographically on every API call via OIDCTokenVerifier.
+#
+# CORS must be enabled on the OIDC provider's token endpoint for the SPA's
+# origin.  Cognito user pools enable this by default; for Keycloak / Auth0
+# configure "Web Origins" / "Allowed Web Origins".
+oidc:
+  issuer: ""                  # Required: e.g. https://cognito-idp.us-east-1.amazonaws.com/us-east-1_xxxxx
+  clientId: ""                # Required: OIDC app client ID (public client)
+  redirectUri: ""             # Required: must match the registered callback URL
+  scope: "openid email profile"
+  # Optional endpoint overrides.  Defaults assume Cognito-style paths
+  # ({issuer}/oauth2/authorize, {issuer}/oauth2/token).  For Keycloak,
+  # set authorizeEndpoint to {issuer}/protocol/openid-connect/auth and
+  # tokenEndpoint to {issuer}/protocol/openid-connect/token.
+  authorizeEndpoint: ""
+  tokenEndpoint: ""
+
+# Upstream control-plane service
+controlPlane:
+  host: "private-ai-workspace-control-plane"   # Kubernetes service name
+  port: 8080
+
+# Model selection presented in the UI
+models:
+  default: ""             # Empty → first in list
+  available: []           # e.g. ["llama-3-8b", "mistral-7b"]
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: "alb"
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+  host: ""                # Required: e.g. ai.example.com
+  tlsSecretName: ""       # Leave empty when using ACM via ALB annotations
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "64Mi"
+  limits:
+    cpu: "250m"
+    memory: "128Mi"
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 101           # nginx user in nginx:alpine
+  fsGroup: 101
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false   # nginx writes to /var/cache, /var/log, /tmp
+  capabilities:
+    drop: ["ALL"]
+
+# Liveness / readiness probes
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 15
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 3
+  periodSeconds: 10
+
+# Node placement — schedule on CPU nodes, not GPU nodes.
+nodeSelector:
+  role: control-plane
+
+tolerations: []
+affinity: {}

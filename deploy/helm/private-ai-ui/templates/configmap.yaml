@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "private-ai-ui.fullname" . }}-config
+  labels:
+    {{- include "private-ai-ui.labels" . | nindent 4 }}
+data:
+  OIDC_ISSUER:              {{ .Values.oidc.issuer | quote }}
+  OIDC_CLIENT_ID:           {{ .Values.oidc.clientId | quote }}
+  OIDC_REDIRECT_URI:        {{ .Values.oidc.redirectUri | quote }}
+  OIDC_SCOPE:               {{ .Values.oidc.scope | quote }}
+  OIDC_AUTHORIZE_ENDPOINT:  {{ .Values.oidc.authorizeEndpoint | default "" | quote }}
+  OIDC_TOKEN_ENDPOINT:      {{ .Values.oidc.tokenEndpoint | default "" | quote }}
+  CONTROL_PLANE_HOST: {{ .Values.controlPlane.host | quote }}
+  CONTROL_PLANE_PORT: {{ .Values.controlPlane.port | quote }}
+  DEFAULT_MODEL:     {{ .Values.models.default | quote }}
+  MODELS:            {{ .Values.models.available | join "," | quote }}

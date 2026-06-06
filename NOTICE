@@ -88,6 +88,51 @@ SOFTWARE.
 
 Files in this repository adapted from the above source:
 
+  app/ui/static/style.css
+    Upstream: static/style.css — CSS custom-property names, colour palette,
+    and typographic scale.
+    Modifications: independent re-implementation using the same CSS variable
+    names (--bg, --fg, --panel, --border, etc.) and default dark-theme values
+    so that users migrated from Odysseus retain their stored palette. The
+    1.1 MB compiled Odysseus stylesheet is NOT included; this is a clean,
+    maintainable subset (~350 lines). No Odysseus CSS is pasted verbatim;
+    only the design-token naming convention is reused.
+
+  app/ui/static/login.html
+    Upstream: static/login.html — page structure, Fira Code font declarations,
+    theme-aware CSS-variable system, and background-pattern conventions.
+    Modifications: replaced the local-credentials login form with an OIDC
+    Authorization Code + PKCE redirect flow; removed server-side session
+    handling; adapted to our control-plane Bearer-token contract. All
+    auth-related JS is rewritten from scratch.
+
+  app/ui/static/index.html
+    Upstream: static/index.html — three-panel shell layout (sidebar, main,
+    drawer) and general UX structure.
+    Modifications: independently authored HTML; uses the Odysseus-derived CSS
+    custom property names; no Odysseus markup is copied verbatim.
+
+  app/ui/static/app.js
+    Upstream: static/app.js — OIDC lifecycle patterns, chat-message render
+    loop, notification polling, and local conversation history structure.
+    Modifications: full independent re-implementation in ~500 lines of
+    vanilla JS.  Key differences: PKCE-only OIDC (no local session), Bearer
+    token in sessionStorage, polling via /v1/notifications, strict textContent
+    (no innerHTML for user content), no Odysseus JS is copied verbatim.
+
+  app/ui/static/sw.js
+    Upstream: static/sw.js — network-first caching strategy pattern.
+    Modifications: minimal adaptation (different cache name, different shell
+    asset list, API pass-through paths updated for our routes).
+
+  app/control_plane/notifications.py
+    Upstream: src/event_bus.py and src/webhook_manager.py — structural pattern
+    of a tenant-scoped event queue with read/unread tracking and a
+    NotificationService abstraction.
+    Modifications: independently implemented in Python stdlib + psycopg;
+    no Odysseus code is copied; Postgres and in-memory implementations provided;
+    strict content-policy enforcement (no prompt/completion in events).
+
   app/control_plane/routing.py
     Upstream: src/endpoint_resolver.py — normalize_base, build_chat_url functions.
     Modifications: removed SQLAlchemy/FastAPI/database dependencies; narrowed to
@@ -111,6 +156,22 @@ Files in this repository adapted from the above source:
     TokenVerifier Protocol are new types aligned to our AuthSettings contract;
     OIDCTokenVerifier supports any OIDC-compliant provider via standard JWKS;
     DevTokenVerifier is a new development-only stub with no upstream analogue.
+
+────────────────────────────────────────────────────────────────────────────────
+M9 UI adaptation — third-party asset and font license record
+(M9 — product surface / UI)
+────────────────────────────────────────────────────────────────────────────────
+
+  Fira Code (font)
+    Source: https://github.com/tonsky/FiraCode
+    License: SIL Open Font Licence 1.1 (OFL-1.1)
+    Copyright: Copyright (c) 2014-2025 Nikita Prokopov and contributors.
+    Use: monospace font downloaded into the UI container image at build time
+         (app/ui/Dockerfile). Woff2 files are fetched from the upstream GitHub
+         release and stored inside the container image only; no font file is
+         committed to this repository.
+    OFL note: OFL-1.1 permits use, embedding, and redistribution in software
+    products free of charge provided the font is not sold by itself.
 
 ────────────────────────────────────────────────────────────────────────────────
 Third-party dependency license record (M3 — state externalization)
