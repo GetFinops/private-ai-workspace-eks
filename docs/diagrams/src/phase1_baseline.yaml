@@ -3,10 +3,12 @@
 # Rendered with awslabs/diagram-as-code (awsdac): https://github.com/awslabs/diagram-as-code
 # Regenerate with: scripts/generate-diagrams.sh
 #
-# Classic AWS reference style: an AWS Cloud frame containing the VPC with public
-# and private subnets across two Availability Zones. The CPU control-plane node
-# group is internet-reachable only through the ALB; the GPU inference node group
-# (vLLM) stays private/internal-only. Regional managed services sit outside the VPC.
+# Classic AWS reference style. The VPC is split into two Availability Zones; each
+# AZ has a public subnet (NAT gateway) and a private subnet (EKS worker nodes).
+# The EKS cluster and its two managed node groups (CPU control plane, GPU
+# inference) are drawn as overlays that span the worker nodes across both AZs,
+# making the cluster topology explicit. The internet-facing ALB lives at the
+# VPC edge; the GPU inference nodes stay private/internal-only.
 Diagram:
   DefinitionFiles:
     - Type: URL
@@ -56,78 +58,129 @@ Diagram:
       Type: AWS::Cognito::UserPool
       Title: "OIDC issuer (Cognito)"
 
-    # Network
+    # Network: VPC with an internet gateway and two Availability Zones.
     VPC:
       Type: AWS::EC2::VPC
       Direction: vertical
       Title: "VPC"
-      Children:
-        - EKS
-        - PublicSubnets
-        - PrivateSubnets
-    EKS:
-      Type: AWS::EKS
-      Title: "Amazon EKS cluster"
-
-    PublicSubnets:
-      Type: AWS::Diagram::HorizontalStack
-      Children:
-        - PublicSubnetA
-        - PublicSubnetB
-    PublicSubnetA:
-      Type: AWS::EC2::Subnet
-      Preset: PublicSubnet
-      Title: "Public subnet (AZ-a)"
+      BorderChildren:
+        - Position: N
+          Resource: IGW
       Children:
         - ALB
+        - AZStack
+    IGW:
+      Type: AWS::EC2::InternetGateway
+      Title: "Internet gateway"
+      IconFill:
+        Type: rect
     ALB:
       Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-      Title: "Application Load Balancer"
-    PublicSubnetB:
-      Type: AWS::EC2::Subnet
-      Preset: PublicSubnet
-      Title: "Public subnet (AZ-b)"
-      Children:
-        - NatGW
-    NatGW:
-      Type: AWS::EC2::NatGateway
-      Title: "NAT gateway"
+      Title: "Application Load Balancer (public)"
 
-    PrivateSubnets:
+    AZStack:
       Type: AWS::Diagram::HorizontalStack
       Children:
-        - PrivateSubnetA
-        - PrivateSubnetB
-    PrivateSubnetA:
+        - AZ1
+        - AZ2
+
+    AZ1:
+      Type: AWS::EC2::AvailabilityZone
+      Title: "Availability Zone A"
+      Direction: vertical
+      Children:
+        - PublicSubnet1
+        - PrivateSubnet1
+    PublicSubnet1:
+      Type: AWS::EC2::Subnet
+      Preset: PublicSubnet
+      Title: "Public subnet"
+      Children:
+        - NatGW1
+    NatGW1:
+      Type: AWS::EC2::NatGateway
+      Title: "NAT gateway"
+    PrivateSubnet1:
       Type: AWS::EC2::Subnet
       Preset: PrivateSubnet
-      Title: "Private subnet (AZ-a)"
+      Title: "Private subnet"
+      Direction: horizontal
       Children:
-        - ControlPlane
-    ControlPlane:
+        - CpNG1
+        - GpuNG1
+    CpNG1:
       Type: AWS::Diagram::Resource
-      Title: "Control-plane node group (CPU)"
+      Title: "Control-plane NG (CPU)"
       BorderColor: "rgba(52,168,83,255)"
       Children:
-        - AppPod
-    AppPod:
+        - CpNode1
+    CpNode1:
       Type: AWS::EC2::Instance
       Title: "control-plane API"
-    PrivateSubnetB:
-      Type: AWS::EC2::Subnet
-      Preset: PrivateSubnet
-      Title: "Private subnet (AZ-b)"
-      Children:
-        - InferencePlane
-    InferencePlane:
+    GpuNG1:
       Type: AWS::Diagram::Resource
-      Title: "Inference node group (GPU)"
+      Title: "Inference NG (GPU)"
       BorderColor: "rgba(217,48,37,255)"
       Children:
-        - VllmPod
-    VllmPod:
+        - GpuNode1
+    GpuNode1:
       Type: AWS::EC2::Instance
-      Title: "vLLM (internal-only)"
+      Title: "vLLM (internal)"
+
+    AZ2:
+      Type: AWS::EC2::AvailabilityZone
+      Title: "Availability Zone B"
+      Direction: vertical
+      Children:
+        - PublicSubnet2
+        - PrivateSubnet2
+    PublicSubnet2:
+      Type: AWS::EC2::Subnet
+      Preset: PublicSubnet
+      Title: "Public subnet"
+      Children:
+        - NatGW2
+    NatGW2:
+      Type: AWS::EC2::NatGateway
+      Title: "NAT gateway"
+    PrivateSubnet2:
+      Type: AWS::EC2::Subnet
+      Preset: PrivateSubnet
+      Title: "Private subnet"
+      Direction: horizontal
+      Children:
+        - CpNG2
+        - GpuNG2
+    CpNG2:
+      Type: AWS::Diagram::Resource
+      Title: "Control-plane NG (CPU)"
+      BorderColor: "rgba(52,168,83,255)"
+      Children:
+        - CpNode2
+    CpNode2:
+      Type: AWS::EC2::Instance
+      Title: "control-plane API"
+    GpuNG2:
+      Type: AWS::Diagram::Resource
+      Title: "Inference NG (GPU)"
+      BorderColor: "rgba(217,48,37,255)"
+      Children:
+        - GpuNode2
+    GpuNode2:
+      Type: AWS::EC2::Instance
+      Title: "vLLM (internal)"
+
+    # EKS cluster drawn as an overlay spanning every worker node across both AZs.
+    EKSCluster:
+      Type: AWS::EKS
+      Title: "Amazon EKS cluster"
+      SpanResources:
+        - CpNode1
+        - GpuNode1
+        - CpNode2
+        - GpuNode2
+      BorderType: dashed
+      BorderColor: "rgba(105,59,197,255)"
 
     # Managed data & container registry
     ManagedData:
@@ -179,48 +232,42 @@ Diagram:
     - Source: User
       SourcePosition: E
       Target: ALB
-      TargetPosition: N
+      TargetPosition: NW
       TargetArrowHead:
         Type: Open
+      Type: orthogonal
     - Source: ALB
       SourcePosition: S
-      Target: AppPod
+      Target: CpNode1
       TargetPosition: N
       TargetArrowHead:
         Type: Open
-    - Source: AppPod
+      Type: orthogonal
+    - Source: CpNode1
       SourcePosition: E
-      Target: VllmPod
+      Target: GpuNode1
       TargetPosition: W
       TargetArrowHead:
         Type: Open
-    - Source: AppPod
+      Type: orthogonal
+    - Source: CpNode2
+      SourcePosition: E
+      Target: GpuNode2
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+    - Source: CpNode1
       SourcePosition: S
       Target: RDS
       TargetPosition: N
       TargetArrowHead:
         Type: Open
-    - Source: AppPod
-      SourcePosition: S
-      Target: S3
-      TargetPosition: N
-      TargetArrowHead:
-        Type: Open
-    - Source: AppPod
+      Type: orthogonal
+    - Source: CpNode1
       SourcePosition: S
       Target: Secrets
       TargetPosition: N
       TargetArrowHead:
         Type: Open
-    - Source: AppPod
-      SourcePosition: N
-      Target: Cognito
-      TargetPosition: S
-      TargetArrowHead:
-        Type: Open
-    - Source: ECR
-      SourcePosition: N
-      Target: AppPod
-      TargetPosition: S
-      TargetArrowHead:
-        Type: Open
+      Type: orthogonal
