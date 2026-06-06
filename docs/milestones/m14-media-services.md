@@ -71,6 +71,11 @@ independently-scaled services on the GPU plane.
 7. Wire the new service into the M6 Karpenter NodePool only if its GPU
    profile fits; introduce a separate NodePool if the instance family
    differs significantly.
+8. Emit `media.task.completed` and `media.task.failed` events into the
+   M9 notifications service for media operations that exceed an interactive
+   latency budget (typical for image generation or long audio
+   transcription). Events carry only event class, task id, and
+   timestamps — never media content or prompts.
 
 ## Provenance and licensing checkpoints
 
@@ -102,6 +107,25 @@ independently-scaled services on the GPU plane.
 - Rate-limit and size-limit tests reject oversized requests with a
   clear error.
 - GPU metrics for the new service appear on the M5 Grafana dashboards.
+- If M9 is deployed, a `media.task.completed` event reaches the
+  originating user's feed; cross-tenant publishers cannot emit into
+  another tenant's feed.
+
+## Dev deployment validation
+
+Per the standing Phase 2 rule in `docs/milestones/README.md`:
+
+- Enable the chosen media service in `deploy/values/dev/` with a small
+  reviewed model. The dev environment should use the smallest viable
+  model and a low `maxReplicas` so GPU cost stays bounded.
+- Run a dev-deployment smoke test that submits one media request
+  end-to-end, asserts the rate-limit rejects a synthetic burst, asserts
+  cross-tenant access fails, and (if M9 is deployed) confirms the
+  `media.task.completed` notification reaches the user's feed.
+- The smoke test exercises both M4's vLLM-shape deployment pattern (the
+  media chart inherits from it) and the M1-adapted-from-Odysseus
+  control-plane surfaces that route the request.
+- Record the run in the milestone PR; failures block merge.
 
 ## Exit criteria
 
@@ -109,6 +133,8 @@ independently-scaled services on the GPU plane.
   licensing and enforced limits.
 - Per-tenant scoping for inputs and outputs is validated.
 - Operator and per-tenant kill-switches are functional.
+- Dev-deployment smoke test passes against a freshly-deployed dev
+  cluster.
 
 ## Escalation triggers
 

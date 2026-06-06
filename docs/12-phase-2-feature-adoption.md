@@ -166,27 +166,40 @@ Decision Checklist below before implementation begins.
 
 | Milestone | Instruction file | Risk |
 | --- | --- | --- |
-| M9 — Product Surface | [`milestones/m9-product-surface.md`](milestones/m9-product-surface.md) | standard |
+| M9 — Product Surface + Notifications Service | [`milestones/m9-product-surface.md`](milestones/m9-product-surface.md) | standard |
 | M10 — Retrieval and Memory | [`milestones/m10-retrieval.md`](milestones/m10-retrieval.md) | standard |
 | M11 — Agent and Tool Framework | [`milestones/m11-agent-tool-framework.md`](milestones/m11-agent-tool-framework.md) | **high — sandbox design is an escalation gate** |
 | M12 — MCP Integration Layer | [`milestones/m12-mcp-integration.md`](milestones/m12-mcp-integration.md) | standard |
 | M13 — Personal-Information Integrations | [`milestones/m13-personal-info-integrations.md`](milestones/m13-personal-info-integrations.md) | **high — credential-handling review required per integration** |
 | M14 — Media Services | [`milestones/m14-media-services.md`](milestones/m14-media-services.md) | standard, per-model license review required |
 
-### M9 — Product Surface (API client / Web UI)
+### M9 — Product Surface (API client / Web UI) + Notifications Service
 
-- **Objective**: a first-party user-facing surface over the control-plane API.
-- **Depends on**: M8 baseline.
+- **Objective**: a first-party user-facing surface over the control-plane API,
+  plus the user-facing notifications service that other Phase 2 milestones
+  emit events into.
+- **Depends on**: M7a baseline.
 - **Adopt / adapt**: reuse upstream UX and product concepts only.
 - **Build fresh**: a new client that consumes the public control-plane API.
   The repository currently has no frontend; the upstream UI is coupled to its
-  monolith and is not a drop-in.
-- **Exclude**: server-rendered, local-state UI assumptions.
+  monolith and is not a drop-in. A basic server-side notifications service
+  (tenant-scoped event queue + per-user read/unread feed) lives in the
+  control plane on the existing M3 RDS instance; this is the
+  `NotificationService` surface referenced in `03-implementation-plan.md`'s
+  target topology, which M9 now owns explicitly.
+- **Exclude**: server-rendered, local-state UI assumptions; external delivery
+  channels beyond the in-app feed and an optional per-tenant webhook
+  (email/SMS/push are escalation triggers if proposed later).
 - **Licensing gate**: review any adopted frontend assets and fonts for license.
 - **Security gate**: authenticated, per-tenant views; no privileged client-side
-  trust; standard web hardening (CSP, CSRF, output encoding).
+  trust; standard web hardening (CSP, CSRF, output encoding); strict
+  per-tenant + per-user scoping on notification reads and publishes (events
+  carry only event class, related-resource id, and timestamps — never
+  prompt/completion or media content).
 - **Exit criteria**: an authenticated user can drive the existing API
-  (including the chat path) through the new surface.
+  (including the chat path) through the new surface, and a synthetic
+  notification event published by a test producer is visible to exactly the
+  target user with no cross-tenant or cross-user leakage.
 
 ### M10 — Retrieval and Memory on Externalized Vector Storage
 
@@ -267,6 +280,32 @@ Decision Checklist below before implementation begins.
 - **Exit criteria**: at least one media service runs isolated, with reviewed
   model licensing and enforced limits.
 
+## Dev Deployment Validation (Standing Requirement)
+
+Every Phase 2 milestone (M9–M14) must be exercised end-to-end in the dev
+deployment, not just in unit tests, before its exit criteria are considered
+met. The full rule and its acceptance bar live in
+[`milestones/README.md`](milestones/README.md) under "Dev deployment validation
+for Phase 2"; each milestone instruction file has a dedicated "Dev deployment
+validation" section that references it.
+
+Three concrete consequences of this rule:
+
+1. **The M1 Odysseus-derived control-plane surfaces are continuously
+   integration-tested by Phase 2 features.** Every Phase 2 smoke test goes
+   through `app/control_plane/routing.py`, `app/control_plane/inference.py`,
+   and (for authenticated paths) `app/control_plane/token_verifier.py` — the
+   three files where upstream patterns were adapted in M1. Phase 2 adoption
+   is therefore also continuous validation that the adapted patterns still
+   behave correctly when a real new feature drives them.
+2. **Producer milestones (M10, M11, M14) validate the M9 notification path
+   when M9 is deployed.** This catches cross-milestone isolation regressions
+   early.
+3. **Dev-cost discipline is part of the bar.** Dev values use the smallest
+   viable models, the lowest `maxReplicas`, and a cold GPU pool by default
+   per [`09-scaling-policy.md`](09-scaling-policy.md). Smoke tests must work
+   within that budget.
+
 ## Excluded by Default (Any Phase)
 
 Regardless of sequencing, these are excluded from the default build unless
@@ -295,6 +334,9 @@ maintainer must confirm:
 - [ ] code-execution or integration surfaces are sandboxed and authorized
 - [ ] provenance for any adapted code is recorded in `NOTICE`
 - [ ] tests and observability cover the new surface
+- [ ] the dev-deployment smoke test for the milestone passes against a
+      freshly-deployed dev cluster and exercises the M1 Odysseus-derived
+      control-plane surfaces (see "Dev Deployment Validation" above)
 
 ## Escalation Triggers
 

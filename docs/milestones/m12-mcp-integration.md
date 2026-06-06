@@ -92,12 +92,28 @@ per-tenant credential scoping and connection isolation.
 - Backup/restore drill on credential storage succeeds without exposing
   cleartext values.
 
+## Dev deployment validation
+
+Per the standing Phase 2 rule in `docs/milestones/README.md`:
+
+- Enable MCP in `deploy/values/dev/` with exactly one safe stub MCP
+  server (no real external network reach in dev) once the chart values
+  exist.
+- Run a dev-deployment smoke test that invokes the stub MCP server,
+  exercises the per-tenant credential scoping (a second dev tenant's
+  token must be rejected), and exercises the kill-switch.
+- The smoke test runs through the M11 sandbox and therefore exercises
+  the M1-adapted-from-Odysseus inference path that the agent loop uses.
+- Record the run in the milestone PR; failures block merge.
+
 ## Exit criteria
 
 - At least one MCP server runs with tenant-scoped credentials and
   isolation, audited end-to-end.
 - Per-tenant allow-list is enforced and observable.
 - Operator kill-switch is functional.
+- Dev-deployment smoke test passes against a freshly-deployed dev
+  cluster.
 
 ## Escalation triggers
 

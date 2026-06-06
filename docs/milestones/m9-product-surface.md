@@ -32,6 +32,12 @@ A first-party user-facing surface over the control-plane API.
 - authenticated, per-tenant views
 - standard web hardening (CSP, CSRF, output encoding)
 - the chat path driven through the new surface end-to-end
+- **notifications delivery surface** — the user-facing in-app notification
+  feed and a basic server-side notifications service that other Phase 2
+  milestones (M10 indexing-complete, M11 long-running agent tasks, M14
+  media-generation-complete) emit events into. This replaces the
+  `NotificationService` node referenced in `../03-implementation-plan.md`'s
+  target topology that was previously unowned across M0–M14.
 
 ## Non-goals
 
@@ -39,6 +45,9 @@ A first-party user-facing surface over the control-plane API.
 - agent or tool execution (M11)
 - MCP integrations (M12)
 - any backend redesign — M9 consumes the existing public API contract
+- external delivery channels beyond basic in-app feed plus optional
+  per-tenant webhook (email/SMS/push are out of scope for the first cut
+  and are escalation triggers if proposed later)
 
 ## Build tasks
 
@@ -60,6 +69,15 @@ A first-party user-facing surface over the control-plane API.
    versioned, and rolled back independently from the control plane.
 7. Wire ingress so the UI is reachable through the existing public ALB
    under a path or subdomain consistent with `06-cloud-architecture.md`.
+8. Implement a server-side notifications service in the control plane
+   that other Phase 2 milestones can publish to: a tenant-scoped event
+   queue and a per-user read/unread feed exposed through the public API.
+   Storage uses the existing M3 RDS instance; no new managed dependency
+   unless explicitly justified. Events carry no prompt/completion content
+   per the M5 content policy — only event class, related-resource id,
+   and timestamps.
+9. Implement the in-app notification feed UI on top of the API from
+   step 8. Provide list, mark-read, and dismiss controls.
 
 ## Provenance and licensing checkpoints
 
@@ -89,6 +107,24 @@ A first-party user-facing surface over the control-plane API.
   control plane and visible in the M5 audit logs.
 - The UI passes a baseline web-security review (CSP present, CSRF
   protection on state-changing endpoints, no obvious XSS sinks).
+- A test publisher can emit a synthetic notification event scoped to one
+  tenant + user; only that user sees it in the feed; cross-tenant and
+  cross-user retrieval attempts return zero results.
+
+## Dev deployment validation
+
+Per the standing Phase 2 rule in `docs/milestones/README.md` ("Dev
+deployment validation for Phase 2"), M9 must be exercised end-to-end
+in the dev deployment, not just in unit tests:
+
+- Enable the UI chart and the notifications service in
+  `deploy/values/dev/` once they exist.
+- Run a dev-deployment smoke test that signs in a dev user, drives the
+  chat path through the UI, and publishes + consumes one synthetic
+  notification event. The smoke test exercises the M1-adapted-from-
+  Odysseus control-plane surfaces (`routing.py`, `inference.py`,
+  `token_verifier.py`) end-to-end through the new client.
+- Record the run in the milestone PR; failures block merge.
 
 ## Exit criteria
 
@@ -96,6 +132,10 @@ A first-party user-facing surface over the control-plane API.
   path) through the new surface.
 - The UI is deployed as a separately-versioned image and chart.
 - A web-security baseline review has been performed and findings triaged.
+- The notifications service is operational and produces no cross-tenant
+  or cross-user leakage in scripted tests.
+- The dev-deployment smoke test passes against a freshly-deployed dev
+  cluster.
 
 ## Escalation triggers
 
@@ -104,3 +144,5 @@ A first-party user-facing surface over the control-plane API.
 - any client-side trust decision that would weaken control-plane auth
 - any new public ingress path beyond what `06-cloud-architecture.md`
   already permits
+- adding any external delivery channel (email, SMS, push) to the
+  notifications service beyond the in-app feed and optional webhook

@@ -90,6 +90,12 @@ share one isolation model rather than diverging.
 9. Provide user-controls endpoints to list, export, and delete stored
    memories. Deletion must be authoritative (no soft-delete fallback that
    leaves data recoverable without an audit trail).
+10. Emit `indexing.completed` and `indexing.failed` events into the M9
+    notifications service when long-running indexing jobs finish. Events
+    carry only event class, document id, and timestamps — never document
+    content, chunks, or extracted text. If M9 is not yet shipped, this
+    step degrades cleanly (events are no-ops) and re-activates when M9
+    lands.
 
 ## Provenance and licensing checkpoints
 
@@ -130,6 +136,23 @@ share one isolation model rather than diverging.
   payloads with a clear error.
 - Memory deletion is verified as authoritative (post-deletion recall
   returns nothing and no soft-deleted rows remain reachable).
+- If M9 is deployed, an `indexing.completed` event reaches the target
+  user's feed; cross-tenant publishers cannot emit into another tenant's
+  feed.
+
+## Dev deployment validation
+
+Per the standing Phase 2 rule in `docs/milestones/README.md`:
+
+- Enable retrieval/memory in `deploy/values/dev/` once it exists.
+- Run a dev-deployment smoke test that indexes a small document, runs
+  a retrieval query end-to-end against pgvector on the dev RDS instance,
+  records and recalls one memory, and (if M9 is deployed) confirms the
+  `indexing.completed` notification reaches the user's feed.
+- The smoke test exercises the M1-adapted-from-Odysseus inference path
+  (embeddings flow through `app/control_plane/routing.py` +
+  `inference.py`) end-to-end.
+- Record the run in the milestone PR; failures block merge.
 
 ## Exit criteria
 

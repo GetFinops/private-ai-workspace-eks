@@ -103,12 +103,38 @@ secret + URL-validation layer with per-tenant credential isolation.
   a valid token.
 - Credential rotation in Secrets Manager propagates without restart.
 
+## Dev deployment validation
+
+Per the standing Phase 2 rule in `docs/milestones/README.md`:
+
+- Dev integration target uses a synthetic loopback fixture (a fake
+  calendar/contacts/mail server running inside the cluster, not the
+  real third-party service). Real third-party endpoints are out of
+  scope for dev deployment to keep credential exposure bounded.
+- Run a dev-deployment smoke test that:
+  - Stores fixture credentials in dev Secrets Manager via the IRSA path
+    (no plaintext fallback).
+  - Drives one successful call through the M3 hardened URL-validation
+    layer.
+  - Drives one denied call (private IP target) and confirms the audit
+    log records the rejection.
+  - Exercises the per-tenant kill-switch.
+- The smoke test runs through the M11 sandbox (when M11 is deployed)
+  and therefore exercises the M1-adapted-from-Odysseus surfaces that
+  the agent loop uses.
+- Record the run in the milestone PR; failures block merge. The
+  underlying upstream weakness this milestone remediates (CardDAV-class
+  URL/credential handling) makes this validation non-optional.
+
 ## Exit criteria
 
 - At least one integration ships with credentials in Secrets Manager,
   URL validation through the M3 layer, and per-tenant scoping.
 - The credential-handling security review is signed off and recorded.
 - Operator and per-tenant kill-switches are functional.
+- Dev-deployment smoke test passes against a freshly-deployed dev
+  cluster using a synthetic loopback fixture (not the real third-party
+  service).
 
 ## Escalation triggers
 

@@ -45,6 +45,15 @@ isolated, allow-listed, per-tenant sandbox with auditable execution.
 - prompt-injection defenses on tool selection
 - audit logging of every tool call (caller, tool, arguments scrubbed of
   content, result class, latency) reusing the M5 logging infrastructure
+- **optional sub-feature: "deep-research" multi-step agent** — Apache-2.0
+  upstream code adapted into the sandboxed agent runtime; gated by its
+  own adoption decision recorded in `NOTICE` (see the dedicated section
+  below)
+- producer events to the M9 notifications service: emit
+  `agent.task.completed`, `agent.task.failed`, and (for long-running
+  tasks) `agent.task.progress` events scoped to the originating tenant
+  and user. Events carry only event class, task id, and timestamps —
+  never tool arguments, results, or prompt/completion content.
 
 ## Non-goals
 
@@ -53,15 +62,18 @@ isolated, allow-listed, per-tenant sandbox with auditable execution.
 - MCP-exposed tools (M12)
 - personal-information integrations (M13)
 
-## In-scope optional sub-feature: "deep-research"-style multi-step agent
+## Optional sub-feature: "deep-research"-style multi-step agent
 
 The upstream-Odysseus surface includes a "deep-research" component documented
 in the Phase 2 licensing analysis as Apache-2.0. Functionally it is a
 multi-step agent workflow (planning → retrieval → synthesis), so it is a
 natural fit for this milestone rather than its own.
 
-If adopted, treat it as an optional sub-feature subject to a separate adoption
-decision recorded in `NOTICE`, and apply the additional rules below.
+This sub-feature is the **single place in Phase 2 where actual upstream code
+(not just patterns) is most likely to be adapted**. Treat it as an optional
+sub-feature subject to a separate adoption decision recorded in `NOTICE`,
+and apply the additional rules below. If not adopted, none of the M11 exit
+criteria depend on it.
 
 ## Build tasks
 
@@ -130,6 +142,29 @@ decision recorded in `NOTICE`, and apply the additional rules below.
 - Cross-tenant tool-result leakage is impossible by design (validated
   with scripted tests using different tenant tokens).
 - Sandbox exit on timeout, OOM, and CPU-exhausted scenarios is verified.
+- If M9 is deployed, `agent.task.completed` events reach the originating
+  user's feed and cross-tenant publishers cannot emit into another
+  tenant's feed.
+
+## Dev deployment validation
+
+Per the standing Phase 2 rule in `docs/milestones/README.md`:
+
+- Enable agents in `deploy/values/dev/` once the chart values exist.
+  Adopt a minimal allow-list of one safe stub tool for the dev
+  environment.
+- Run a dev-deployment smoke test that invokes the stub tool through
+  the sandbox, exercises the kill-switch, attempts one denied tool call
+  (must be rejected), and (if M9 is deployed) confirms the
+  `agent.task.completed` notification reaches the user's feed.
+- The smoke test exercises both the M1-adapted-from-Odysseus inference
+  surfaces (agent loop calls into `app/control_plane/inference.py`) and
+  any tool-framework patterns adapted in this milestone.
+- If the deep-research sub-feature is adopted, the dev deployment runs
+  one synthetic deep-research task end-to-end and the smoke test asserts
+  that the same sandbox boundary and kill-switch apply (no relaxed
+  path for multi-step agents).
+- Record the run in the milestone PR; failures block merge.
 
 ## Exit criteria
 
@@ -137,6 +172,8 @@ decision recorded in `NOTICE`, and apply the additional rules below.
   auditable execution.
 - Sandbox design has been reviewed and signed off.
 - Operator kill-switch is functional.
+- Dev-deployment smoke test passes against a freshly-deployed dev
+  cluster.
 
 ## Escalation triggers
 

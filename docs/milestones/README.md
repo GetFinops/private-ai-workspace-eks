@@ -71,6 +71,44 @@ Stop and request maintainer input before implementing changes that touch:
 - production networking exposure
 - tenant or user isolation behavior
 
+### Dev deployment validation for Phase 2
+
+This rule applies to every Phase 2 milestone (M9–M14) and is referenced
+from each milestone's "Dev deployment validation" section rather than
+duplicated in full.
+
+Every Phase 2 milestone must be exercised end-to-end in the dev
+deployment, not just in unit tests, before its exit criteria are
+considered met. The dev-deployment smoke test for each milestone must:
+
+1. Enable the milestone's feature in `deploy/values/dev/` against a
+   freshly-deployed dev cluster (or one in a known-good state).
+2. Exercise the feature's primary user path end-to-end through the
+   public control-plane API.
+3. Exercise the M1-adapted-from-Odysseus control-plane surfaces that
+   the feature inevitably touches: `app/control_plane/routing.py`,
+   `app/control_plane/inference.py`, and (when an authenticated path is
+   tested) `app/control_plane/token_verifier.py`. This is the project's
+   integration check that the upstream pattern adaptations still behave
+   correctly once a real Phase 2 feature drives them.
+4. Validate at least one cross-tenant or cross-user isolation case
+   appropriate to the milestone (no leakage).
+5. Validate the operator kill-switch or feature flag for any milestone
+   that introduces one.
+6. Capture the run in the milestone PR (logs, exit code, what was
+   exercised). Failures block merge.
+
+For features that produce events (M10 indexing, M11 agent tasks, M14
+media tasks), the smoke test additionally verifies the producer event
+reaches the M9 notifications feed when M9 is deployed in the same dev
+cluster, and that cross-tenant publishers cannot emit into another
+tenant's feed.
+
+Dev-deployment cost is a real constraint: dev values use the smallest
+viable models, the lowest `maxReplicas`, and a cold GPU pool by default
+(per `../09-scaling-policy.md`). Smoke tests should be parameterised to
+work within those bounds.
+
 ## Milestone Index
 
 Execution order: **M0 – M6 → M7a → Phase 2 (M9–M14, adoption-gated) → M7b → M8.**
@@ -113,21 +151,17 @@ implementation begins.
 - [M7b — Full Staging Hardening (post–Phase 2)](m7b-full-staging-hardening.md)
 - [M8 — Production Release](m8-production-release.md)
 
-### Currently unowned (tracked for future decision)
+### Coverage map for upstream-Odysseus surfaces
 
-These upstream-Odysseus surfaces are referenced in the planning bundle but are
-not owned by any current milestone. They are listed here so they are not lost;
-adopting any of them requires opening a follow-up milestone (or folding the
-scope into an existing milestone with an explicit decision record).
+The planning bundle references several upstream-Odysseus surfaces that did not
+have an obvious primary owner when M9–M14 were first scaffolded. They are
+listed here for traceability; all are now assigned, and the table is kept so
+the assignment is easy to audit.
 
-- **Notifications service** — referenced in
-  [`../03-implementation-plan.md`](../03-implementation-plan.md) target topology
-  but not assigned to M0–M8 or M9–M14. Likely belongs in the platform baseline
-  rather than the Phase 2 feature track if adopted.
-- **"Deep-research" component (Apache-2.0)** — referenced in the licensing
-  analysis of [`../12-phase-2-feature-adoption.md`](../12-phase-2-feature-adoption.md).
-  If adopted, the most natural home is M11 (as a multi-step agent workflow);
-  see the M11 file for the attribution checkpoint.
+| Upstream surface | Owner | Notes |
+| --- | --- | --- |
+| `NotificationService` (`../03-implementation-plan.md` topology) | **M9** | M9 owns the user-facing in-app notification feed and the basic server-side notifications service. M10/M11/M14 are producers. |
+| "Deep-research" component (Apache-2.0, `../12-phase-2-feature-adoption.md` licensing analysis) | **M11** | Labelled in-scope optional sub-feature of the agent and tool framework; the Apache-2.0 attribution checkpoint lives in the M11 instruction file. |
 
 ## File Structure
 
