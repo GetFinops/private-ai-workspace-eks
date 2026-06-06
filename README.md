@@ -49,18 +49,22 @@ The target architecture follows a two-plane EKS design:
 The control plane should remain healthy and operationally visible when GPU
 capacity is cold, scaling, or unavailable.
 
-Diagrams are maintained as diagram-as-code: AWS architecture with the
-[`diagrams`](https://diagrams.mingrammer.com/) library (official AWS icons) and
-software views as UML with PlantUML. Sources and regeneration instructions are
-in [`docs/diagrams/`](docs/diagrams/README.md); regenerate with
+Diagrams are maintained as diagram-as-code: the AWS infrastructure baseline with
+[`awsdac`](https://github.com/awslabs/diagram-as-code) (classic AWS reference
+style with the AWS Cloud frame, VPC, and subnets), conceptual diagrams with the
+[`diagrams`](https://diagrams.mingrammer.com/) library, and software views as
+UML with PlantUML. Sources and regeneration instructions are in
+[`docs/diagrams/`](docs/diagrams/README.md); regenerate with
 `scripts/generate-diagrams.sh`.
 
 ### Phase 1 — Platform Baseline (M0–M8)
 
-The committed baseline: a public ALB fronts the CPU control plane; the GPU
-inference plane (vLLM) stays internal-only; managed AWS services hold state,
-secrets, and images; the control plane verifies bearer tokens against an OIDC
-issuer.
+The committed baseline, drawn in the classic AWS reference style: an AWS Cloud
+frame containing the VPC with public and private subnets across two Availability
+Zones. A public ALB fronts the CPU control-plane node group; the GPU inference
+node group (vLLM) stays private/internal-only; regional managed services hold
+state, secrets, images, and telemetry; the control plane verifies bearer tokens
+against an OIDC issuer.
 
 ![Phase 1 platform baseline architecture](docs/diagrams/phase1_baseline.png)
 
