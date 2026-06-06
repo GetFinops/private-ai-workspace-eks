@@ -83,6 +83,13 @@ Stop and request maintainer input before implementing changes that touch:
 - [M7 — Staging Hardening](m7-staging-hardening.md)
 - [M8 — Production Release](m8-production-release.md)
 
+Milestones M0–M8 are the committed platform baseline. Proposed product features
+(GUI, retrieval, agents, MCP, integrations, media) are analyzed and sequenced as
+a candidate M9+ track in
+[`../12-phase-2-feature-adoption.md`](../12-phase-2-feature-adoption.md). That
+track is exploratory and gated by maintainer decision; it is not committed
+scope, so it does not yet have per-milestone instruction files.
+
 ## File Structure
 
 Each milestone file follows the same structure:
