@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # scripts/smoke-test.sh
 #
-# Smoke test for the control-plane API, including the M9 product surface:
-# the authenticated chat path and the tenant-scoped notifications service.
+# Smoke test for the control-plane API, covering the M9 product surface (the
+# authenticated chat path and the tenant-scoped notifications service) and the
+# M10 retrieval + per-user memory surfaces.
 #
 # The notification + chat routes exercised here are exactly the control-plane
 # API the vanilla-JS UI drives with its PKCE-obtained bearer token, so a green
-# run validates the surface behind the M9 client.
+# run validates the surface behind the M9 client. The M10 sections index a
+# document and run a retrieval query, and record/recall/delete a memory, then
+# probe cross-tenant retrieval isolation (--token-b) and cross-user memory
+# isolation (--token-c, a second user in the SAME tenant as --token).
 #
 # Modes:
 #
@@ -22,7 +26,11 @@
 #   the cross-tenant isolation probe required by the M9 exit criteria.
 #
 #       ./scripts/smoke-test.sh --base https://<control-plane> \
-#           --token "$TOKEN_TENANT_A" [--token-b "$TOKEN_TENANT_B"]
+#           --token "$TOKEN_TENANT_A" [--token-b "$TOKEN_TENANT_B"] \
+#           [--token-c "$TOKEN_TENANT_A_USER_2"]
+#
+#   --token-b is a token for a DIFFERENT tenant (different email domain);
+#   --token-c is a token for a DIFFERENT user in the SAME tenant as --token.
 #
 #   --public-only skips every authenticated check (no token required) and
 #   probes only the public surface: health, inference status, routing, and
@@ -39,6 +47,7 @@ PORT="${PORT:-8080}"
 BASE=""
 TOKEN=""
 TOKEN_B=""
+TOKEN_C=""
 PUBLIC_ONLY=0
 DEV_TOKEN="smoke-dev-token"   # local mode only; accepted by DevTokenVerifier
 TIMEOUT=10
@@ -51,6 +60,7 @@ while [[ $# -gt 0 ]]; do
     --base)        BASE="${2%/}"; shift 2 ;;
     --token)       TOKEN="$2"; shift 2 ;;
     --token-b)     TOKEN_B="$2"; shift 2 ;;
+    --token-c)     TOKEN_C="$2"; shift 2 ;;
     --public-only) PUBLIC_ONLY=1; shift ;;
     -h|--help)     usage 0 ;;
     *) echo "Unknown argument: $1" >&2; usage 1 ;;
@@ -167,6 +177,24 @@ try:
 except Exception:
     print("err")' "${RESP_BODY}" "$1"
 }
+results_contain() {  # results_contain <text> → "yes" / "no" / "err"  (over results[].content)
+  python3 -c 'import sys, json
+try:
+    d = json.loads(sys.argv[1])
+    texts = " ".join(r.get("content", "") for r in d.get("results", []))
+    print("yes" if sys.argv[2] in texts else "no")
+except Exception:
+    print("err")' "${RESP_BODY}" "$1"
+}
+mem_list_has() {  # mem_list_has <id> → "yes" / "no" / "err"  (over memories[].id)
+  python3 -c 'import sys, json
+try:
+    d = json.loads(sys.argv[1])
+    ids = [m.get("id") for m in d.get("memories", [])]
+    print("yes" if sys.argv[2] in ids else "no")
+except Exception:
+    print("err")' "${RESP_BODY}" "$1"
+}
 
 # ── Core control-plane probes (public) ───────────────────────────────────────
 echo ""
@@ -265,6 +293,74 @@ if [[ "${RUN_AUTH}" -eq 1 ]]; then
       echo "    Pass --token-b \"\$TOKEN_TENANT_B\" (a second tenant's token) to run it."
     fi
     echo "    Store-layer isolation is unit-covered in tests/test_notifications.py."
+  fi
+
+  # ── M10: retrieval round trip (index → query) ──────────────────────────────
+  echo ""
+  echo "==> M10 retrieval round trip (index → query)"
+  RDOC="retrieval smoke marker alpha kubernetes pods autoscaling horizontal"
+  req POST /v1/retrieval/documents "${TOKEN}" "{\"title\":\"Smoke Doc\",\"content\":\"${RDOC}\"}"
+  expect_status "index document → 201" 201
+  req POST /v1/retrieval/query "${TOKEN}" '{"query":"kubernetes pods autoscaling","top_k":5}'
+  expect_status "retrieval query → 200" 200
+  if [[ "$(results_contain "smoke marker alpha")" == "yes" ]]; then pass "query returns the indexed passage"; else flunk "indexed passage not retrieved"; fi
+  req POST /v1/retrieval/documents "${TOKEN}" '{"title":"No body"}'
+  expect_status "index without content → 400" 400
+
+  # ── M10: cross-tenant retrieval isolation (A indexes; B must not retrieve) ──
+  echo ""
+  if [[ -n "${TOKEN_B}" ]]; then
+    echo "==> M10 cross-tenant retrieval isolation"
+    MARK="xtenant-doc-$$-${RANDOM}"
+    req POST /v1/retrieval/documents "${TOKEN}" "{\"title\":\"Secret A\",\"content\":\"acme quarterly revenue ${MARK}\"}"
+    expect_status "A indexes a document → 201" 201
+    req POST /v1/retrieval/query "${TOKEN_B}" "{\"query\":\"acme quarterly revenue ${MARK}\"}"
+    expect_status "B retrieval query → 200" 200
+    if [[ "$(results_contain "${MARK}")" == "no" ]]; then pass "B cannot retrieve A's document (isolation holds)"; else flunk "ISOLATION LEAK: B retrieved A's document marker ${MARK}"; fi
+  else
+    echo "==> M10 cross-tenant retrieval isolation — SKIPPED (pass --token-b)"
+  fi
+
+  # ── M10: memory round trip (consent → record → recall → list → delete) ─────
+  echo ""
+  echo "==> M10 memory round trip (record → recall → delete)"
+  req POST /v1/memory "${TOKEN}" '{"content":"no consent given"}'
+  expect_status "record without consent → 403" 403
+  MARK="mem-$$-${RANDOM}"
+  req POST /v1/memory "${TOKEN}" "{\"content\":\"my smoke memory ${MARK}\",\"consent\":true}"
+  expect_status "record memory (with consent) → 201" 201
+  MEM_ID="$(json_id)"
+  if [[ -n "${MEM_ID}" ]]; then pass "record returned an id  (${MEM_ID})"; else flunk "record returned no id"; fi
+  req POST /v1/memory/recall "${TOKEN}" "{\"query\":\"smoke memory ${MARK}\"}"
+  expect_status "memory recall → 200" 200
+  if [[ "$(results_contain "${MARK}")" == "yes" ]]; then pass "recall returns the stored memory"; else flunk "stored memory not recalled"; fi
+  req GET /v1/memory "${TOKEN}"
+  expect_status "list memories → 200" 200
+  if [[ "$(mem_list_has "${MEM_ID}")" == "yes" ]]; then pass "memory appears in the list"; else flunk "memory missing from list"; fi
+  req DELETE "/v1/memory/${MEM_ID}" "${TOKEN}"
+  expect_status "delete memory → 200" 200
+  req POST /v1/memory/recall "${TOKEN}" "{\"query\":\"smoke memory ${MARK}\"}"
+  if [[ "$(results_contain "${MARK}")" == "no" ]]; then pass "deleted memory is no longer recalled (authoritative)"; else flunk "deleted memory still recalled"; fi
+  req DELETE "/v1/memory/${MEM_ID}" "${TOKEN}"
+  expect_status "re-delete already-deleted memory → 404" 404
+
+  # ── M10: cross-user memory isolation (same tenant, different user) ─────────
+  echo ""
+  if [[ -n "${TOKEN_C}" ]]; then
+    echo "==> M10 cross-user memory isolation (A records; C same-tenant must not recall)"
+    MARK="xuser-$$-${RANDOM}"
+    req POST /v1/memory "${TOKEN}" "{\"content\":\"private note ${MARK}\",\"consent\":true}"
+    expect_status "A records a private memory → 201" 201
+    AID="$(json_id)"
+    req POST /v1/memory/recall "${TOKEN_C}" "{\"query\":\"private note ${MARK}\"}"
+    expect_status "C recall → 200" 200
+    if [[ "$(results_contain "${MARK}")" == "no" ]]; then pass "C cannot recall A's memory (isolation holds)"; else flunk "ISOLATION LEAK: C recalled A's memory marker ${MARK}"; fi
+    req DELETE "/v1/memory/${AID}" "${TOKEN_C}"
+    expect_status "C cannot delete A's memory → 404" 404
+  else
+    echo "==> M10 cross-user memory isolation — SKIPPED"
+    echo "    Pass --token-c \"\$TOKEN_USER_C\" (a second user in the SAME tenant as --token) to run it."
+    echo "    Store-layer isolation is unit-covered in tests/test_memory.py."
   fi
 else
   echo ""

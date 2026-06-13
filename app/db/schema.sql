@@ -72,3 +72,21 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 CREATE INDEX IF NOT EXISTS idx_document_chunks_tenant
     ON document_chunks (tenant_id);
 
+-- Migration 0004: per-user long-term memory (M10 — memory surface)
+-- Memory is scoped one level tighter than retrieval: to a single
+-- (tenant_id, user_id). Cross-user recall is impossible by design — every
+-- query filters by user_id at the storage layer. Writes are opt-in with
+-- explicit per-write consent enforced at the API layer; deletion is
+-- authoritative (the row is removed, not soft-deleted).
+CREATE TABLE IF NOT EXISTS memories (
+    id          UUID        PRIMARY KEY,
+    tenant_id   TEXT        NOT NULL,
+    user_id     TEXT        NOT NULL,
+    content     TEXT        NOT NULL,
+    embedding   vector(384) NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memories_user
+    ON memories (tenant_id, user_id, created_at DESC);
+

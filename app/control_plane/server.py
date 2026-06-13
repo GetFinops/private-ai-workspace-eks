@@ -7,6 +7,10 @@ GET  /metrics                  — Prometheus metrics (golden signals, M5)
 POST /v1/chat/completions      — authenticated chat path; delegates to inference plane
 POST /v1/retrieval/documents   — index a document into the caller's tenant (M10)
 POST /v1/retrieval/query       — tenant-scoped retrieval query (M10)
+POST /v1/memory                — record a memory (explicit consent required) (M10)
+GET  /v1/memory                — list the caller's memories (M10)
+POST /v1/memory/recall         — per-user memory recall (M10)
+DELETE /v1/memory/{id}         — authoritative delete of a memory (M10)
 
 Authentication is enforced on the chat path:
   - Requests must carry an Authorization: Bearer <token> header.
@@ -69,6 +73,14 @@ from app.control_plane.notifications import (
     build_notifications_list_response,
 )
 from app.control_plane.embeddings import DeterministicEmbeddingClient, EmbeddingClient
+from app.control_plane.memory import (
+    InMemoryMemoryStore,
+    MemoryStore,
+    build_memory_delete_response,
+    build_memory_list_response,
+    build_memory_recall_response,
+    build_memory_record_response,
+)
 from app.control_plane.retrieval import (
     InMemoryRetrievalStore,
     RetrievalStore,
@@ -89,6 +101,8 @@ _CHAT_PATH = "/v1/chat/completions"
 _NOTIFICATIONS_PATH = "/v1/notifications"
 _RETRIEVAL_DOCUMENTS_PATH = "/v1/retrieval/documents"
 _RETRIEVAL_QUERY_PATH = "/v1/retrieval/query"
+_MEMORY_PATH = "/v1/memory"
+_MEMORY_RECALL_PATH = "/v1/memory/recall"
 _METRICS_PATH = "/metrics"
 _MAX_REQUEST_BODY = 1 * 1024 * 1024  # 1 MiB
 
@@ -374,6 +388,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     storage_client: S3StorageClient | None = None
     notification_store: NotificationStore = InMemoryNotificationStore()  # type: ignore[assignment]
     retrieval_store: RetrievalStore = InMemoryRetrievalStore()  # type: ignore[assignment]
+    memory_store: MemoryStore = InMemoryMemoryStore()  # type: ignore[assignment]
     embedding_client: EmbeddingClient = DeterministicEmbeddingClient()
 
     # ── Request lifecycle ──────────────────────────────────────────────────────
@@ -444,6 +459,14 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
             )
             self._instrument("GET", lambda s=status, p=payload: Response(s, p))
             return
+        if path == _MEMORY_PATH:
+            status, payload = build_memory_list_response(
+                authorization=self.headers.get("Authorization"),
+                token_verifier=self.__class__.token_verifier,
+                store=self.__class__.memory_store,
+            )
+            self._instrument("GET", lambda s=status, p=payload: Response(s, p))
+            return
         self._instrument("GET", lambda: build_response(self.path, self.__class__.config))
 
     def do_POST(self) -> None:  # noqa: N802
@@ -492,6 +515,26 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                 )
                 return Response(status, payload)
 
+            if path == _MEMORY_RECALL_PATH:
+                status, payload = build_memory_recall_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    store=self.__class__.memory_store,
+                    embedding_client=self.__class__.embedding_client,
+                )
+                return Response(status, payload)
+
+            if path == _MEMORY_PATH:
+                status, payload = build_memory_record_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    store=self.__class__.memory_store,
+                    embedding_client=self.__class__.embedding_client,
+                )
+                return Response(status, payload)
+
             # POST /v1/notifications/{id}/read
             if path.startswith(_NOTIFICATIONS_PATH + "/") and path.endswith("/read"):
                 # Extract the notification ID from between the prefix and "/read"
@@ -509,6 +552,24 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
 
             return Response(HTTPStatus.NOT_FOUND, {"error": "not_found", "path": self.path})
         self._instrument("POST", _post)
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        def _delete() -> Response:
+            path = self.path.split("?", 1)[0]
+            # DELETE /v1/memory/{id} — authoritative delete of a stored memory.
+            prefix = _MEMORY_PATH + "/"
+            if path.startswith(prefix):
+                memory_id = path[len(prefix):]
+                if memory_id and "/" not in memory_id:
+                    status, payload = build_memory_delete_response(
+                        authorization=self.headers.get("Authorization"),
+                        memory_id=memory_id,
+                        token_verifier=self.__class__.token_verifier,
+                        store=self.__class__.memory_store,
+                    )
+                    return Response(status, payload)
+            return Response(HTTPStatus.NOT_FOUND, {"error": "not_found", "path": self.path})
+        self._instrument("DELETE", _delete)
 
     # ── Writers ────────────────────────────────────────────────────────────────
 
@@ -692,6 +753,38 @@ def _build_retrieval_store(config: ControlPlaneConfig) -> RetrievalStore:
         return InMemoryRetrievalStore()  # type: ignore[return-value]
 
 
+def _build_memory_store(config: ControlPlaneConfig) -> MemoryStore:
+    """Return a PostgresMemoryStore when DATABASE_URL is configured."""
+    if not config.database_url:
+        logger.warning(
+            "DATABASE_URL not configured — using in-memory memory store. "
+            "Not safe for multi-replica or production deployments."
+        )
+        return InMemoryMemoryStore()  # type: ignore[return-value]
+
+    try:
+        from app.db.connection import open_pool
+        from app.control_plane.memory import PostgresMemoryStore
+
+        pool = open_pool(config.database_url)
+        logger.info("Using PostgreSQL (pgvector) memory store.")
+        return PostgresMemoryStore(pool)  # type: ignore[return-value]
+    except Exception as exc:
+        exc_type = type(exc).__name__
+        if config.environment != "development":
+            raise RuntimeError(
+                f"Failed to initialize PostgreSQL memory store ({exc_type}); "
+                f"refusing to fall back in environment={config.environment!r}."
+            ) from None
+        logger.error(
+            "Failed to initialize PostgreSQL memory store (%s) — "
+            "falling back to in-memory store (development only).",
+            exc_type,
+            exc_info=False,
+        )
+        return InMemoryMemoryStore()  # type: ignore[return-value]
+
+
 def run_server(
     host: str = "0.0.0.0",
     port: int = 8080,
@@ -700,6 +793,7 @@ def run_server(
     storage_client: S3StorageClient | None = None,
     notification_store: NotificationStore | None = None,
     retrieval_store: RetrievalStore | None = None,
+    memory_store: MemoryStore | None = None,
 ) -> None:
     """Run the development HTTP server."""
     resolved_config = config or ControlPlaneConfig.from_env()
@@ -712,6 +806,9 @@ def run_server(
     )
     ControlPlaneHandler.retrieval_store = (  # type: ignore[assignment]
         retrieval_store or _build_retrieval_store(resolved_config)
+    )
+    ControlPlaneHandler.memory_store = (  # type: ignore[assignment]
+        memory_store or _build_memory_store(resolved_config)
     )
 
     server = ThreadingHTTPServer((host, port), ControlPlaneHandler)

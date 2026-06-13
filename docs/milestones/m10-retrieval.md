@@ -10,27 +10,33 @@
 
 ## Status
 
-In progress (adopted). First increment landed: **document retrieval** on
-pgvector.
+In progress (adopted). **Retrieval + memory** surfaces and the dev-deployment
+smoke test have landed; the production embedding backend and retrieval
+observability remain.
 
-Done in this increment:
-- pgvector schema (migration 0003): `documents` + `document_chunks` tables,
-  tenant-scoped, with a `vector(384)` embedding column.
+Done:
+- pgvector schema (migrations 0003/0004): `documents` + `document_chunks`
+  (tenant-scoped) and `memories` (per-user-scoped), `vector(384)` columns.
 - `app/control_plane/embeddings.py`: `EmbeddingClient` protocol + a
   dependency-free `DeterministicEmbeddingClient` for dev/tests.
-- `app/control_plane/retrieval.py`: in-memory + pgvector stores and the pure
-  index/query handlers, with per-tenant isolation at the store layer, size and
-  rate limits, and an `indexing_complete` event into the M9 notifications feed.
-- API: `POST /v1/retrieval/documents` (index) and `POST /v1/retrieval/query`.
-- Unit tests (`tests/test_retrieval.py`) including a cross-tenant isolation case.
+- `app/control_plane/retrieval.py`: in-memory + pgvector stores and pure
+  index/query handlers, per-tenant isolation at the store layer, size/rate
+  limits, and an `indexing_complete` event into the M9 feed.
+  API: `POST /v1/retrieval/documents`, `POST /v1/retrieval/query`.
+- `app/control_plane/memory.py`: per-user memory with **opt-in** writes
+  (explicit per-write `consent`), list/recall, and **authoritative** delete;
+  per-user isolation at the store layer.
+  API: `POST /v1/memory`, `GET /v1/memory`, `POST /v1/memory/recall`,
+  `DELETE /v1/memory/{id}`.
+- Unit tests (`tests/test_retrieval.py`, `tests/test_memory.py`) including
+  cross-tenant retrieval and cross-user memory isolation cases.
+- `scripts/smoke-test.sh` extended with M10 retrieval + memory round trips and
+  isolation probes (`--token-b` cross-tenant retrieval, `--token-c` cross-user
+  memory).
 
 Remaining for the milestone (follow-up PRs):
-- per-user **long-term memory** surface (build tasks 8–9) with explicit
-  list/export/delete user controls;
 - production in-cluster **embedding backend** (build task 6);
-- **dev-deployment smoke test** for retrieval/memory against pgvector on the dev
-  RDS (the standing Phase 2 validation rule);
-- observability for retrieval (build task 7).
+- retrieval/memory **observability** (build task 7).
 
 The isolation model mirrors the M9 notifications service and is flagged for
 maintainer review on the PR per the Phase 2 isolation escalation trigger.
