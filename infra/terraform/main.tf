@@ -104,8 +104,8 @@ resource "aws_secretsmanager_secret" "app_config" {
 module "irsa_app" {
   source = "./modules/irsa-app"
 
-  project_name  = var.project_name
-  environment   = var.environment
+  project_name = var.project_name
+  environment  = var.environment
 
   oidc_provider_arn = module.eks.cluster_oidc_provider_arn
   oidc_provider_url = module.eks.cluster_oidc_provider_url
@@ -212,4 +212,63 @@ resource "aws_eks_access_policy_association" "github_actions_admin" {
   }
 
   depends_on = [aws_eks_access_entry.github_actions]
+}
+
+# ── Dev OIDC (Cognito) ───────────────────────────────────────────────────────
+# Backs the M9 product-surface sign-in. Dev-only: production points the control
+# plane at a real IdP, so this is gated behind enable_dev_cognito.
+module "cognito" {
+  count  = var.enable_dev_cognito ? 1 : 0
+  source = "./modules/cognito"
+
+  pool_name               = "${var.project_name}-${var.environment}"
+  client_name             = "private-ai-ui-${var.environment}"
+  hosted_ui_domain_prefix = var.cognito_hosted_ui_domain_prefix
+  callback_urls           = ["https://${var.ui_host}/callback"]
+  logout_urls             = ["https://${var.ui_host}/"]
+  test_user_emails        = var.cognito_test_user_emails
+
+  tags = local.tags
+}
+
+# ── UI TLS certificate (ACM, DNS-validated via Route53) ──────────────────────
+# Created only when both the UI hostname and its hosted-zone id are supplied.
+locals {
+  enable_ui_cert = var.ui_host != "" && var.acm_route53_zone_id != ""
+}
+
+resource "aws_acm_certificate" "ui" {
+  count             = local.enable_ui_cert ? 1 : 0
+  domain_name       = var.ui_host
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = local.tags
+}
+
+resource "aws_route53_record" "ui_cert_validation" {
+  for_each = local.enable_ui_cert ? {
+    for dvo in aws_acm_certificate.ui[0].domain_validation_options :
+    dvo.domain_name => {
+      name   = dvo.resource_record_name
+      type   = dvo.resource_record_type
+      record = dvo.resource_record_value
+    }
+  } : {}
+
+  zone_id         = var.acm_route53_zone_id
+  name            = each.value.name
+  type            = each.value.type
+  ttl             = 300
+  records         = [each.value.record]
+  allow_overwrite = true
+}
+
+resource "aws_acm_certificate_validation" "ui" {
+  count                   = local.enable_ui_cert ? 1 : 0
+  certificate_arn         = aws_acm_certificate.ui[0].arn
+  validation_record_fqdns = [for r in aws_route53_record.ui_cert_validation : r.fqdn]
 }

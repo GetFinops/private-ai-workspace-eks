@@ -84,3 +84,28 @@ output "karpenter_node_role_name" {
   description = "Name of the IAM role that Karpenter-provisioned EC2 instances assume. Reference this in EC2NodeClass.spec.role."
   value       = module.karpenter.node_role_name
 }
+
+output "ecr_ui_url" {
+  description = "ECR repository URL for the UI image."
+  value       = module.ecr.ui_repository_url
+}
+
+output "cognito_issuer_url" {
+  description = "Dev Cognito OIDC issuer URL (AUTH_ISSUER_URL / OIDC_ISSUER), or null when disabled."
+  value       = try(module.cognito[0].issuer_url, null)
+}
+
+output "cognito_client_id" {
+  description = "Dev Cognito app client id (AUTH_AUDIENCE / OIDC_CLIENT_ID), or null when disabled."
+  value       = try(module.cognito[0].client_id, null)
+}
+
+output "cognito_hosted_ui_domain" {
+  description = "Dev Cognito hosted-UI domain (serves /oauth2/authorize and /oauth2/token), or null when disabled."
+  value       = try(module.cognito[0].hosted_ui_domain, null)
+}
+
+output "ui_acm_certificate_arn" {
+  description = "ACM certificate ARN for the UI ingress, or null when not created."
+  value       = try(aws_acm_certificate.ui[0].arn, null)
+}
