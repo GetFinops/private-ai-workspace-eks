@@ -170,6 +170,7 @@ jobs:
             --set image.repository="${{ vars.ECR_CONTROL_PLANE_URL }}" \
             --set image.tag="${IMAGE_TAG}" \
             --set serviceAccount.irsaRoleArn="${{ vars.IRSA_APP_ROLE_ARN }}" \
+            --set serviceAccount.name=private-ai-workspace-control-plane \
             --set externalSecrets.secretsManagerSecretName="${{ vars.APP_CONFIG_SECRET_NAME }}" \
             --set externalSecrets.awsRegion="${{ vars.AWS_REGION }}" \
             --set metrics.serviceMonitor.enabled=false \
