@@ -146,11 +146,16 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
-          version: "3.17.x"
+          # Pinned concrete version: the "3.17.x" wildcard requires a GitHub API
+          # token to resolve and otherwise downloads a literal v3.17.x (404).
+          version: "v3.17.4"
 
       - name: Deploy cluster add-ons (ExternalSecrets Operator)
         run: |
-          helm dependency update deploy/helm/cluster-addons
+          # build (not update) resolves from the committed Chart.lock + vendored
+          # charts/*.tgz — deterministic, no upstream re-resolution of the OCI /
+          # x.x.x dependencies.
+          helm dependency build deploy/helm/cluster-addons
           helm upgrade --install cluster-addons deploy/helm/cluster-addons \
             --namespace kube-system \
             --create-namespace \
@@ -167,6 +172,7 @@ jobs:
             --set serviceAccount.irsaRoleArn="${{ vars.IRSA_APP_ROLE_ARN }}" \
             --set externalSecrets.secretsManagerSecretName="${{ vars.APP_CONFIG_SECRET_NAME }}" \
             --set externalSecrets.awsRegion="${{ vars.AWS_REGION }}" \
+            --set metrics.serviceMonitor.enabled=false \
             -f "deploy/values/${ENV}/app.yaml" \
             --wait \
             --timeout 5m
