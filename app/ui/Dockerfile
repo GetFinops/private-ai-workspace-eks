@@ -28,6 +28,9 @@ COPY app/ui/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh && \
     # nginx needs to write temp files as non-root.
     chown -R nginx:nginx /var/cache/nginx /var/log/nginx /etc/nginx && \
+    # The entrypoint renders /usr/share/nginx/html/config.json at runtime as the
+    # non-root nginx user, so that dir must be writable by it.
+    chown -R nginx:nginx /usr/share/nginx/html && \
     # Allow nginx to write its PID file to /tmp (non-root).
     mkdir -p /tmp && chown nginx:nginx /tmp
 

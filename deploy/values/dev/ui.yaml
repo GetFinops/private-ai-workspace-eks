@@ -66,3 +66,10 @@ resources:
   limits:
     cpu: "200m"
     memory: "64Mi"
+
+# The chart defaults nodeSelector to {role: control-plane}, but the dev cluster's
+# single CPU node group isn't labelled that way (GPU nodes carry the
+# nvidia.com/gpu taint the UI doesn't tolerate, so they're excluded anyway).
+# null (not {}) unsets the chart default under Helm's value coalescing, so the
+# UI schedules on the dev CPU node.
+nodeSelector: null
