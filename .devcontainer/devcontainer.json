@@ -1,53 +1,36 @@
 {
-  // Local dev container for private-ai-workspace-eks.
-  // Bundles the toolchain needed to work on the control plane (Python 3.12),
-  // and the infra/terraform EKS stack (Terraform, AWS CLI, kubectl, Helm).
-  //
-  // Host credentials are mapped in, never baked into the image:
-  //   - ~/.ssh  -> read-only, copied to the in-container user with safe perms
-  //   - ~/.aws  -> bind-mounted so AWS CLI / Terraform reuse host profiles & SSO cache
   "name": "private-ai-workspace-eks",
-  "image": "mcr.microsoft.com/devcontainers/python:3.12-bookworm",
-
-  "features": {
-    "ghcr.io/devcontainers/features/common-utils:2": {
-      "installZsh": true,
-      "configureZshAsDefaultShell": false,
-      "upgradePackages": true
-    },
-    "ghcr.io/devcontainers/features/git:1": {},
-    "ghcr.io/devcontainers/features/terraform:1": {
-      // Matches infra/terraform/versions.tf (required_version >= 1.6.0).
-      "version": "latest",
-      "tflint": "latest",
-      "installTFsec": true
-    },
-    "ghcr.io/devcontainers/features/aws-cli:1": {
-      "version": "latest"
-    },
-    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
-      "version": "latest",
-      "helm": "latest",
-      "minikube": "none"
-    }
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
   },
 
-  // Map host SSH keys (read-only) and AWS credentials into the container.
-  // ${localEnv:HOME} resolves on the host (macOS/Linux). On Windows use ${localEnv:USERPROFILE}.
+  // Host credentials mapped in at runtime — never baked into the image.
+  // ~/.ssh is mounted read-only; post-create.sh copies it with safe perms.
+  // ~/.aws is mounted read-write so SSO / credential-process cache works.
   "mounts": [
-    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh-localhost,type=bind,readonly",
-    "source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,consistency=cached"
+    {
+      "source": "${localEnv:HOME}/.ssh",
+      "target": "/home/vscode/.ssh-localhost",
+      "type": "bind",
+      "readonly": true
+    },
+    {
+      "source": "${localEnv:HOME}/.aws",
+      "target": "/home/vscode/.aws",
+      "type": "bind"
+    }
   ],
 
   "remoteUser": "vscode",
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
 
   "containerEnv": {
-    // Default region/profile; override per shell as needed.
     "AWS_REGION": "${localEnv:AWS_REGION}",
     "AWS_PROFILE": "${localEnv:AWS_PROFILE}"
   },
 
-  // Forward the host SSH agent when available (alternative to mounted keys).
   "runArgs": ["--init"],
 
   "postCreateCommand": "bash .devcontainer/post-create.sh",
@@ -62,7 +45,8 @@
         "redhat.vscode-yaml"
       ],
       "settings": {
-        "terminal.integrated.defaultProfile.linux": "bash"
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "python.defaultInterpreterPath": "/usr/local/bin/python3"
       }
     }
   }
