@@ -46,10 +46,15 @@ Done:
   (M5 content policy + cardinality); per-tenant index size is queried from the
   DB, not labelled.
 
-Remaining (infra, not code): deploy an in-cluster embedding model service and
-set `EMBEDDING_BASE_URL` in `deploy/values/dev/` to switch the dev deployment
-from the deterministic dev embedding to the real model; add Grafana panels for
-the new metrics. Both are cost/infra decisions rather than control-plane work.
+Infra completing the milestone (tracked in their own PRs):
+- in-cluster embedding model service (`deploy/helm/embedding`, TEI + bge-small)
+  wired into the Deploy workflow via `EMBEDDING_BASE_URL` — deployed and
+  validated against the dev cluster;
+- Grafana dashboard for the M10 metrics
+  (`deploy/helm/observability/dashboards/control-plane-retrieval.json`) loaded
+  by the observability stack's sidecar — retrieval/memory rate + p95 latency,
+  embedding throughput + p95 latency, results-returned (recall proxy), and
+  chunks-indexed growth.
 
 The isolation model mirrors the M9 notifications service and is flagged for
 maintainer review on the PR per the Phase 2 isolation escalation trigger.
