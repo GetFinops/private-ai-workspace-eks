@@ -104,7 +104,10 @@ class RoadmapArtifactTests(TestCase):
         es = ROOT / "deploy" / "helm" / "private-ai-workspace" / "templates" / "externalsecret.yaml"
         self.assertTrue(es.is_file())
         content = es.read_text()
-        self.assertIn("external-secrets.io/v1beta1", content)
+        # ESO 0.20+ serves SecretStore/ExternalSecret only at v1 (v1beta1 is
+        # served:false), so the chart must use the GA apiVersion.
+        self.assertIn("apiVersion: external-secrets.io/v1\n", content)
+        self.assertNotIn("external-secrets.io/v1beta1", content)
         self.assertIn("ExternalSecret", content)
 
     def test_helm_values_ingress_disabled_by_default(self) -> None:
