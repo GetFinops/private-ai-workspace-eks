@@ -10,4 +10,9 @@ dependencies:
   - name: kube-prometheus-stack
     version: "72.x.x"
     repository: "https://prometheus-community.github.io/helm-charts"
-    condition: kubePrometheusStack.enabled
+    # Subchart values must be nested under the subchart's real name
+    # (`kube-prometheus-stack`). They were previously under `kubePrometheusStack`,
+    # which the subchart ignored — so every override was silently dropped and it
+    # ran on its (heavy) defaults. (No alias: a camelCase alias would also break
+    # resource names, which must be lowercase RFC 1123.)
+    condition: kube-prometheus-stack.enabled

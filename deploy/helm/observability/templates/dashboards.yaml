@@ -1,7 +1,11 @@
 {{- $fullname := include "observability.fullname" . -}}
 {{- $namespace := .Release.Namespace -}}
-{{- $grafanaEnabled := .Values.kubePrometheusStack.grafana.enabled | default true -}}
+{{- $grafanaEnabled := (index .Values "kube-prometheus-stack").grafana.enabled | default true -}}
 {{- if $grafanaEnabled -}}
+# grafana_dashboard is a LABEL the sidecar watches; grafana_folder is an
+# ANNOTATION read via the sidecar's folderAnnotation (label values cannot
+# contain spaces, and the sidecar reads the folder from an annotation, not a
+# label).
 # ── DCGM GPU Dashboard ────────────────────────────────────────────────────────
 # Source: aws-samples/sample-genai-on-eks-starter-kit
 #         components/nvidia-platform/monitoring/dashboards/dcgm-metrics.json
@@ -16,6 +20,7 @@ metadata:
   namespace: {{ $namespace }}
   labels:
     grafana_dashboard: "1"
+  annotations:
     grafana_folder: "GPU"
 data:
   dcgm-gpu.json: |
@@ -33,6 +38,7 @@ metadata:
   namespace: {{ $namespace }}
   labels:
     grafana_dashboard: "1"
+  annotations:
     grafana_folder: "Inference"
 data:
   vllm-performance.json: |
@@ -50,6 +56,7 @@ metadata:
   namespace: {{ $namespace }}
   labels:
     grafana_dashboard: "1"
+  annotations:
     grafana_folder: "Inference"
 data:
   vllm-query.json: |
@@ -68,7 +75,8 @@ metadata:
   namespace: {{ $namespace }}
   labels:
     grafana_dashboard: "1"
-    grafana_folder: "control-plane"
+  annotations:
+    grafana_folder: "Control Plane"
 data:
   control-plane-retrieval.json: |
 {{ .Files.Get "dashboards/control-plane-retrieval.json" | indent 4 }}

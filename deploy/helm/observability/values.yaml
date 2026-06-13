@@ -7,7 +7,7 @@
 #
 # Reference architecture: docs/07-observability.md
 
-kubePrometheusStack:
+kube-prometheus-stack:
   enabled: true
 
   prometheus:
@@ -72,14 +72,10 @@ kubePrometheusStack:
       security:
         disable_initial_admin_creation: false
 
-    datasources:
-      datasources.yaml:
-        apiVersion: 1
-        datasources:
-          - name: Prometheus
-            type: prometheus
-            url: http://{{ .Release.Name }}-kube-prometheus-stack-prometheus:9090
-            isDefault: true
+    # NOTE: do not define a Prometheus datasource here — kube-prometheus-stack
+    # already provisions a default Prometheus datasource. A second isDefault
+    # datasource makes Grafana refuse to start ("Only one datasource per
+    # organization can be marked as default").
 
     # Sidecar auto-discovers ConfigMaps labelled grafana_dashboard="1" across
     # all namespaces — the same pattern used by the upstream AWS sample repo.
@@ -92,7 +88,11 @@ kubePrometheusStack:
         searchNamespace: ALL
         folderAnnotation: grafana_folder
         provider:
-          foldersFromFilesStructure: false
+          # Must be true for folderAnnotation to take effect: the sidecar files
+          # each dashboard into a subdir named by its grafana_folder annotation,
+          # and the provider maps that directory structure to Grafana folders.
+          # With false, every dashboard lands in the General folder.
+          foldersFromFilesStructure: true
 
     resources:
       requests:

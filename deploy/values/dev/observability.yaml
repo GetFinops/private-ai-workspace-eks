@@ -4,7 +4,7 @@
 #          --namespace monitoring --create-namespace \
 #          -f deploy/values/dev/observability.yaml
 
-kubePrometheusStack:
+kube-prometheus-stack:
   prometheus:
     prometheusSpec:
       retention: 3d
