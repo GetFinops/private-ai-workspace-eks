@@ -68,7 +68,7 @@ metadata:
   namespace: {{ $namespace }}
   labels:
     grafana_dashboard: "1"
-    grafana_folder: "Control Plane"
+    grafana_folder: "control-plane"
 data:
   control-plane-retrieval.json: |
 {{ .Files.Get "dashboards/control-plane-retrieval.json" | indent 4 }}
