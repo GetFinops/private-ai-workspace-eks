@@ -4,6 +4,10 @@ on:
   # push trigger re-enabled once GitHub Actions vars/secrets are configured
   # (AWS_DEPLOY_ROLE_ARN, ECR_CONTROL_PLANE_URL, EKS_CLUSTER_NAME, etc.).
   # See deploy/values/dev/app.yaml and docs/milestones/m2-eks-baseline-deployment.md.
+  # M9 UI deploy (deploy_ui=true) additionally needs these repo vars:
+  #   ECR_UI_URL, OIDC_ISSUER, OIDC_CLIENT_ID, UI_REDIRECT_URI,
+  #   UI_INGRESS_HOST, ACM_CERT_ARN.
+  # See docs/runbooks/m9-dev-deployment-validation.md.
   # push:
   #   branches:
   #     - main
@@ -17,6 +21,14 @@ on:
         options:
           - dev
           - staging
+      deploy_ui:
+        description: "Deploy the M9 product-surface UI chart (requires ECR_UI_URL + OIDC_* vars)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
       deploy_inference:
         description: "Deploy vLLM inference chart (requires GPU nodes and HF token configured)"
         required: false
@@ -90,6 +102,17 @@ jobs:
             ${{ steps.meta.outputs.image }}
             ${{ vars.ECR_CONTROL_PLANE_URL }}:latest
 
+      - name: Build and push UI image (M9, opt-in)
+        if: ${{ github.event.inputs.deploy_ui == 'true' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: app/ui
+          file: app/ui/Dockerfile
+          push: true
+          tags: |
+            ${{ vars.ECR_UI_URL }}:${{ steps.meta.outputs.tag }}
+            ${{ vars.ECR_UI_URL }}:latest
+
   # ── Deploy to target environment via Helm ───────────────────────────────────
   deploy:
     name: Helm deploy (${{ github.event.inputs.environment || 'dev' }})
@@ -148,6 +171,22 @@ jobs:
             --wait \
             --timeout 5m
 
+      - name: Deploy UI chart (M9, opt-in)
+        if: ${{ github.event.inputs.deploy_ui == 'true' }}
+        run: |
+          helm upgrade --install private-ai-ui deploy/helm/private-ai-ui \
+            --namespace app \
+            --set image.repository="${{ vars.ECR_UI_URL }}" \
+            --set image.tag="${IMAGE_TAG}" \
+            --set oidc.issuer="${{ vars.OIDC_ISSUER }}" \
+            --set oidc.clientId="${{ vars.OIDC_CLIENT_ID }}" \
+            --set oidc.redirectUri="${{ vars.UI_REDIRECT_URI }}" \
+            --set ingress.host="${{ vars.UI_INGRESS_HOST }}" \
+            --set "ingress.annotations.alb\.ingress\.kubernetes\.io/certificate-arn=${{ vars.ACM_CERT_ARN }}" \
+            -f "deploy/values/${ENV}/ui.yaml" \
+            --wait \
+            --timeout 5m
+
       - name: Deploy vLLM inference chart (opt-in)
         if: ${{ github.event.inputs.deploy_inference == 'true' }}
         run: |
@@ -200,6 +239,33 @@ jobs:
             --for=condition=Available \
             --timeout=120s
           kubectl get ingress --namespace app
+
+      - name: Post-deploy smoke test (control-plane public surface)
+        run: |
+          # Probe the deployed control plane over a port-forward. This runs the
+          # token-free subset of scripts/smoke-test.sh (health + that the
+          # protected routes reject anonymous access). The authenticated round
+          # trip and cross-tenant probe are operator-run with real OIDC tokens —
+          # see docs/runbooks/m9-dev-deployment-validation.md.
+          kubectl -n app port-forward \
+            deployment/private-ai-workspace-private-ai-workspace 18080:8080 &
+          PF_PID=$!
+          for i in $(seq 1 10); do
+            curl -sf http://localhost:18080/healthz >/dev/null 2>&1 && break || sleep 1
+          done
+          rc=0
+          bash scripts/smoke-test.sh --base http://localhost:18080 --public-only || rc=$?
+          kill "${PF_PID}" 2>/dev/null || true
+          exit "${rc}"
+
+      - name: Verify UI health (M9, opt-in)
+        if: ${{ github.event.inputs.deploy_ui == 'true' }}
+        run: |
+          kubectl wait deployment/private-ai-ui \
+            --namespace app \
+            --for=condition=Available \
+            --timeout=120s
+          kubectl get ingress --namespace app private-ai-ui
 
       - name: Verify inference health (opt-in)
         if: ${{ github.event.inputs.deploy_inference == 'true' }}

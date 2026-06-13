@@ -55,7 +55,8 @@ items remain.
   rule in `docs/milestones/README.md`. Produce it with
   `scripts/smoke-test.sh --base <control-plane> --token "$TOKEN_A" --token-b "$TOKEN_B"`
   (the `--token-b` argument runs the cross-tenant retrieval probe) and paste
-  the output into the PR.
+  the output into the PR. Full step-by-step flow:
+  [`../runbooks/m9-dev-deployment-validation.md`](../runbooks/m9-dev-deployment-validation.md).
 
 ## Objective
 
