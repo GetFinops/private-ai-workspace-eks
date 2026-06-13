@@ -12,6 +12,10 @@ data:
   OBJECT_STORAGE_BUCKET: {{ .Values.config.objectStorageBucket | quote }}
   INFERENCE_BASE_URL: {{ .Values.config.inferenceBaseUrl | quote }}
   SECRETS_PROVIDER: {{ .Values.config.secretsProvider | quote }}
+  {{- if .Values.config.embeddingBaseUrl }}
+  EMBEDDING_BASE_URL: {{ .Values.config.embeddingBaseUrl | quote }}
+  EMBEDDING_MODEL: {{ .Values.config.embeddingModel | default "embedding" | quote }}
+  {{- end }}
   {{- if .Values.config.otelEndpoint }}
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.config.otelEndpoint | quote }}
   {{- end }}

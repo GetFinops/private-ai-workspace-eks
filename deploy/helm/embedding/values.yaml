@@ -1,0 +1,39 @@
+# Embedding service (M10) — Hugging Face Text Embeddings Inference (TEI), CPU.
+#
+# Exposes an OpenAI-compatible POST /v1/embeddings that the control plane calls
+# via InferenceEmbeddingClient (EMBEDDING_BASE_URL). The served model must
+# output 384-dimension vectors to match document_chunks.embedding /
+# EMBEDDING_DIM.
+
+replicaCount: 1
+
+image:
+  # TEI CPU image (Apache-2.0). Pinned tag; bump deliberately.
+  repository: ghcr.io/huggingface/text-embeddings-inference
+  tag: cpu-1.6
+  pullPolicy: IfNotPresent
+
+model:
+  # 384-dim sentence embedding model. bge-small-en-v1.5 is MIT-licensed.
+  # The model is downloaded from the Hugging Face Hub at pod start (not gated,
+  # so no HF token is required); no weights are stored in this repo or image.
+  id: BAAI/bge-small-en-v1.5
+
+service:
+  type: ClusterIP
+  port: 80
+
+# TEI is CPU-bound for embeddings; size for a small model on the CPU node group.
+resources:
+  requests:
+    cpu: "500m"
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 3Gi
+
+# Schedule on CPU nodes. GPU nodes carry the nvidia.com/gpu taint this service
+# does not tolerate, so they are excluded automatically.
+nodeSelector: {}
+tolerations: []
+affinity: {}
