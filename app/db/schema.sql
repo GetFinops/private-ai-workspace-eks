@@ -30,3 +30,45 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE INDEX IF NOT EXISTS idx_notifications_user
     ON notifications (tenant_id, user_id, created_at DESC);
 
+-- Migration 0003: retrieval (M10 — document/knowledge retrieval on pgvector)
+-- Tenant-isolated document index. Per the M5 content policy, telemetry never
+-- carries document text; the text itself lives only in these tables and is
+-- returned only to the owning tenant.
+--
+-- pgvector provides the `vector` type and cosine-distance operator (<=>).
+-- RDS PostgreSQL 16 ships pgvector on the extension allow-list, so creating
+-- the extension from the migration runner keeps DDL ownership with the app
+-- (consistent with the sessions/notifications migrations) rather than splitting
+-- it into Terraform, which would need a DB session at apply time.
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- One row per indexed source document, scoped to a tenant.
+CREATE TABLE IF NOT EXISTS documents (
+    id          UUID        PRIMARY KEY,
+    tenant_id   TEXT        NOT NULL,
+    user_id     TEXT        NOT NULL,
+    title       TEXT        NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_documents_tenant
+    ON documents (tenant_id, created_at DESC);
+
+-- One row per chunk of a document, carrying its embedding. tenant_id is
+-- denormalised onto the chunk so every retrieval query filters by tenant at
+-- the storage layer (isolation by design, not by join correctness alone).
+-- The embedding dimension (384) matches the EMBEDDING_DIM constant in
+-- app/control_plane/embeddings.py; changing one requires a migration.
+CREATE TABLE IF NOT EXISTS document_chunks (
+    id           UUID        PRIMARY KEY,
+    document_id  UUID        NOT NULL REFERENCES documents (id) ON DELETE CASCADE,
+    tenant_id    TEXT        NOT NULL,
+    chunk_index  INTEGER     NOT NULL,
+    content      TEXT        NOT NULL,
+    embedding    vector(384) NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_document_chunks_tenant
+    ON document_chunks (tenant_id);
+

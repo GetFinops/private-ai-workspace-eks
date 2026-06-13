@@ -350,6 +350,34 @@ install time from upstream chart repositories.
     No source is copied into this repository.
 
 ────────────────────────────────────────────────────────────────────────────────
+Retrieval provenance and dependency record (M10 — retrieval)
+────────────────────────────────────────────────────────────────────────────────
+
+  app/control_plane/retrieval.py
+    Upstream: retrieval/ranking *patterns* only (chunking, embedding-then-
+    cosine-rank). No third-party retrieval library is vendored or copied;
+    the implementation is original Python stdlib + psycopg with in-memory and
+    pgvector backends, strict per-tenant isolation at the store layer, and the
+    M5 content policy (no document text or queries in telemetry).
+
+  app/control_plane/embeddings.py
+    Original implementation. DeterministicEmbeddingClient is a dependency-free
+    feature-hashing embedding for development/tests; the production in-cluster
+    embedding backend (vLLM / dedicated deployment) is wired in a follow-up.
+    Routing embeddings through an external provider is an explicit escalation
+    trigger and is not done by default.
+
+  pgvector (PostgreSQL extension)
+    Source: https://github.com/pgvector/pgvector
+    License: PostgreSQL License (permissive, BSD-style)
+    Copyright: Copyright (c) 2021-2025 Andrew Kane.
+    Use: provides the `vector` type and cosine-distance operator used by the
+    document_chunks table (app/db/schema.sql, migration 0003) and
+    PostgresRetrievalStore. The extension is created by the migration runner on
+    RDS PostgreSQL 16 (pgvector is on the RDS extension allow-list); no pgvector
+    source is copied into this repository.
+
+────────────────────────────────────────────────────────────────────────────────
 External-provider fallback decision record (M6)
 ────────────────────────────────────────────────────────────────────────────────
 

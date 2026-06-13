@@ -5,6 +5,8 @@ GET  /readyz                   — readiness probe (503 until dependencies confi
 GET  /v1/inference/status      — inference configuration state
 GET  /metrics                  — Prometheus metrics (golden signals, M5)
 POST /v1/chat/completions      — authenticated chat path; delegates to inference plane
+POST /v1/retrieval/documents   — index a document into the caller's tenant (M10)
+POST /v1/retrieval/query       — tenant-scoped retrieval query (M10)
 
 Authentication is enforced on the chat path:
   - Requests must carry an Authorization: Bearer <token> header.
@@ -66,6 +68,13 @@ from app.control_plane.notifications import (
     build_notification_read_response,
     build_notifications_list_response,
 )
+from app.control_plane.embeddings import DeterministicEmbeddingClient, EmbeddingClient
+from app.control_plane.retrieval import (
+    InMemoryRetrievalStore,
+    RetrievalStore,
+    build_index_document_response,
+    build_retrieval_query_response,
+)
 from app.control_plane.routing import InferenceRoutingError, InferenceUnavailableError
 from app.control_plane.session import InMemorySessionStore, SessionStore
 from app.storage.s3 import S3StorageClient, StorageError
@@ -78,6 +87,8 @@ logger = logging.getLogger(__name__)
 
 _CHAT_PATH = "/v1/chat/completions"
 _NOTIFICATIONS_PATH = "/v1/notifications"
+_RETRIEVAL_DOCUMENTS_PATH = "/v1/retrieval/documents"
+_RETRIEVAL_QUERY_PATH = "/v1/retrieval/query"
 _METRICS_PATH = "/metrics"
 _MAX_REQUEST_BODY = 1 * 1024 * 1024  # 1 MiB
 
@@ -362,6 +373,8 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     session_store: SessionStore = InMemorySessionStore()
     storage_client: S3StorageClient | None = None
     notification_store: NotificationStore = InMemoryNotificationStore()  # type: ignore[assignment]
+    retrieval_store: RetrievalStore = InMemoryRetrievalStore()  # type: ignore[assignment]
+    embedding_client: EmbeddingClient = DeterministicEmbeddingClient()
 
     # ── Request lifecycle ──────────────────────────────────────────────────────
 
@@ -455,6 +468,27 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     body=body,
                     token_verifier=self.__class__.token_verifier,
                     store=self.__class__.notification_store,
+                )
+                return Response(status, payload)
+
+            if path == _RETRIEVAL_DOCUMENTS_PATH:
+                status, payload = build_index_document_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    store=self.__class__.retrieval_store,
+                    embedding_client=self.__class__.embedding_client,
+                    notification_store=self.__class__.notification_store,
+                )
+                return Response(status, payload)
+
+            if path == _RETRIEVAL_QUERY_PATH:
+                status, payload = build_retrieval_query_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    store=self.__class__.retrieval_store,
+                    embedding_client=self.__class__.embedding_client,
                 )
                 return Response(status, payload)
 
@@ -626,6 +660,38 @@ def _build_notification_store(config: ControlPlaneConfig) -> NotificationStore:
         return InMemoryNotificationStore()  # type: ignore[return-value]
 
 
+def _build_retrieval_store(config: ControlPlaneConfig) -> RetrievalStore:
+    """Return a PostgresRetrievalStore when DATABASE_URL is configured."""
+    if not config.database_url:
+        logger.warning(
+            "DATABASE_URL not configured — using in-memory retrieval store. "
+            "Not safe for multi-replica or production deployments."
+        )
+        return InMemoryRetrievalStore()  # type: ignore[return-value]
+
+    try:
+        from app.db.connection import open_pool
+        from app.control_plane.retrieval import PostgresRetrievalStore
+
+        pool = open_pool(config.database_url)
+        logger.info("Using PostgreSQL (pgvector) retrieval store.")
+        return PostgresRetrievalStore(pool)  # type: ignore[return-value]
+    except Exception as exc:
+        exc_type = type(exc).__name__
+        if config.environment != "development":
+            raise RuntimeError(
+                f"Failed to initialize PostgreSQL retrieval store ({exc_type}); "
+                f"refusing to fall back in environment={config.environment!r}."
+            ) from None
+        logger.error(
+            "Failed to initialize PostgreSQL retrieval store (%s) — "
+            "falling back to in-memory store (development only).",
+            exc_type,
+            exc_info=False,
+        )
+        return InMemoryRetrievalStore()  # type: ignore[return-value]
+
+
 def run_server(
     host: str = "0.0.0.0",
     port: int = 8080,
@@ -633,6 +699,7 @@ def run_server(
     session_store: SessionStore | None = None,
     storage_client: S3StorageClient | None = None,
     notification_store: NotificationStore | None = None,
+    retrieval_store: RetrievalStore | None = None,
 ) -> None:
     """Run the development HTTP server."""
     resolved_config = config or ControlPlaneConfig.from_env()
@@ -642,6 +709,9 @@ def run_server(
     ControlPlaneHandler.storage_client = storage_client or _build_storage_client(resolved_config)
     ControlPlaneHandler.notification_store = (  # type: ignore[assignment]
         notification_store or _build_notification_store(resolved_config)
+    )
+    ControlPlaneHandler.retrieval_store = (  # type: ignore[assignment]
+        retrieval_store or _build_retrieval_store(resolved_config)
     )
 
     server = ThreadingHTTPServer((host, port), ControlPlaneHandler)
