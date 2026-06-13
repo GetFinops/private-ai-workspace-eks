@@ -152,10 +152,10 @@ jobs:
 
       - name: Deploy cluster add-ons (ExternalSecrets Operator)
         run: |
-          # build (not update) resolves from the committed Chart.lock + vendored
-          # charts/*.tgz — deterministic, no upstream re-resolution of the OCI /
-          # x.x.x dependencies.
-          helm dependency build deploy/helm/cluster-addons
+          # Subcharts are vendored under deploy/helm/cluster-addons/charts/*.tgz
+          # (matching Chart.lock), so no `helm dependency build/update` is needed
+          # — those require the upstream repos to be `helm repo add`-ed. helm
+          # upgrade consumes the vendored charts directly.
           helm upgrade --install cluster-addons deploy/helm/cluster-addons \
             --namespace kube-system \
             --create-namespace \
