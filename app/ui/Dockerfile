@@ -11,14 +11,10 @@ FROM nginx:1.27-alpine AS runtime
 RUN rm -rf /usr/share/nginx/html/* /etc/nginx/conf.d/default.conf
 
 # Copy static assets (built once; no bundler needed for vanilla JS).
+# Fira Code woff2 fonts are vendored under static/fonts/ and copied here —
+# self-hosted, no build-time download. Fira Code is licensed under the SIL
+# Open Font Licence 1.1 (see NOTICE).
 COPY app/ui/static/ /usr/share/nginx/html/static/
-
-# Download Fira Code fonts at build time (self-hosted; no CDN at runtime).
-# Fira Code is licensed under the SIL Open Font Licence 1.1.
-RUN wget -q -O /usr/share/nginx/html/static/fonts/FiraCode-Regular.woff2 \
-      "https://github.com/tonsky/FiraCode/raw/master/distr/woff2/FiraCode-Regular.woff2" && \
-    wget -q -O /usr/share/nginx/html/static/fonts/FiraCode-SemiBold.woff2 \
-      "https://github.com/tonsky/FiraCode/raw/master/distr/woff2/FiraCode-SemiBold.woff2"
 
 # Copy the main HTML pages.
 COPY app/ui/static/index.html /usr/share/nginx/html/index.html
