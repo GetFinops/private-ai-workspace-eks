@@ -11,9 +11,11 @@ dependencies = [
     "PyJWT>=2.7",
     "cryptography>=42.0",
     # psycopg (LGPL-2.1) — PostgreSQL adapter for the externalized session store
-    # and persistence layer (M3). Binary distribution bundles libpq.
+    # and persistence layer (M3). Binary distribution bundles libpq; the pool
+    # extra installs psycopg-pool (app/db/connection.py imports psycopg_pool —
+    # a separate distribution, not included by the binary extra alone).
     # License reviewed and approved for M3; see NOTICE.
-    "psycopg[binary]>=3.1",
+    "psycopg[binary,pool]>=3.1",
     # boto3 (Apache-2.0) — AWS SDK for S3 object-storage flows (M3).
     # License reviewed and approved for M3; see NOTICE.
     "boto3>=1.35",

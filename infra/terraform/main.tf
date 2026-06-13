@@ -70,6 +70,14 @@ module "rds" {
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
 
+  # Allow the control-plane pods (which egress via the cluster/node security
+  # groups under the VPC CNI) to reach PostgreSQL on 5432.
+  allowed_security_group_ids = distinct(compact([
+    module.eks.cluster_security_group_id,
+    module.eks.node_security_group_id,
+    module.eks.cluster_primary_security_group_id,
+  ]))
+
   postgres_version      = var.postgres_version
   instance_class        = var.rds_instance_class
   multi_az              = var.rds_multi_az

@@ -33,3 +33,18 @@ output "update_kubeconfig_command" {
   description = "AWS CLI command to update kubeconfig for this cluster."
   value       = "aws eks update-kubeconfig --region ${data.aws_caller_identity.current.id} --name ${module.eks.cluster_name}"
 }
+
+output "cluster_security_group_id" {
+  description = "EKS-managed cluster security group (attached to nodes/pods via the VPC CNI)."
+  value       = module.eks.cluster_security_group_id
+}
+
+output "node_security_group_id" {
+  description = "Security group attached to the managed node groups."
+  value       = module.eks.node_security_group_id
+}
+
+output "cluster_primary_security_group_id" {
+  description = "EKS-managed primary cluster security group (auto-attached to managed nodes)."
+  value       = module.eks.cluster_primary_security_group_id
+}
