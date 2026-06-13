@@ -1,0 +1,10 @@
+apiVersion: v2
+name: embedding
+description: >-
+  In-cluster text-embeddings service exposing an OpenAI-compatible
+  /v1/embeddings endpoint for M10 retrieval. Runs Hugging Face Text Embeddings
+  Inference (TEI) on CPU, serving a 384-dimension model (default
+  BAAI/bge-small-en-v1.5) that matches the control plane's EMBEDDING_DIM.
+type: application
+version: 0.1.0
+appVersion: "1.6"
