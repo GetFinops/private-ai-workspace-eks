@@ -98,9 +98,10 @@ jobs:
           context: .
           file: app/Dockerfile
           push: true
-          tags: |
-            ${{ steps.meta.outputs.image }}
-            ${{ vars.ECR_CONTROL_PLANE_URL }}:latest
+          # ECR repos use immutable tags; push only the unique per-commit SHA
+          # tag (the deploy job references images by this tag). A floating
+          # :latest cannot be re-pushed and is not used by the deployment.
+          tags: ${{ steps.meta.outputs.image }}
 
       - name: Build and push UI image (M9, opt-in)
         if: ${{ github.event.inputs.deploy_ui == 'true' }}
@@ -109,9 +110,8 @@ jobs:
           context: .
           file: app/ui/Dockerfile
           push: true
-          tags: |
-            ${{ vars.ECR_UI_URL }}:${{ steps.meta.outputs.tag }}
-            ${{ vars.ECR_UI_URL }}:latest
+          # Immutable tags: push only the per-commit SHA tag (see control-plane note).
+          tags: ${{ vars.ECR_UI_URL }}:${{ steps.meta.outputs.tag }}
 
   # ── Deploy to target environment via Helm ───────────────────────────────────
   deploy:
