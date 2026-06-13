@@ -6,6 +6,7 @@ ARG TARGETARCH
 ARG TERRAFORM_VERSION=1.9.8
 ARG KUBECTL_VERSION=v1.30.6
 ARG HELM_VERSION=v3.16.3
+ARG GH_VERSION=2.62.0
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -45,6 +46,11 @@ RUN curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETA
 RUN curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz" \
       | tar xz --strip-components=1 -C /usr/local/bin "linux-${TARGETARCH}/helm" \
     && helm version --short
+
+# --- GitHub CLI ------------------------------------------------------------
+RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz" \
+      | tar xz --strip-components=2 -C /usr/local/bin "gh_${GH_VERSION}_linux_${TARGETARCH}/bin/gh" \
+    && gh --version | head -1
 
 # --- Python dev dependencies (from pyproject.toml) -------------------------
 RUN pip install --no-cache-dir "PyJWT>=2.7" "cryptography>=42.0"

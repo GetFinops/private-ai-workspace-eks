@@ -26,13 +26,20 @@ image:
   pullPolicy: Always
 
 oidc:
-  issuer: ""              # Dev OIDC issuer URL (e.g. Cognito dev pool)
-  clientId: ""            # Dev client ID
-  redirectUri: ""         # Must match registered callback, e.g. https://ai-dev.example.com/callback
+  # issuer / clientId / redirectUri are injected by the Deploy workflow from
+  # repo Actions vars (OIDC_ISSUER, OIDC_CLIENT_ID, UI_REDIRECT_URI). OIDC_ISSUER
+  # is the cognito-idp URL — it matches the control plane's AUTH_ISSUER_URL so the
+  # token verifies. Cognito serves /oauth2/* from the hosted-UI domain, not the
+  # issuer, so the authorize/token endpoints are overridden explicitly below.
+  issuer: ""              # Dev OIDC issuer URL (set via --set at deploy time)
+  clientId: ""            # Dev client ID (set via --set at deploy time)
+  redirectUri: ""         # Must match registered callback (set via --set at deploy time)
   scope: "openid email profile"
+  authorizeEndpoint: "https://private-ai-dev-tbbownyri.auth.us-west-2.amazoncognito.com/oauth2/authorize"
+  tokenEndpoint: "https://private-ai-dev-tbbownyri.auth.us-west-2.amazoncognito.com/oauth2/token"
 
 controlPlane:
-  host: "private-ai-workspace-control-plane"
+  host: "private-ai-workspace-private-ai-workspace"
   port: 8080
 
 models:
