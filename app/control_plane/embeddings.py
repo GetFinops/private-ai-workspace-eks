@@ -9,11 +9,12 @@ DeterministicEmbeddingClient (development / tests)
     captures lexical overlap well enough to drive retrieval in dev and unit
     tests, with no GPU and no model download.
 
-InferenceEmbeddingClient (production — wired in a follow-up)
-    Computes embeddings in-cluster via a dedicated embedding deployment or the
-    vLLM inference plane (M4). Per the Phase 2 adoption rules, embeddings are
-    computed in-cluster; routing them through an external provider is an
-    explicit escalation trigger and is not done by default.
+InferenceEmbeddingClient (production)
+    Computes embeddings in-cluster via an OpenAI-compatible /v1/embeddings
+    endpoint — vLLM serving an embedding model, or a dedicated embedding
+    deployment. Selected when EMBEDDING_BASE_URL is configured. Per the Phase 2
+    adoption rules, embeddings are computed in-cluster; routing them through an
+    external provider is an explicit escalation trigger and is not supported.
 
 Content policy (M5): embedding inputs are user content. Never log the text or
 the vectors; only counts and dimensions may appear in telemetry.
@@ -22,9 +23,15 @@ the vectors; only counts and dimensions may appear in telemetry.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import re
+import time
+import urllib.error
+import urllib.request
 from typing import Protocol, runtime_checkable
+
+from app.control_plane import metrics
 
 # Embedding dimension. Must match the vector(N) column in
 # app/db/schema.sql (document_chunks.embedding); changing it requires a
@@ -32,6 +39,29 @@ from typing import Protocol, runtime_checkable
 EMBEDDING_DIM = 384
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+# Default timeout (seconds) for a single embedding HTTP request.
+_DEFAULT_EMBEDDING_TIMEOUT = 10.0
+
+
+class EmbeddingError(Exception):
+    """Raised when an embedding backend request fails or returns bad data."""
+
+
+def embed_measured(client: "EmbeddingClient", texts: list[str]) -> list[list[float]]:
+    """Embed *texts*, recording embedding throughput + latency (M10 metrics).
+
+    Re-raises EmbeddingError after counting the failure so callers can degrade.
+    """
+    start = time.monotonic()
+    try:
+        vectors = client.embed(texts)
+    except EmbeddingError:
+        metrics.EMBEDDINGS_GENERATED_TOTAL.labels(status="error").inc()
+        raise
+    metrics.EMBEDDING_DURATION_SECONDS.observe(time.monotonic() - start)
+    metrics.EMBEDDINGS_GENERATED_TOTAL.labels(status="success").inc(len(texts))
+    return vectors
 
 
 @runtime_checkable
@@ -73,3 +103,63 @@ class DeterministicEmbeddingClient:
         if norm == 0.0:
             return vec
         return [v / norm for v in vec]
+
+
+class InferenceEmbeddingClient:
+    """Computes embeddings via an in-cluster OpenAI-compatible /v1/embeddings API.
+
+    Compatible with vLLM serving an embedding model, or a dedicated in-cluster
+    embedding deployment. Embeddings are computed in-cluster — routing them
+    through an external provider is an explicit escalation trigger and is not
+    supported here. The backend must return EMBEDDING_DIM-length vectors; a
+    mismatch raises EmbeddingError so a misconfigured model surfaces at once
+    rather than silently corrupting the index.
+
+    Uses stdlib urllib (no httpx/openai SDK), mirroring app/control_plane/
+    inference.py's request/timeout/error policy.
+    """
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        model: str,
+        dim: int = EMBEDDING_DIM,
+        timeout_seconds: float = _DEFAULT_EMBEDDING_TIMEOUT,
+    ) -> None:
+        self._url = base_url.rstrip("/") + "/v1/embeddings"
+        self._model = model
+        self._dim = dim
+        self._timeout = timeout_seconds
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        payload = json.dumps({"model": self._model, "input": texts}).encode("utf-8")
+        req = urllib.request.Request(
+            self._url,
+            data=payload,
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                data = json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            raise EmbeddingError(f"embedding backend returned HTTP {exc.code}") from None
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise EmbeddingError(f"embedding backend unreachable: {exc}") from None
+
+        items = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(items, list) or len(items) != len(texts):
+            raise EmbeddingError("embedding backend returned an unexpected response shape")
+
+        # The OpenAI contract does not guarantee input order; sort by index.
+        vectors: list[list[float]] = []
+        for item in sorted(items, key=lambda d: d.get("index", 0)):
+            vec = item.get("embedding") if isinstance(item, dict) else None
+            if not isinstance(vec, list) or len(vec) != self._dim:
+                raise EmbeddingError(
+                    f"embedding dimension mismatch: backend returned "
+                    f"{len(vec) if isinstance(vec, list) else 'non-list'}, expected {self._dim}"
+                )
+            vectors.append([float(x) for x in vec])
+        return vectors

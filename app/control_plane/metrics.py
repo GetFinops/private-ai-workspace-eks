@@ -122,6 +122,42 @@ DB_OPERATION_DURATION_SECONDS = Histogram(
     buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
 )
 
+# ── Retrieval & memory path (M10) ─────────────────────────────────────────────
+# Labels are operation names only — never tenant/user ids or content (content
+# policy + cardinality). Per-tenant index size is intentionally not a label;
+# query it from the database instead.
+
+RETRIEVAL_OPERATION_DURATION_SECONDS = Histogram(
+    "control_plane_retrieval_operation_duration_seconds",
+    "Latency of retrieval/memory operations (embedding + store).",
+    ["operation"],  # index | query | memory_record | memory_recall | memory_list | memory_delete
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
+)
+
+RETRIEVAL_RESULTS_RETURNED = Histogram(
+    "control_plane_retrieval_results_returned",
+    "Number of results returned by a retrieval query or memory recall (recall proxy).",
+    ["operation"],  # query | memory_recall
+    buckets=(0, 1, 2, 3, 5, 10, 20),
+)
+
+DOCUMENT_CHUNKS_INDEXED_TOTAL = Counter(
+    "control_plane_document_chunks_indexed_total",
+    "Total document chunks indexed into the vector store (index growth).",
+)
+
+EMBEDDINGS_GENERATED_TOTAL = Counter(
+    "control_plane_embeddings_generated_total",
+    "Total texts embedded (embedding throughput).",
+    ["status"],  # success | error
+)
+
+EMBEDDING_DURATION_SECONDS = Histogram(
+    "control_plane_embedding_duration_seconds",
+    "Latency of an embedding batch request.",
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
+)
+
 
 # ── Exposition helper ─────────────────────────────────────────────────────────
 
@@ -137,6 +173,11 @@ _KNOWN_PATHS = frozenset({
     "/readyz",
     "/v1/inference/status",
     "/v1/chat/completions",
+    "/v1/notifications",
+    "/v1/retrieval/documents",
+    "/v1/retrieval/query",
+    "/v1/memory",
+    "/v1/memory/recall",
     "/metrics",
 })
 
@@ -145,7 +186,15 @@ def sanitise_path(raw: str) -> str:
     """Return a safe label value for the request path.
 
     Unknown paths are collapsed to '/unknown' to prevent high-cardinality
-    label explosion (e.g. from path-traversal probes or bots).
+    label explosion (e.g. from path-traversal probes or bots). Routes that
+    embed an id are collapsed to a templated form so the id never becomes a
+    label value.
     """
     path = raw.split("?")[0]  # strip query string
-    return path if path in _KNOWN_PATHS else "/unknown"
+    if path in _KNOWN_PATHS:
+        return path
+    if path.startswith("/v1/memory/"):
+        return "/v1/memory/{id}"
+    if path.startswith("/v1/notifications/") and path.endswith("/read"):
+        return "/v1/notifications/{id}/read"
+    return "/unknown"

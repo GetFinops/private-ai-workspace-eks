@@ -25,12 +25,19 @@ from __future__ import annotations
 import datetime
 import json
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Protocol, runtime_checkable
 
-from app.control_plane.embeddings import EMBEDDING_DIM, EmbeddingClient
+from app.control_plane import metrics
+from app.control_plane.embeddings import (
+    EMBEDDING_DIM,
+    EmbeddingClient,
+    EmbeddingError,
+    embed_measured,
+)
 from app.control_plane.notifications import (
     _extract_tenant_id,
     _now_utc,
@@ -48,6 +55,13 @@ _MAX_QUERY_CHARS = 2_000
 _DEFAULT_TOP_K = 5
 _MAX_TOP_K = 20
 _MAX_LIST_LIMIT = 200
+
+_EMBEDDING_UNAVAILABLE = (
+    HTTPStatus.SERVICE_UNAVAILABLE,
+    {"error": "embedding_unavailable",
+     "detail": "The embedding backend is unavailable; try again later.",
+     "status": "degraded"},
+)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -312,7 +326,11 @@ def build_memory_record_response(
 
     tenant_id = _extract_tenant_id(claims)  # type: ignore[arg-type]
     user_id = claims.subject  # type: ignore[union-attr]
-    embedding = embedding_client.embed([content])[0]
+    op_start = time.monotonic()
+    try:
+        embedding = embed_measured(embedding_client, [content])[0]
+    except EmbeddingError:
+        return _EMBEDDING_UNAVAILABLE
     memory = Memory(
         id=str(uuid.uuid4()),
         tenant_id=tenant_id,
@@ -321,6 +339,9 @@ def build_memory_record_response(
         created_at=_now_utc(),
     )
     store.record(memory, embedding)
+    metrics.RETRIEVAL_OPERATION_DURATION_SECONDS.labels(operation="memory_record").observe(
+        time.monotonic() - op_start
+    )
     return HTTPStatus.CREATED, memory.to_api_dict()
 
 
@@ -339,7 +360,11 @@ def build_memory_list_response(
     tenant_id = _extract_tenant_id(claims)  # type: ignore[arg-type]
     user_id = claims.subject  # type: ignore[union-attr]
     limit = min(max(1, limit), _MAX_LIST_LIMIT)
+    op_start = time.monotonic()
     memories = store.list_for_user(tenant_id=tenant_id, user_id=user_id, limit=limit)
+    metrics.RETRIEVAL_OPERATION_DURATION_SECONDS.labels(operation="memory_list").observe(
+        time.monotonic() - op_start
+    )
     return HTTPStatus.OK, {
         "memories": [m.to_api_dict() for m in memories],
         "count": len(memories),
@@ -389,11 +414,19 @@ def build_memory_recall_response(
 
     tenant_id = _extract_tenant_id(claims)  # type: ignore[arg-type]
     user_id = claims.subject  # type: ignore[union-attr]
-    embedding = embedding_client.embed([query])[0]
+    op_start = time.monotonic()
+    try:
+        embedding = embed_measured(embedding_client, [query])[0]
+    except EmbeddingError:
+        return _EMBEDDING_UNAVAILABLE
     if len(embedding) != EMBEDDING_DIM:  # pragma: no cover - guard
         return HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "internal_error", "detail": "embedding dimension mismatch."}
 
     results = store.recall(tenant_id=tenant_id, user_id=user_id, embedding=embedding, top_k=top_k)
+    metrics.RETRIEVAL_OPERATION_DURATION_SECONDS.labels(operation="memory_recall").observe(
+        time.monotonic() - op_start
+    )
+    metrics.RETRIEVAL_RESULTS_RETURNED.labels(operation="memory_recall").observe(len(results))
     return HTTPStatus.OK, {
         "results": [r.to_api_dict() for r in results],
         "count": len(results),
@@ -418,7 +451,11 @@ def build_memory_delete_response(
 
     tenant_id = _extract_tenant_id(claims)  # type: ignore[arg-type]
     user_id = claims.subject  # type: ignore[union-attr]
+    op_start = time.monotonic()
     deleted = store.delete(tenant_id=tenant_id, user_id=user_id, memory_id=memory_id)
+    metrics.RETRIEVAL_OPERATION_DURATION_SECONDS.labels(operation="memory_delete").observe(
+        time.monotonic() - op_start
+    )
     if not deleted:
         return HTTPStatus.NOT_FOUND, {"error": "not_found", "detail": "Memory not found."}
     return HTTPStatus.OK, {"id": memory_id, "deleted": True}

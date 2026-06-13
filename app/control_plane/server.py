@@ -72,7 +72,11 @@ from app.control_plane.notifications import (
     build_notification_read_response,
     build_notifications_list_response,
 )
-from app.control_plane.embeddings import DeterministicEmbeddingClient, EmbeddingClient
+from app.control_plane.embeddings import (
+    DeterministicEmbeddingClient,
+    EmbeddingClient,
+    InferenceEmbeddingClient,
+)
 from app.control_plane.memory import (
     InMemoryMemoryStore,
     MemoryStore,
@@ -785,6 +789,25 @@ def _build_memory_store(config: ControlPlaneConfig) -> MemoryStore:
         return InMemoryMemoryStore()  # type: ignore[return-value]
 
 
+def _build_embedding_client(config: ControlPlaneConfig) -> EmbeddingClient:
+    """Return an in-cluster InferenceEmbeddingClient when EMBEDDING_BASE_URL is set."""
+    if config.embedding_base_url:
+        logger.info(
+            "Using in-cluster embedding backend at %s (model=%s).",
+            config.embedding_base_url,
+            config.embedding_model,
+        )
+        return InferenceEmbeddingClient(
+            base_url=config.embedding_base_url,
+            model=config.embedding_model,
+        )
+    logger.warning(
+        "EMBEDDING_BASE_URL not configured — using the deterministic dev "
+        "embedding (not a real model; suitable for development and tests only)."
+    )
+    return DeterministicEmbeddingClient()
+
+
 def run_server(
     host: str = "0.0.0.0",
     port: int = 8080,
@@ -794,6 +817,7 @@ def run_server(
     notification_store: NotificationStore | None = None,
     retrieval_store: RetrievalStore | None = None,
     memory_store: MemoryStore | None = None,
+    embedding_client: EmbeddingClient | None = None,
 ) -> None:
     """Run the development HTTP server."""
     resolved_config = config or ControlPlaneConfig.from_env()
@@ -809,6 +833,9 @@ def run_server(
     )
     ControlPlaneHandler.memory_store = (  # type: ignore[assignment]
         memory_store or _build_memory_store(resolved_config)
+    )
+    ControlPlaneHandler.embedding_client = (
+        embedding_client or _build_embedding_client(resolved_config)
     )
 
     server = ThreadingHTTPServer((host, port), ControlPlaneHandler)

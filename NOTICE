@@ -362,10 +362,20 @@ Retrieval provenance and dependency record (M10 — retrieval)
 
   app/control_plane/embeddings.py
     Original implementation. DeterministicEmbeddingClient is a dependency-free
-    feature-hashing embedding for development/tests; the production in-cluster
-    embedding backend (vLLM / dedicated deployment) is wired in a follow-up.
-    Routing embeddings through an external provider is an explicit escalation
-    trigger and is not done by default.
+    feature-hashing embedding for development/tests. InferenceEmbeddingClient
+    calls an in-cluster OpenAI-compatible /v1/embeddings endpoint (vLLM serving
+    an embedding model, or a dedicated embedding deployment), selected via
+    EMBEDDING_BASE_URL. Routing embeddings through an external provider is an
+    explicit escalation trigger and is not supported.
+
+  Embedding model (strategy — per-model license review required)
+    The embedding backend serves a 384-dimensional model over the OpenAI
+    embeddings API; the dimension must match document_chunks.embedding /
+    EMBEDDING_DIM. Recommended permissive defaults: BAAI/bge-small-en-v1.5
+    (MIT) or sentence-transformers/all-MiniLM-L6-v2 (Apache-2.0), both 384-dim.
+    Model weights carry their own license and must be reviewed per model before
+    deployment (Phase 2 licensing gate); no model weights are stored in this
+    repository or container image.
 
   pgvector (PostgreSQL extension)
     Source: https://github.com/pgvector/pgvector

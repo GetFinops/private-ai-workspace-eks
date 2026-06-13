@@ -30,12 +30,19 @@ from __future__ import annotations
 import datetime
 import json
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Protocol, runtime_checkable
 
-from app.control_plane.embeddings import EMBEDDING_DIM, EmbeddingClient
+from app.control_plane import metrics
+from app.control_plane.embeddings import (
+    EMBEDDING_DIM,
+    EmbeddingClient,
+    EmbeddingError,
+    embed_measured,
+)
 from app.control_plane.notifications import (
     ALLOWED_EVENT_CLASSES,
     NotificationEvent,
@@ -59,6 +66,13 @@ _DEFAULT_TOP_K = 5
 _MAX_TOP_K = 20
 
 _INDEXING_EVENT_CLASS = "indexing_complete"  # must be in ALLOWED_EVENT_CLASSES
+
+_EMBEDDING_UNAVAILABLE = (
+    HTTPStatus.SERVICE_UNAVAILABLE,
+    {"error": "embedding_unavailable",
+     "detail": "The embedding backend is unavailable; try again later.",
+     "status": "degraded"},
+)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -354,7 +368,11 @@ def build_index_document_response(
     now = _now_utc()
     document_id = str(uuid.uuid4())
 
-    vectors = embedding_client.embed(chunk_contents)
+    op_start = time.monotonic()
+    try:
+        vectors = embed_measured(embedding_client, chunk_contents)
+    except EmbeddingError:
+        return _EMBEDDING_UNAVAILABLE
     chunks = [
         DocumentChunk(
             id=str(uuid.uuid4()),
@@ -376,6 +394,10 @@ def build_index_document_response(
         created_at=now,
     )
     store.index_document(document, chunks)
+    metrics.RETRIEVAL_OPERATION_DURATION_SECONDS.labels(operation="index").observe(
+        time.monotonic() - op_start
+    )
+    metrics.DOCUMENT_CHUNKS_INDEXED_TOTAL.inc(len(chunks))
 
     # Producer event into the M9 feed (best-effort; never breaks indexing).
     if notification_store is not None and _INDEXING_EVENT_CLASS in ALLOWED_EVENT_CLASSES:
@@ -446,7 +468,11 @@ def build_retrieval_query_response(
     top_k = min(max(1, top_k), _MAX_TOP_K)
 
     tenant_id = _extract_tenant_id(claims)  # type: ignore[arg-type]
-    embedding = embedding_client.embed([query])[0]
+    op_start = time.monotonic()
+    try:
+        embedding = embed_measured(embedding_client, [query])[0]
+    except EmbeddingError:
+        return _EMBEDDING_UNAVAILABLE
     if len(embedding) != EMBEDDING_DIM:  # pragma: no cover - guard
         return HTTPStatus.INTERNAL_SERVER_ERROR, {
             "error": "internal_error",
@@ -454,6 +480,10 @@ def build_retrieval_query_response(
         }
 
     passages = store.query(tenant_id=tenant_id, embedding=embedding, top_k=top_k)
+    metrics.RETRIEVAL_OPERATION_DURATION_SECONDS.labels(operation="query").observe(
+        time.monotonic() - op_start
+    )
+    metrics.RETRIEVAL_RESULTS_RETURNED.labels(operation="query").observe(len(passages))
     return HTTPStatus.OK, {
         "results": [p.to_api_dict() for p in passages],
         "count": len(passages),

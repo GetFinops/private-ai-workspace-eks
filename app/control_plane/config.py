@@ -27,6 +27,11 @@ class ControlPlaneConfig:
     object_storage_bucket: str | None = None
     secrets_provider: str = "aws-secrets-manager"
     inference_base_url: str | None = None
+    # Retrieval embeddings (M10). EMBEDDING_BASE_URL points at an in-cluster
+    # OpenAI-compatible /v1/embeddings endpoint (vLLM or a dedicated embedding
+    # deployment). When unset, the deterministic dev embedding is used.
+    embedding_base_url: str | None = None
+    embedding_model: str = "embedding"
     auth: AuthSettings = field(default_factory=AuthSettings)
     # Optional: pre-shared token accepted only in development mode.
     # Set DEV_AUTH_TOKEN in local .env to enable DevTokenVerifier.
@@ -55,6 +60,8 @@ class ControlPlaneConfig:
             object_storage_bucket=_clean(values.get("OBJECT_STORAGE_BUCKET")),
             secrets_provider=values.get("SECRETS_PROVIDER", "aws-secrets-manager"),
             inference_base_url=_clean(values.get("INFERENCE_BASE_URL")),
+            embedding_base_url=_clean(values.get("EMBEDDING_BASE_URL")),
+            embedding_model=values.get("EMBEDDING_MODEL", "embedding"),
             auth=AuthSettings(
                 issuer_url=_clean(values.get("AUTH_ISSUER_URL")),
                 audience=_clean(values.get("AUTH_AUDIENCE")),

@@ -9,7 +9,7 @@ Covers:
 import json
 import unittest
 
-from app.control_plane.embeddings import DeterministicEmbeddingClient
+from app.control_plane.embeddings import DeterministicEmbeddingClient, EmbeddingError
 from app.control_plane.memory import (
     InMemoryMemoryStore,
     _MAX_MEMORY_CHARS,
@@ -172,6 +172,27 @@ class TestMemoryRecallAndDelete(unittest.TestCase):
             authorization=_AUTH, token_verifier=_ALICE, store=self.store,
         )
         self.assertIn(target, [m["id"] for m in listing["memories"]])
+
+
+class _FailingEmbedder:
+    def embed(self, texts):
+        raise EmbeddingError("backend down")
+
+
+class TestMemoryEmbeddingDegradation(unittest.TestCase):
+    def test_record_and_recall_degrade_to_503(self):
+        store = InMemoryMemoryStore()
+        status, payload = build_memory_record_response(
+            authorization=_AUTH, body=_record_body(), token_verifier=_ALICE,
+            store=store, embedding_client=_FailingEmbedder(),
+        )
+        self.assertEqual(status, 503)
+        self.assertEqual(payload["error"], "embedding_unavailable")
+        status, _ = build_memory_recall_response(
+            authorization=_AUTH, body=_recall_body(), token_verifier=_ALICE,
+            store=store, embedding_client=_FailingEmbedder(),
+        )
+        self.assertEqual(status, 503)
 
 
 if __name__ == "__main__":

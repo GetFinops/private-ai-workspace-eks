@@ -11,10 +11,13 @@ Covers:
 import json
 import math
 import unittest
+from unittest import mock
 
 from app.control_plane.embeddings import (
     EMBEDDING_DIM,
     DeterministicEmbeddingClient,
+    EmbeddingError,
+    InferenceEmbeddingClient,
 )
 from app.control_plane.notifications import InMemoryNotificationStore
 from app.control_plane.retrieval import (
@@ -217,6 +220,96 @@ class TestIndexAndQuery(unittest.TestCase):
             token_verifier=alice, store=self.store, embedding_client=_EMBED,
         )
         self.assertGreaterEqual(payload["count"], 1)
+
+
+class TestRetrievalMetrics(unittest.TestCase):
+    def test_m10_metrics_emitted(self):
+        from app.control_plane.metrics import PROMETHEUS_AVAILABLE, metrics_output
+        if not PROMETHEUS_AVAILABLE:
+            self.skipTest("prometheus_client not installed")
+        store = InMemoryRetrievalStore()
+        v = _Verifier()
+        build_index_document_response(
+            authorization=_AUTH, body=_index_body(content="alpha beta gamma"),
+            token_verifier=v, store=store, embedding_client=_EMBED,
+        )
+        build_retrieval_query_response(
+            authorization=_AUTH, body=_query_body(query="alpha"),
+            token_verifier=v, store=store, embedding_client=_EMBED,
+        )
+        text = metrics_output()[0].decode()
+        for name in (
+            "control_plane_retrieval_operation_duration_seconds",
+            "control_plane_document_chunks_indexed_total",
+            "control_plane_embeddings_generated_total",
+            "control_plane_retrieval_results_returned",
+            "control_plane_embedding_duration_seconds",
+        ):
+            self.assertIn(name, text)
+
+
+class _FakeResp:
+    def __init__(self, payload):
+        self._payload = json.dumps(payload).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return self._payload
+
+
+class _FailingEmbedder:
+    def embed(self, texts):
+        raise EmbeddingError("backend down")
+
+
+class TestInferenceEmbeddingClient(unittest.TestCase):
+    def _client(self):
+        return InferenceEmbeddingClient(base_url="http://embed.svc:8000", model="bge-small")
+
+    def test_success_orders_by_index(self):
+        payload = {"data": [
+            {"index": 1, "embedding": [0.2] * EMBEDDING_DIM},
+            {"index": 0, "embedding": [0.1] * EMBEDDING_DIM},
+        ]}
+        with mock.patch("urllib.request.urlopen", return_value=_FakeResp(payload)):
+            vecs = self._client().embed(["a", "b"])
+        self.assertEqual(len(vecs), 2)
+        self.assertEqual(vecs[0][0], 0.1)  # index 0 first
+        self.assertEqual(vecs[1][0], 0.2)
+
+    def test_dimension_mismatch_raises(self):
+        payload = {"data": [{"index": 0, "embedding": [0.1] * 10}]}
+        with mock.patch("urllib.request.urlopen", return_value=_FakeResp(payload)):
+            with self.assertRaises(EmbeddingError):
+                self._client().embed(["a"])
+
+    def test_unreachable_raises(self):
+        import urllib.error
+        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("conn refused")):
+            with self.assertRaises(EmbeddingError):
+                self._client().embed(["a"])
+
+
+class TestEmbeddingDegradation(unittest.TestCase):
+    def test_index_and_query_degrade_to_503(self):
+        store = InMemoryRetrievalStore()
+        v = _Verifier()
+        status, payload = build_index_document_response(
+            authorization=_AUTH, body=_index_body(content="hello world"),
+            token_verifier=v, store=store, embedding_client=_FailingEmbedder(),
+        )
+        self.assertEqual(status, 503)
+        self.assertEqual(payload["error"], "embedding_unavailable")
+        status, _ = build_retrieval_query_response(
+            authorization=_AUTH, body=_query_body(query="hello"),
+            token_verifier=v, store=store, embedding_client=_FailingEmbedder(),
+        )
+        self.assertEqual(status, 503)
 
 
 if __name__ == "__main__":

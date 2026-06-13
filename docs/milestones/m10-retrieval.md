@@ -33,10 +33,23 @@ Done:
 - `scripts/smoke-test.sh` extended with M10 retrieval + memory round trips and
   isolation probes (`--token-b` cross-tenant retrieval, `--token-c` cross-user
   memory).
+- **Embedding backend** (build task 6): `InferenceEmbeddingClient` calls an
+  in-cluster OpenAI-compatible `/v1/embeddings` endpoint, selected via
+  `EMBEDDING_BASE_URL`/`EMBEDDING_MODEL` (384-dim model; per-model license
+  review per the Phase 2 gate). Embeddings are in-cluster — external providers
+  are an escalation trigger. The deterministic client remains the dev/test
+  default; handlers degrade to `503` if the backend is unavailable.
+- **Observability** (build task 7): retrieval/memory operation latency,
+  results-returned (recall proxy), chunks-indexed, and embedding
+  throughput/latency metrics in `app/control_plane/metrics.py`, instrumented in
+  the handlers. Labels are operation names only — no tenant/user ids or content
+  (M5 content policy + cardinality); per-tenant index size is queried from the
+  DB, not labelled.
 
-Remaining for the milestone (follow-up PRs):
-- production in-cluster **embedding backend** (build task 6);
-- retrieval/memory **observability** (build task 7).
+Remaining (infra, not code): deploy an in-cluster embedding model service and
+set `EMBEDDING_BASE_URL` in `deploy/values/dev/` to switch the dev deployment
+from the deterministic dev embedding to the real model; add Grafana panels for
+the new metrics. Both are cost/infra decisions rather than control-plane work.
 
 The isolation model mirrors the M9 notifications service and is flagged for
 maintainer review on the PR per the Phase 2 isolation escalation trigger.
