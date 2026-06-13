@@ -54,4 +54,22 @@ metadata:
 data:
   vllm-query.json: |
 {{ .Files.Get "dashboards/vllm-query.json" | indent 4 }}
+---
+# ── Control Plane — Retrieval & Memory Dashboard (M10) ───────────────────────
+# First-party dashboard (authored in this repository; not vendored). Panels:
+# retrieval/memory operation rate + p95 latency, embedding throughput + p95
+# latency, results-returned (recall proxy), and chunks-indexed growth. Built on
+# the control-plane M10 metrics in app/control_plane/metrics.py; labels are
+# operation names only (no tenant/user ids or content).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-dashboard-control-plane-retrieval
+  namespace: {{ $namespace }}
+  labels:
+    grafana_dashboard: "1"
+    grafana_folder: "Control Plane"
+data:
+  control-plane-retrieval.json: |
+{{ .Files.Get "dashboards/control-plane-retrieval.json" | indent 4 }}
 {{- end }}
