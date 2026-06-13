@@ -10,9 +10,53 @@
 
 ## Status
 
-Not started. Scaffolded as part of the Phase 2 kickoff. Requires explicit
-maintainer adoption (see the Decision Checklist in the Phase 2 doc) before
-implementation begins.
+In progress on branch `feat/m9-product-surface`. Adoption decision recorded
+in `NOTICE`. Code-completable items are done; live operator verification
+items remain.
+
+**Implemented:**
+
+- Notifications service (`app/control_plane/notifications.py`) with in-memory
+  (dev) and PostgreSQL (prod) stores; tenant + user isolation enforced at the
+  store layer; content policy enforced at the handler.
+- DB schema migration (`app/db/schema.sql` — `notifications` table, migration 0002).
+- Control-plane API routes: `GET /v1/notifications`, `POST /v1/notifications`,
+  `POST /v1/notifications/{id}/read`.
+- Vanilla JS + HTML SPA under `app/ui/static/`: adapted from Odysseus design
+  system (MIT, attributed in `NOTICE`). OAuth 2.0 Public Client + PKCE flow
+  (RFC 8252; OAuth Browser-Based Apps BCP) — client-side token exchange against
+  the OIDC provider's `/token` endpoint, **no control-plane auth-surface
+  change**. Access token verified on every API call by the existing
+  `OIDCTokenVerifier`.
+- Chat path end-to-end through `POST /v1/chat/completions`.
+- Notification bell + feed with three distinct controls: list, mark-read,
+  dismiss (client-side hide + best-effort mark-read).
+- nginx container (`app/ui/Dockerfile`) serving static assets + proxying to
+  the control plane; strict CSP including a dynamically-derived `connect-src`
+  / `form-action` allowlist for the configured OIDC origin (rendered by the
+  entrypoint script from env vars).
+- Helm chart: `deploy/helm/private-ai-ui/`; dev values: `deploy/values/dev/ui.yaml`.
+  `helm lint` and `helm template` both clean.
+- Unit tests: 37 in `tests/test_notifications.py` (isolation, content policy,
+  auth, dismiss/mark-read semantics).
+- Artifact tests: 14 in `tests/test_roadmap_artifacts.py` covering file
+  existence, CSS variable names, no-innerHTML invariant, CSP allowlist
+  rendering, notification routes wired, NOTICE records, and the
+  security-review document.
+- Web-security baseline review document: `docs/m9-security-review.md`
+  (OWASP top-10 audit; CSRF posture; findings F-08 + F-09 accepted; no
+  high or critical findings).
+
+**Pending — operator/maintainer execution required:**
+
+- Dev-cluster deployment smoke-test record: sign-in, chat round-trip,
+  notification publish + mark-read + dismiss, and a cross-tenant retrieval
+  probe. To be appended to the PR before merge per the standing Phase 2
+  rule in `docs/milestones/README.md`. Produce it with
+  `scripts/smoke-test.sh --base <control-plane> --token "$TOKEN_A" --token-b "$TOKEN_B"`
+  (the `--token-b` argument runs the cross-tenant retrieval probe) and paste
+  the output into the PR. Full step-by-step flow:
+  [`../runbooks/m9-dev-deployment-validation.md`](../runbooks/m9-dev-deployment-validation.md).
 
 ## Objective
 
@@ -124,6 +168,10 @@ in the dev deployment, not just in unit tests:
   notification event. The smoke test exercises the M1-adapted-from-
   Odysseus control-plane surfaces (`routing.py`, `inference.py`,
   `token_verifier.py`) end-to-end through the new client.
+  `scripts/smoke-test.sh` automates this round trip: in `--base` mode it
+  drives the same notification + chat API the UI calls with a real OIDC
+  bearer token, and a second `--token-b` identity exercises the
+  cross-tenant retrieval probe.
 - Record the run in the milestone PR; failures block merge.
 
 ## Exit criteria

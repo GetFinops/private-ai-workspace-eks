@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "private-ai-ui.fullname" . }}
+  labels:
+    {{- include "private-ai-ui.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "private-ai-ui.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "private-ai-ui.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Force a rolling update when the ConfigMap changes.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: ui
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: OIDC_ISSUER
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "private-ai-ui.fullname" . }}-config
+                  key: OIDC_ISSUER
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "private-ai-ui.fullname" . }}-config
+                  key: OIDC_CLIENT_ID
+            - name: OIDC_REDIRECT_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "private-ai-ui.fullname" . }}-config
+                  key: OIDC_REDIRECT_URI
+            - name: OIDC_SCOPE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "private-ai-ui.fullname" . }}-config
+                  key: OIDC_SCOPE
+            - name: OIDC_AUTHORIZE_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "private-ai-ui.fullname" . }}-config
+                  key: OIDC_AUTHORIZE_ENDPOINT
+            - name: OIDC_TOKEN_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "private-ai-ui.fullname" . }}-config
+                  key: OIDC_TOKEN_ENDPOINT
+            - name: CONTROL_PLANE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "private-ai-ui.fullname" . }}-config
+                  key: CONTROL_PLANE_HOST
+            - name: CONTROL_PLANE_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "private-ai-ui.fullname" . }}-config
+                  key: CONTROL_PLANE_PORT
+            - name: DEFAULT_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "private-ai-ui.fullname" . }}-config
+                  key: DEFAULT_MODEL
+            - name: MODELS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "private-ai-ui.fullname" . }}-config
+                  key: MODELS
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}

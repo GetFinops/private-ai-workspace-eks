@@ -1,0 +1,15 @@
+apiVersion: v2
+name: private-ai-ui
+description: |
+  Private AI Workspace — user-facing web UI (M9).
+  Vanilla JS + HTML SPA served by nginx with a strict CSP.
+  Proxies API calls to the control-plane service.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - private-ai
+  - ui
+  - spa
+maintainers:
+  - name: private-ai-workspace-eks maintainers

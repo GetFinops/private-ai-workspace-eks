@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<!--
+  Private AI Workspace — main application shell
+  UI patterns adapted from pewdiepie-archdaemon/odysseus (MIT).
+  Provenance recorded in NOTICE under "M9 UI adaptation".
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Private AI Workspace</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#282c34">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    @font-face {
+      font-family: 'Fira Code';
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+      src: url('/static/fonts/FiraCode-Regular.woff2') format('woff2');
+    }
+    @font-face {
+      font-family: 'Fira Code';
+      font-weight: 600;
+      font-style: normal;
+      font-display: swap;
+      src: url('/static/fonts/FiraCode-SemiBold.woff2') format('woff2');
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── App shell ─────────────────────────────────────────────────────────── -->
+<div id="app-shell">
+
+  <!-- Sidebar -->
+  <aside id="sidebar">
+    <div id="sidebar-header">
+      <span id="sidebar-title">Private AI</span>
+      <button id="new-chat-btn" type="button" aria-label="New conversation">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M7 1v12M1 7h12"/>
+        </svg>
+        New
+      </button>
+    </div>
+    <nav id="conversation-list" aria-label="Conversations">
+      <!-- Populated by app.js -->
+    </nav>
+    <div id="sidebar-footer">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+        <circle cx="7" cy="4.5" r="2.5"/>
+        <path d="M1.5 12c0-3.04 2.46-5.5 5.5-5.5s5.5 2.46 5.5 5.5"/>
+      </svg>
+      <span id="user-email"></span>
+    </div>
+  </aside>
+
+  <!-- Main area -->
+  <main id="main-area">
+    <!-- Top bar -->
+    <header id="topbar">
+      <div id="topbar-left">
+        <label id="model-label" for="model-select">Model</label>
+        <select id="model-select" aria-label="Select model">
+          <!-- Populated on load -->
+        </select>
+      </div>
+      <div id="topbar-right">
+        <!-- Notification bell -->
+        <button id="notif-btn" type="button" aria-label="Notifications" aria-haspopup="true" aria-expanded="false">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M9 2.5a5.5 5.5 0 0 1 5.5 5.5v2.5l1.5 2H2L3.5 10.5V8A5.5 5.5 0 0 1 9 2.5Z"/>
+            <path d="M7 14.5a2 2 0 0 0 4 0"/>
+          </svg>
+          <span id="notif-badge" aria-live="polite"></span>
+        </button>
+        <button id="signout-btn" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <!-- Error banner -->
+    <div id="error-banner" role="alert"></div>
+
+    <!-- Messages -->
+    <div id="message-list" role="log" aria-label="Conversation messages" aria-live="polite">
+      <!-- Empty state shown by JS -->
+    </div>
+
+    <!-- Input area -->
+    <div id="input-area">
+      <div id="input-row">
+        <textarea
+          id="chat-input"
+          rows="1"
+          placeholder="Send a message…"
+          aria-label="Message input"
+          autocomplete="off"
+          spellcheck="true"
+        ></textarea>
+        <button id="send-btn" type="button" aria-label="Send message">Send</button>
+      </div>
+      <p id="input-hint">Enter to send · Shift+Enter for new line</p>
+    </div>
+  </main>
+
+  <!-- Notification drawer (slides in from right) -->
+  <aside id="notif-drawer" role="complementary" aria-label="Notifications panel">
+    <div id="notif-drawer-header">
+      <span>Notifications</span>
+      <button id="notif-close-btn" type="button" aria-label="Close notifications">&times;</button>
+    </div>
+    <div id="notif-list" role="list">
+      <p id="notif-empty">No unread notifications</p>
+    </div>
+  </aside>
+
+</div><!-- /#app-shell -->
+
+<script src="/static/app.js"></script>
+</body>
+</html>

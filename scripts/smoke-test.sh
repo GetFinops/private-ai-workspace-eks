@@ -1,43 +1,110 @@
 #!/usr/bin/env bash
 # scripts/smoke-test.sh
 #
-# Quick local smoke test for the control-plane service.
-# Starts the server, probes the health endpoints, then stops the server.
+# Smoke test for the control-plane API, including the M9 product surface:
+# the authenticated chat path and the tenant-scoped notifications service.
 #
-# Usage:
-#   ./scripts/smoke-test.sh [--port 8080]
+# The notification + chat routes exercised here are exactly the control-plane
+# API the vanilla-JS UI drives with its PKCE-obtained bearer token, so a green
+# run validates the surface behind the M9 client.
+#
+# Modes:
+#
+#   Local (default) — spins up the control plane with the development token
+#   verifier (ENVIRONMENT=development + DEV_AUTH_TOKEN) and exercises the full
+#   notification round trip, auth gating, content-policy enforcement, and the
+#   chat path's degraded response. Self-contained; no cluster required.
+#
+#       ./scripts/smoke-test.sh [--port 8080]
+#
+#   Cluster — targets an already-running control plane (e.g. the dev
+#   deployment) using real OIDC bearer tokens. Supplying a second token runs
+#   the cross-tenant isolation probe required by the M9 exit criteria.
+#
+#       ./scripts/smoke-test.sh --base https://<control-plane> \
+#           --token "$TOKEN_TENANT_A" [--token-b "$TOKEN_TENANT_B"]
+#
+#   --public-only skips every authenticated check (no token required) and
+#   probes only the public surface: health, inference status, routing, and
+#   that the protected routes reject anonymous access. Used by the deploy
+#   pipeline as a post-deploy sanity check.
+#
+#       ./scripts/smoke-test.sh --base http://localhost:8080 --public-only
+#
+# Exit status is non-zero if any check fails.
 
 set -euo pipefail
 
 PORT="${PORT:-8080}"
-BASE="http://localhost:${PORT}"
+BASE=""
+TOKEN=""
+TOKEN_B=""
+PUBLIC_ONLY=0
+DEV_TOKEN="smoke-dev-token"   # local mode only; accepted by DevTokenVerifier
 TIMEOUT=10
+
+usage() { sed -n '2,38p' "$0"; exit "${1:-0}"; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --port) PORT="$2"; BASE="http://localhost:${PORT}"; shift 2 ;;
-    *)      echo "Unknown argument: $1"; exit 1 ;;
+    --port)        PORT="$2"; shift 2 ;;
+    --base)        BASE="${2%/}"; shift 2 ;;
+    --token)       TOKEN="$2"; shift 2 ;;
+    --token-b)     TOKEN_B="$2"; shift 2 ;;
+    --public-only) PUBLIC_ONLY=1; shift ;;
+    -h|--help)     usage 0 ;;
+    *) echo "Unknown argument: $1" >&2; usage 1 ;;
   esac
 done
 
-echo "==> Starting control-plane server on port ${PORT}"
-python3 -m app.control_plane --port "${PORT}" &
-SERVER_PID=$!
+# ── Mode selection ───────────────────────────────────────────────────────────
+LOCAL_MODE=1
+SERVER_PID=""
+SERVER_LOG=""
+if [[ -n "${BASE}" ]]; then
+  LOCAL_MODE=0
+  if [[ -z "${TOKEN}" && "${PUBLIC_ONLY}" -eq 0 ]]; then
+    echo "ERROR: --base requires --token <bearer-token> (or --public-only)" >&2
+    exit 2
+  fi
+fi
+
+# Authenticated checks run unless --public-only was requested.
+RUN_AUTH=1
+if [[ "${PUBLIC_ONLY}" -eq 1 ]]; then RUN_AUTH=0; fi
+
+TMP_BODY="$(mktemp -t smoke-body.XXXXXX)"
+
+if [[ "${LOCAL_MODE}" -eq 1 ]]; then
+  BASE="http://localhost:${PORT}"
+  TOKEN="${DEV_TOKEN}"
+  SERVER_LOG="$(mktemp -t smoke-cp.XXXXXX.log)"
+  echo "==> Starting control-plane server on port ${PORT} (development token verifier)"
+  # NOTE: the entrypoint reads PORT/HOST from the environment, not argv.
+  ENVIRONMENT=development DEV_AUTH_TOKEN="${DEV_TOKEN}" PORT="${PORT}" \
+    python3 -m app.control_plane >"${SERVER_LOG}" 2>&1 &
+  SERVER_PID=$!
+fi
 
 cleanup() {
-  echo ""
-  echo "==> Stopping server (PID ${SERVER_PID})"
-  kill "${SERVER_PID}" 2>/dev/null || true
+  if [[ -n "${SERVER_PID}" ]]; then
+    echo ""
+    echo "==> Stopping server (PID ${SERVER_PID})"
+    kill "${SERVER_PID}" 2>/dev/null || true
+    wait "${SERVER_PID}" 2>/dev/null || true
+  fi
+  if [[ -n "${TMP_BODY}" ]]; then rm -f "${TMP_BODY}"; fi
+  if [[ -n "${SERVER_LOG}" ]]; then rm -f "${SERVER_LOG}"; fi
+  return 0
 }
 trap cleanup EXIT
 
-# Wait for the server to come up.
+# Wait for the target to answer /healthz.
 for i in $(seq 1 "${TIMEOUT}"); do
-  if curl -sf "${BASE}/healthz" > /dev/null 2>&1; then
-    break
-  fi
+  if curl -sf "${BASE}/healthz" >/dev/null 2>&1; then break; fi
   if [[ "${i}" -eq "${TIMEOUT}" ]]; then
-    echo "ERROR: Server did not start within ${TIMEOUT}s"
+    echo "ERROR: ${BASE} did not become reachable within ${TIMEOUT}s" >&2
+    if [[ -n "${SERVER_LOG}" ]]; then echo "--- server log ---"; cat "${SERVER_LOG}"; fi
     exit 1
   fi
   sleep 1
@@ -45,31 +112,175 @@ done
 
 fail=0
 
-check() {
-  local label="$1"
-  local url="$2"
-  local expected_status="$3"
-  local http_status
-  http_status=$(curl -s -o /dev/null -w "%{http_code}" "${url}")
-  if [[ "${http_status}" == "${expected_status}" ]]; then
-    echo "  PASS  ${label}  (${http_status})"
-  else
-    echo "  FAIL  ${label}  expected ${expected_status}, got ${http_status}"
-    fail=1
-  fi
+# ── HTTP + assertion helpers ─────────────────────────────────────────────────
+
+# req METHOD PATH [TOKEN] [BODY]  →  sets RESP_STATUS and RESP_BODY
+req() {
+  local method="$1" path="$2" token="${3:-}" body="${4:-}"
+  local args=(-s -o "${TMP_BODY}" -w '%{http_code}' -X "${method}" "${BASE}${path}")
+  if [[ -n "${token}" ]]; then args+=(-H "Authorization: Bearer ${token}"); fi
+  if [[ -n "${body}"  ]]; then args+=(-H "Content-Type: application/json" --data "${body}"); fi
+  RESP_STATUS="$(curl "${args[@]}")"
+  RESP_BODY="$(cat "${TMP_BODY}")"
 }
 
-echo ""
-echo "==> Probing ${BASE}"
-check "/healthz → 200"             "${BASE}/healthz"             200
-check "/readyz → 503 (unconfigured)" "${BASE}/readyz"              503
-check "/v1/inference/status → 200" "${BASE}/v1/inference/status" 200
-check "/unknown → 404"             "${BASE}/unknown"             404
+pass()  { echo "  PASS  $1"; }
+flunk() { echo "  FAIL  $1"; if [[ -n "${RESP_BODY:-}" ]]; then echo "        body: ${RESP_BODY}"; fi; fail=1; }
 
+# expect_status LABEL EXPECTED
+expect_status() {
+  if [[ "${RESP_STATUS}" == "$2" ]]; then pass "$1  (${RESP_STATUS})"; else flunk "$1  expected $2, got ${RESP_STATUS}"; fi
+}
+# expect_status_in LABEL "S1 S2 ..."
+expect_status_in() {
+  local s
+  for s in $2; do
+    if [[ "${RESP_STATUS}" == "${s}" ]]; then pass "$1  (${RESP_STATUS})"; return; fi
+  done
+  flunk "$1  expected one of [$2], got ${RESP_STATUS}"
+}
+
+# JSON helpers — tolerant (always exit 0); read RESP_BODY from argv.
+json_id() {
+  python3 -c 'import sys, json
+try:
+    print(json.loads(sys.argv[1]).get("id", ""))
+except Exception:
+    print("")' "${RESP_BODY}"
+}
+list_has() {  # list_has <id> → "yes" / "no" / "err"
+  python3 -c 'import sys, json
+try:
+    d = json.loads(sys.argv[1])
+    ids = [n.get("id") for n in d.get("notifications", [])]
+    print("yes" if sys.argv[2] in ids else "no")
+except Exception:
+    print("err")' "${RESP_BODY}" "$1"
+}
+id_read() {  # id_read <id> → "True" / "False" / "missing" / "err"
+  python3 -c 'import sys, json
+try:
+    d = json.loads(sys.argv[1])
+    m = {n.get("id"): n for n in d.get("notifications", [])}
+    n = m.get(sys.argv[2])
+    print(n.get("read") if n else "missing")
+except Exception:
+    print("err")' "${RESP_BODY}" "$1"
+}
+
+# ── Core control-plane probes (public) ───────────────────────────────────────
+echo ""
+echo "==> Core control-plane probes  (${BASE})"
+req GET /healthz;             expect_status "/healthz" 200
+req GET /v1/inference/status; expect_status "/v1/inference/status" 200
+req GET /unknown;             expect_status "/unknown route → 404" 404
+if [[ "${LOCAL_MODE}" -eq 1 ]]; then
+  req GET /readyz;            expect_status "/readyz (unconfigured → 503)" 503
+fi
+
+# ── M9: auth gating (public — protected routes reject anonymous access) ───────
+echo ""
+echo "==> M9 auth gating"
+req GET  /v1/notifications;             expect_status "GET  /v1/notifications  no token → 401"  401
+req GET  /v1/notifications "bad-token"; expect_status "GET  /v1/notifications  bad token → 401" 401
+req POST /v1/chat/completions "" '{"model":"x","messages":[{"role":"user","content":"hi"}]}'
+expect_status "POST /v1/chat/completions  no token → 401" 401
+
+if [[ "${RUN_AUTH}" -eq 1 ]]; then
+  # ── M9: chat path (authenticated) ──────────────────────────────────────────
+  echo ""
+  echo "==> M9 chat path (authenticated)"
+  req POST /v1/chat/completions "${TOKEN}" '{"model":"smoke","messages":[{"role":"user","content":"ping"}]}'
+  if [[ "${LOCAL_MODE}" -eq 1 ]]; then
+    # No inference backend configured locally → graceful degraded response.
+    expect_status "POST /v1/chat/completions  (auth ok, degraded → 503)" 503
+  else
+    expect_status_in "POST /v1/chat/completions  (auth ok → 200/503)" "200 503"
+  fi
+
+  # ── M9: notifications round trip (publish → list → mark-read/dismiss) ───────
+  # The dismiss control is a client-side hide plus a best-effort mark-read, so
+  # the mark-read path below covers the API behind both controls.
+  echo ""
+  echo "==> M9 notifications round trip"
+  MARKER="smoke-$$-${RANDOM}"
+  req POST /v1/notifications "${TOKEN}" "{\"event_class\":\"system_notice\",\"resource_id\":\"${MARKER}\"}"
+  expect_status "publish system_notice → 201" 201
+  NID="$(json_id)"
+  if [[ -n "${NID}" ]]; then pass "publish returned an id  (${NID})"; else flunk "publish returned no id"; fi
+
+  req GET /v1/notifications "${TOKEN}"
+  expect_status "list unread → 200" 200
+  if [[ "$(list_has "${NID}")" == "yes" ]]; then pass "unread feed contains the published id"; else flunk "published id missing from unread feed"; fi
+
+  # Validation + content-policy guards.
+  req POST /v1/notifications "${TOKEN}" "{\"event_class\":\"system_notice\",\"resource_id\":\"x\",\"prompt\":\"secret\"}"
+  expect_status "publish carrying prompt content → 400" 400
+  req POST /v1/notifications "${TOKEN}" "{\"event_class\":\"not_a_real_class\",\"resource_id\":\"x\"}"
+  expect_status "publish with invalid event_class → 422" 422
+  req POST /v1/notifications "${TOKEN}" "{\"event_class\":\"system_notice\"}"
+  expect_status "publish without resource_id → 400" 400
+
+  # Mark-read (also the API behind the dismiss control).
+  req POST "/v1/notifications/${NID}/read" "${TOKEN}"
+  expect_status "mark-read the published id → 200" 200
+
+  req GET /v1/notifications "${TOKEN}"
+  expect_status "list unread after mark-read → 200" 200
+  if [[ "$(list_has "${NID}")" == "no" ]]; then pass "read notification left the unread feed"; else flunk "read notification still in unread feed"; fi
+
+  req GET "/v1/notifications?include_read=true" "${TOKEN}"
+  expect_status "list including read → 200" 200
+  if [[ "$(id_read "${NID}")" == "True" ]]; then pass "notification shows read=true with include_read"; else flunk "notification not marked read in include_read feed"; fi
+
+  req POST "/v1/notifications/${NID}/read" "${TOKEN}"
+  expect_status "re-mark already-read id → 404" 404
+  req POST "/v1/notifications/00000000-0000-0000-0000-000000000000/read" "${TOKEN}"
+  expect_status "mark-read unknown id → 404" 404
+
+  # ── M9: cross-tenant isolation probe (requires two real identities) ────────
+  echo ""
+  if [[ -n "${TOKEN_B}" ]]; then
+    echo "==> M9 cross-tenant isolation probe (A publishes; B must not see it)"
+    req POST /v1/notifications "${TOKEN}" "{\"event_class\":\"system_notice\",\"resource_id\":\"smoke-xtenant-$$-${RANDOM}\"}"
+    expect_status "A publishes isolation marker → 201" 201
+    AID="$(json_id)"
+
+    req GET "/v1/notifications?include_read=true" "${TOKEN_B}"
+    expect_status "B lists notifications → 200" 200
+    if [[ "$(list_has "${AID}")" == "no" ]]; then pass "B cannot see A's notification (isolation holds)"; else flunk "ISOLATION LEAK: B sees A's notification id ${AID}"; fi
+
+    req POST "/v1/notifications/${AID}/read" "${TOKEN_B}"
+    expect_status "B cannot mark A's notification read → 404" 404
+  else
+    echo "==> M9 cross-tenant isolation probe — SKIPPED"
+    if [[ "${LOCAL_MODE}" -eq 1 ]]; then
+      echo "    The development token verifier maps every token to a single principal,"
+      echo "    so true cross-tenant isolation cannot be exercised locally. Run against"
+      echo "    the dev deployment with two real OIDC users (different email domains):"
+      echo ""
+      echo "      ./scripts/smoke-test.sh --base https://<control-plane> \\"
+      echo "          --token \"\$TOKEN_TENANT_A\" --token-b \"\$TOKEN_TENANT_B\""
+    else
+      echo "    Pass --token-b \"\$TOKEN_TENANT_B\" (a second tenant's token) to run it."
+    fi
+    echo "    Store-layer isolation is unit-covered in tests/test_notifications.py."
+  fi
+else
+  echo ""
+  echo "==> M9 authenticated checks — SKIPPED (--public-only)"
+  echo "    Probed the public surface only (health + anonymous-access rejection)."
+  echo "    Run the authenticated round trip with a real bearer token:"
+  echo ""
+  echo "      ./scripts/smoke-test.sh --base ${BASE} --token \"\$TOKEN\" [--token-b \"\$TOKEN_B\"]"
+fi
+
+# ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
 if [[ "${fail}" -eq 0 ]]; then
   echo "All smoke tests passed."
 else
-  echo "One or more smoke tests failed."
+  echo "One or more smoke tests FAILED."
+  if [[ -n "${SERVER_LOG}" ]]; then echo "--- server log (tail) ---"; tail -n 20 "${SERVER_LOG}"; fi
   exit 1
 fi

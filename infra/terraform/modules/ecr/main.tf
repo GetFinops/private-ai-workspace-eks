@@ -49,3 +49,21 @@ resource "aws_ecr_lifecycle_policy" "control_plane" {
     }]
   })
 }
+
+# UI image repository (M9 product surface).
+#
+# NOTE: this repo was first created out-of-band during the M9 dev rollout with
+# AWS defaults (MUTABLE tags, AES256 encryption, no lifecycle policy) and is
+# imported here as-is to avoid a destructive replace of a repo that holds a live
+# image. It can be hardened to match the control-plane repo (IMMUTABLE + KMS +
+# lifecycle) in a follow-up that re-pushes the image.
+resource "aws_ecr_repository" "ui" {
+  name                 = "${local.name}/ui"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = merge(var.tags, { Name = "${local.name}/ui" })
+}

@@ -99,7 +99,10 @@ data "aws_iam_policy_document" "ecr_push" {
       "ecr:BatchGetImage",
       "ecr:DescribeImages",
     ]
-    resources = [var.ecr_repository_arn]
+    # Scope to every repository under the project's ECR namespace
+    # (e.g. .../private-ai-workspace-dev/*) so the deploy role can push all
+    # service images — control-plane, ui, and future ones — not just one repo.
+    resources = ["${dirname(var.ecr_repository_arn)}/*"]
   }
 }
 

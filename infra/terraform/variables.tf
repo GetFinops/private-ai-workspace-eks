@@ -140,3 +140,35 @@ variable "vllm_service_account_name" {
   type        = string
   default     = "vllm-inference"
 }
+
+# ── Dev OIDC (Cognito) + UI TLS ──────────────────────────────────────────────
+
+variable "enable_dev_cognito" {
+  description = "Create a dev Cognito user pool + app client + hosted-UI domain for OIDC sign-in. Dev-only; production uses an external IdP."
+  type        = bool
+  default     = false
+}
+
+variable "cognito_hosted_ui_domain_prefix" {
+  description = "Domain prefix for the Cognito hosted UI (must be globally unique, e.g. private-ai-dev-xxxx). Required when enable_dev_cognito = true."
+  type        = string
+  default     = ""
+}
+
+variable "cognito_test_user_emails" {
+  description = "Test user emails to seed in the dev pool (tenant identity = email domain). Passwords are set out-of-band."
+  type        = set(string)
+  default     = []
+}
+
+variable "ui_host" {
+  description = "Public hostname for the UI ingress (e.g. ai-dev.getfinops.cloud). Drives Cognito callback/logout URLs and the ACM certificate domain."
+  type        = string
+  default     = ""
+}
+
+variable "acm_route53_zone_id" {
+  description = "Route53 hosted-zone id used to DNS-validate the UI ACM certificate. Set together with ui_host to create the certificate."
+  type        = string
+  default     = ""
+}

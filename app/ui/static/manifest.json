@@ -1,0 +1,10 @@
+{
+  "name": "Private AI Workspace",
+  "short_name": "Private AI",
+  "description": "Self-hosted AI workspace for your organisation.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#282c34",
+  "theme_color": "#282c34",
+  "icons": []
+}

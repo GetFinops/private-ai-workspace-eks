@@ -104,7 +104,10 @@ class RoadmapArtifactTests(TestCase):
         es = ROOT / "deploy" / "helm" / "private-ai-workspace" / "templates" / "externalsecret.yaml"
         self.assertTrue(es.is_file())
         content = es.read_text()
-        self.assertIn("external-secrets.io/v1beta1", content)
+        # ESO 0.20+ serves SecretStore/ExternalSecret only at v1 (v1beta1 is
+        # served:false), so the chart must use the GA apiVersion.
+        self.assertIn("apiVersion: external-secrets.io/v1\n", content)
+        self.assertNotIn("external-secrets.io/v1beta1", content)
         self.assertIn("ExternalSecret", content)
 
     def test_helm_values_ingress_disabled_by_default(self) -> None:
@@ -172,3 +175,107 @@ class RoadmapArtifactTests(TestCase):
         self.assertIn("M7a license-sweep remediations", notice)
         self.assertIn("cryptography", notice)
         self.assertIn("external-secrets", notice)
+
+    # ── M9 — Product Surface ────────────────────────────────────────────────
+
+    def test_m9_notifications_module_exists(self) -> None:
+        self.assertTrue(
+            (ROOT / "app" / "control_plane" / "notifications.py").is_file()
+        )
+
+    def test_m9_notifications_schema_migration_present(self) -> None:
+        schema = (ROOT / "app" / "db" / "schema.sql").read_text()
+        self.assertIn("notifications", schema)
+        self.assertIn("tenant_id", schema)
+        self.assertIn("user_id", schema)
+        self.assertIn("event_class", schema)
+
+    def test_m9_ui_static_assets_exist(self) -> None:
+        ui_static = ROOT / "app" / "ui" / "static"
+        expected = ["index.html", "login.html", "app.js", "style.css",
+                    "sw.js", "manifest.json"]
+        for name in expected:
+            with self.subTest(name=name):
+                self.assertTrue((ui_static / name).is_file(), f"missing: {name}")
+
+    def test_m9_ui_docker_artifacts_exist(self) -> None:
+        ui = ROOT / "app" / "ui"
+        for name in ["Dockerfile", "nginx.conf", "docker-entrypoint.sh"]:
+            with self.subTest(name=name):
+                self.assertTrue((ui / name).is_file(), f"missing: {name}")
+
+    def test_m9_ui_helm_chart_exists(self) -> None:
+        chart_dir = ROOT / "deploy" / "helm" / "private-ai-ui"
+        expected = [
+            "Chart.yaml",
+            "values.yaml",
+            "templates/deployment.yaml",
+            "templates/service.yaml",
+            "templates/ingress.yaml",
+            "templates/configmap.yaml",
+            "templates/_helpers.tpl",
+        ]
+        for name in expected:
+            with self.subTest(name=name):
+                self.assertTrue((chart_dir / name).is_file(), f"missing: {name}")
+
+    def test_m9_dev_values_exist(self) -> None:
+        self.assertTrue(
+            (ROOT / "deploy" / "values" / "dev" / "ui.yaml").is_file()
+        )
+
+    def test_m9_notice_records_ui_adaptation(self) -> None:
+        notice = (ROOT / "NOTICE").read_text()
+        self.assertIn("M9 UI adaptation", notice)
+        self.assertIn("app/ui/static/style.css", notice)
+        self.assertIn("app/ui/static/app.js", notice)
+        self.assertIn("Fira Code", notice)
+
+    def test_m9_css_uses_odysseus_variable_names(self) -> None:
+        css = (ROOT / "app" / "ui" / "static" / "style.css").read_text()
+        for var in ("--bg", "--fg", "--panel", "--border", "--brand-color"):
+            with self.subTest(var=var):
+                self.assertIn(var, css)
+
+    def test_m9_app_js_uses_textcontent_for_user_content(self) -> None:
+        """app.js must render message bubbles via textContent, never innerHTML."""
+        js = (ROOT / "app" / "ui" / "static" / "app.js").read_text()
+        self.assertIn("textContent", js)
+
+    def test_m9_app_js_has_no_innerhtml_writes(self) -> None:
+        """After M9 closeout, app.js must contain no innerHTML write expressions.
+
+        Comments mentioning 'innerHTML' (e.g. negative assertions) are fine.
+        We strip them out before checking.
+        """
+        js = (ROOT / "app" / "ui" / "static" / "app.js").read_text()
+        # Strip // line comments before scanning for innerHTML usage.
+        stripped_lines = []
+        for line in js.splitlines():
+            idx = line.find("//")
+            stripped_lines.append(line[:idx] if idx >= 0 else line)
+        code_only = "\n".join(stripped_lines)
+        self.assertNotIn("innerHTML", code_only,
+                         "innerHTML write found in app.js code (comments are excluded)")
+
+    def test_m9_csp_allows_oidc_token_endpoint(self) -> None:
+        """The SPA must be able to reach the OIDC token endpoint cross-origin."""
+        nginx = (ROOT / "app" / "ui" / "nginx.conf").read_text()
+        self.assertIn("CONNECT_SRC_OIDC", nginx)
+        self.assertIn("form-action", nginx)
+
+    def test_m9_entrypoint_renders_csp_origin(self) -> None:
+        entry = (ROOT / "app" / "ui" / "docker-entrypoint.sh").read_text()
+        self.assertIn("CONNECT_SRC_OIDC", entry)
+        self.assertIn("OIDC_AUTHORIZE_ENDPOINT", entry)
+        self.assertIn("OIDC_TOKEN_ENDPOINT", entry)
+
+    def test_m9_security_review_published(self) -> None:
+        self.assertTrue((ROOT / "docs" / "m9-security-review.md").is_file())
+
+    def test_m9_notifications_api_routes_wired(self) -> None:
+        server = (ROOT / "app" / "control_plane" / "server.py").read_text()
+        self.assertIn("/v1/notifications", server)
+        self.assertIn("build_notifications_list_response", server)
+        self.assertIn("build_notification_publish_response", server)
+        self.assertIn("build_notification_read_response", server)

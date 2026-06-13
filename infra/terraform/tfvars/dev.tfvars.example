@@ -34,3 +34,16 @@ postgres_version          = "16"
 rds_instance_class        = "db.t3.medium"
 rds_multi_az              = false
 rds_backup_retention_days = 3
+
+# Dev OIDC (Cognito) + UI TLS — the M9 product surface sign-in.
+# enable_dev_cognito creates a Cognito user pool + public SPA client + hosted-UI
+# domain. The hosted-UI domain prefix must be globally unique. ui_host drives the
+# Cognito callback/logout URLs and the ACM certificate domain; acm_route53_zone_id
+# is the hosted zone used to DNS-validate that certificate. Seed test users span
+# two email domains (tenant identity = email domain); their passwords are set
+# out-of-band, not in Terraform.
+enable_dev_cognito              = true
+cognito_hosted_ui_domain_prefix = "private-ai-dev-changeme"
+cognito_test_user_emails        = ["alice@tenant-a.test", "bob@tenant-b.test"]
+ui_host                         = "ai-dev.example.com"
+acm_route53_zone_id             = "ZXXXXXXXXXXXXX"
