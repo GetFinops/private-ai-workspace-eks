@@ -95,7 +95,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: app
+          context: .
           file: app/Dockerfile
           push: true
           tags: |
@@ -106,7 +106,7 @@ jobs:
         if: ${{ github.event.inputs.deploy_ui == 'true' }}
         uses: docker/build-push-action@v6
         with:
-          context: app/ui
+          context: .
           file: app/ui/Dockerfile
           push: true
           tags: |
