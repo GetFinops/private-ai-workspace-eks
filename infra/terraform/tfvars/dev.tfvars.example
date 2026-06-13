@@ -44,6 +44,8 @@ rds_backup_retention_days = 3
 # out-of-band, not in Terraform.
 enable_dev_cognito              = true
 cognito_hosted_ui_domain_prefix = "private-ai-dev-changeme"
-cognito_test_user_emails        = ["alice@tenant-a.test", "bob@tenant-b.test"]
+# Seed users span two domains (tenant-a / tenant-b) for cross-tenant tests, plus
+# a second tenant-a user (carol) for the M10 cross-user memory isolation probe.
+cognito_test_user_emails        = ["alice@tenant-a.test", "bob@tenant-b.test", "carol@tenant-a.test"]
 ui_host                         = "ai-dev.example.com"
 acm_route53_zone_id             = "ZXXXXXXXXXXXXX"

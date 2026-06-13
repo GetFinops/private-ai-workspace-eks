@@ -350,6 +350,44 @@ install time from upstream chart repositories.
     No source is copied into this repository.
 
 ────────────────────────────────────────────────────────────────────────────────
+Retrieval provenance and dependency record (M10 — retrieval)
+────────────────────────────────────────────────────────────────────────────────
+
+  app/control_plane/retrieval.py
+    Upstream: retrieval/ranking *patterns* only (chunking, embedding-then-
+    cosine-rank). No third-party retrieval library is vendored or copied;
+    the implementation is original Python stdlib + psycopg with in-memory and
+    pgvector backends, strict per-tenant isolation at the store layer, and the
+    M5 content policy (no document text or queries in telemetry).
+
+  app/control_plane/embeddings.py
+    Original implementation. DeterministicEmbeddingClient is a dependency-free
+    feature-hashing embedding for development/tests. InferenceEmbeddingClient
+    calls an in-cluster OpenAI-compatible /v1/embeddings endpoint (vLLM serving
+    an embedding model, or a dedicated embedding deployment), selected via
+    EMBEDDING_BASE_URL. Routing embeddings through an external provider is an
+    explicit escalation trigger and is not supported.
+
+  Embedding model (strategy — per-model license review required)
+    The embedding backend serves a 384-dimensional model over the OpenAI
+    embeddings API; the dimension must match document_chunks.embedding /
+    EMBEDDING_DIM. Recommended permissive defaults: BAAI/bge-small-en-v1.5
+    (MIT) or sentence-transformers/all-MiniLM-L6-v2 (Apache-2.0), both 384-dim.
+    Model weights carry their own license and must be reviewed per model before
+    deployment (Phase 2 licensing gate); no model weights are stored in this
+    repository or container image.
+
+  pgvector (PostgreSQL extension)
+    Source: https://github.com/pgvector/pgvector
+    License: PostgreSQL License (permissive, BSD-style)
+    Copyright: Copyright (c) 2021-2025 Andrew Kane.
+    Use: provides the `vector` type and cosine-distance operator used by the
+    document_chunks table (app/db/schema.sql, migration 0003) and
+    PostgresRetrievalStore. The extension is created by the migration runner on
+    RDS PostgreSQL 16 (pgvector is on the RDS extension allow-list); no pgvector
+    source is copied into this repository.
+
+────────────────────────────────────────────────────────────────────────────────
 External-provider fallback decision record (M6)
 ────────────────────────────────────────────────────────────────────────────────
 
