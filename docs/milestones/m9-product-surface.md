@@ -52,7 +52,10 @@ items remain.
 - Dev-cluster deployment smoke-test record: sign-in, chat round-trip,
   notification publish + mark-read + dismiss, and a cross-tenant retrieval
   probe. To be appended to the PR before merge per the standing Phase 2
-  rule in `docs/milestones/README.md`.
+  rule in `docs/milestones/README.md`. Produce it with
+  `scripts/smoke-test.sh --base <control-plane> --token "$TOKEN_A" --token-b "$TOKEN_B"`
+  (the `--token-b` argument runs the cross-tenant retrieval probe) and paste
+  the output into the PR.
 
 ## Objective
 
@@ -164,6 +167,10 @@ in the dev deployment, not just in unit tests:
   notification event. The smoke test exercises the M1-adapted-from-
   Odysseus control-plane surfaces (`routing.py`, `inference.py`,
   `token_verifier.py`) end-to-end through the new client.
+  `scripts/smoke-test.sh` automates this round trip: in `--base` mode it
+  drives the same notification + chat API the UI calls with a real OIDC
+  bearer token, and a second `--token-b` identity exercises the
+  cross-tenant retrieval probe.
 - Record the run in the milestone PR; failures block merge.
 
 ## Exit criteria
