@@ -37,6 +37,14 @@ on:
         options:
           - "false"
           - "true"
+      deploy_embedding:
+        description: "Deploy the M10 in-cluster embedding service (TEI, CPU)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
       deploy_observability:
         description: "Deploy observability stack (kube-prometheus-stack + dashboards)"
         required: false
@@ -162,8 +170,21 @@ jobs:
             --wait \
             --timeout 5m
 
+      - name: Deploy embedding service (M10, opt-in)
+        if: ${{ github.event.inputs.deploy_embedding == 'true' }}
+        run: |
+          helm upgrade --install embedding deploy/helm/embedding \
+            --namespace inference \
+            --create-namespace \
+            -f "deploy/values/${ENV}/embedding.yaml" \
+            --wait \
+            --timeout 10m
+
       - name: Deploy control-plane chart
         run: |
+          # EMBEDDING_BASE_URL/MODEL point the control plane at the in-cluster
+          # embedding service (M10). When the var is empty the control plane uses
+          # the deterministic dev embedding instead.
           helm upgrade --install private-ai-workspace deploy/helm/private-ai-workspace \
             --namespace app \
             --create-namespace \
@@ -174,6 +195,8 @@ jobs:
             --set externalSecrets.secretsManagerSecretName="${{ vars.APP_CONFIG_SECRET_NAME }}" \
             --set externalSecrets.awsRegion="${{ vars.AWS_REGION }}" \
             --set metrics.serviceMonitor.enabled=false \
+            --set config.embeddingBaseUrl="${{ vars.EMBEDDING_BASE_URL }}" \
+            --set config.embeddingModel="${{ vars.EMBEDDING_MODEL }}" \
             -f "deploy/values/${ENV}/app.yaml" \
             --wait \
             --timeout 5m

@@ -377,6 +377,23 @@ Retrieval provenance and dependency record (M10 — retrieval)
     deployment (Phase 2 licensing gate); no model weights are stored in this
     repository or container image.
 
+  text-embeddings-inference (container image, deploy/helm/embedding)
+    Source: https://github.com/huggingface/text-embeddings-inference
+    Image: ghcr.io/huggingface/text-embeddings-inference (cpu-* tag)
+    License: Apache License 2.0
+    Copyright: Copyright (c) 2023-2025 Hugging Face.
+    Use: in-cluster embedding service exposing an OpenAI-compatible
+         /v1/embeddings endpoint for M10 retrieval. The image is pulled at pod
+         start; no TEI source is copied into this repository.
+
+  BAAI/bge-small-en-v1.5 (model weights — default embedding model)
+    Source: https://huggingface.co/BAAI/bge-small-en-v1.5
+    License: MIT
+    Copyright: Copyright (c) 2023 Beijing Academy of Artificial Intelligence.
+    Use: default 384-dimension embedding model served by the embedding chart.
+         Downloaded from the Hugging Face Hub at pod start (not gated; no token
+         required); no weights are stored in this repository or container image.
+
   pgvector (PostgreSQL extension)
     Source: https://github.com/pgvector/pgvector
     License: PostgreSQL License (permissive, BSD-style)

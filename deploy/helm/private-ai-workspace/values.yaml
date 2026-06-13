@@ -31,6 +31,11 @@ config:
   objectStorageBucket: ""
   inferenceBaseUrl: http://vllm-inference.inference.svc.cluster.local:8000
   secretsProvider: aws-secrets-manager
+  # M10 retrieval embeddings. Point at an in-cluster OpenAI-compatible
+  # /v1/embeddings service (e.g. the deploy/helm/embedding chart). Leave empty
+  # to use the deterministic dev embedding instead of a real model.
+  embeddingBaseUrl: ""
+  embeddingModel: ""
   # OTEL gRPC collector endpoint.  Leave empty for no-op tracing.
   otelEndpoint: ""
 
