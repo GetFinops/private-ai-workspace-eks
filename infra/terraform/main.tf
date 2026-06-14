@@ -280,3 +280,23 @@ resource "aws_acm_certificate_validation" "ui" {
   certificate_arn         = aws_acm_certificate.ui[0].arn
   validation_record_fqdns = [for r in aws_route53_record.ui_cert_validation : r.fqdn]
 }
+
+# ── external-dns IRSA (M10 follow-up) ────────────────────────────────────────
+# Lets external-dns sync Ingress hostnames into Route53. Gated on a hosted-zone
+# id so it's created only where DNS automation is wanted (dev).
+module "irsa_external_dns" {
+  count  = var.external_dns_zone_id != "" ? 1 : 0
+  source = "./modules/irsa-external-dns"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  oidc_provider_arn = module.eks.cluster_oidc_provider_arn
+  oidc_provider_url = module.eks.cluster_oidc_provider_url
+
+  service_account_namespace = "kube-system"
+  service_account_name      = "external-dns"
+  hosted_zone_ids           = [var.external_dns_zone_id]
+
+  tags = local.tags
+}

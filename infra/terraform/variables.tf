@@ -172,3 +172,9 @@ variable "acm_route53_zone_id" {
   type        = string
   default     = ""
 }
+
+variable "external_dns_zone_id" {
+  description = "Route53 hosted-zone id external-dns may manage (e.g. the UI domain's zone). Empty disables the external-dns IRSA role."
+  type        = string
+  default     = ""
+}

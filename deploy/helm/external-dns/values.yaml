@@ -1,0 +1,41 @@
+# external-dns — syncs Ingress hostnames into Route53.
+
+replicaCount: 1
+
+image:
+  # external-dns (Apache-2.0).
+  repository: registry.k8s.io/external-dns/external-dns
+  tag: v0.15.0
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: external-dns
+  # IRSA role ARN (from terraform output external_dns_role_arn). The role grants
+  # route53:ChangeResourceRecordSets on the managed zone only.
+  irsaRoleArn: ""
+
+# Only manage records under this domain (and its subdomains).
+domainFilter: ""
+# Ownership marker written into TXT records so external-dns only edits records
+# it created. Keep stable per cluster/owner.
+txtOwnerId: ""
+# sync = create + update + delete to match Ingresses; upsert-only never deletes.
+policy: sync
+# Limit to Ingress sources (the ALB ingresses); not Services.
+sources:
+  - ingress
+interval: 1m
+logFormat: json
+
+resources:
+  requests:
+    cpu: "10m"
+    memory: 64Mi
+  limits:
+    cpu: "100m"
+    memory: 128Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -18,6 +18,8 @@ service:
 
 ingress:
   enabled: false
+  # IngressClass (replaces the deprecated kubernetes.io/ingress.class annotation).
+  className: alb
   # Set to your public hostname (e.g. api.yourdomain.com).
   host: ""
   # ACM certificate ARN for HTTPS. Required when ingress.enabled=true.

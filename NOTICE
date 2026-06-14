@@ -394,6 +394,15 @@ Retrieval provenance and dependency record (M10 — retrieval)
          Downloaded from the Hugging Face Hub at pod start (not gated; no token
          required); no weights are stored in this repository or container image.
 
+  external-dns (container image, deploy/helm/external-dns)
+    Source: https://github.com/kubernetes-sigs/external-dns
+    Image: registry.k8s.io/external-dns/external-dns
+    License: Apache License 2.0
+    Copyright: Copyright (c) The Kubernetes Authors.
+    Use: controller that syncs Ingress hostnames into Route53 (M10 follow-up).
+         The Deployment + RBAC are first-party templates in this repository; the
+         image is pulled at pod start and no external-dns source is copied here.
+
   pgvector (PostgreSQL extension)
     Source: https://github.com/pgvector/pgvector
     License: PostgreSQL License (permissive, BSD-style)

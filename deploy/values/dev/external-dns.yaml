@@ -1,0 +1,8 @@
+# Dev values for external-dns.
+# Manage records under the getfinops.cloud zone for the UI ingress
+# (ai-dev.getfinops.cloud). The TXT owner id keeps external-dns from touching
+# records it did not create (e.g. the ACM validation CNAME).
+
+domainFilter: getfinops.cloud
+txtOwnerId: private-ai-workspace-dev
+policy: sync
