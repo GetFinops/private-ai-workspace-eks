@@ -168,6 +168,33 @@ class TestHelpers(unittest.TestCase):
         # No raw values anywhere in the shape.
         self.assertNotIn("secret content", json.dumps(shape))
 
+    def test_audit_surfaces_in_json_logs_without_values(self):
+        """The audit payload reaches the deployed JSON logs (shape only).
+
+        Regression guard: the JSON formatter must surface the whitelisted
+        `audit` extra (otherwise the security audit trail is silently dropped),
+        and that payload must never contain argument values (M5 content policy).
+        """
+        import logging
+
+        from app.control_plane.logging_config import _JsonFormatter
+
+        record = logging.LogRecord(
+            name="app.control_plane.agent_tools", level=logging.INFO,
+            pathname="", lineno=0, msg="tool_invocation", args=(), exc_info=None,
+        )
+        record.audit = {
+            "event": "tool_invocation",
+            "tenant_id": "tenant-a.test",
+            "tool": "text_stats",
+            "decision": "allowed",
+            "arg_shape": _arg_shape({"text": "secret content"}),
+        }
+        data = json.loads(_JsonFormatter().format(record))
+        self.assertEqual(data["audit"]["decision"], "allowed")
+        self.assertEqual(data["audit"]["tool"], "text_stats")
+        self.assertNotIn("secret content", json.dumps(data))
+
 
 if __name__ == "__main__":
     unittest.main()
