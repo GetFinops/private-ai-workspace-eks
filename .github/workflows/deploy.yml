@@ -45,6 +45,14 @@ on:
         options:
           - "false"
           - "true"
+      deploy_external_dns:
+        description: "Deploy external-dns (syncs Ingress hostnames into Route53)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
       deploy_observability:
         description: "Deploy observability stack (kube-prometheus-stack + dashboards)"
         required: false
@@ -229,6 +237,16 @@ jobs:
             -f "deploy/values/${ENV}/vllm.yaml" \
             --wait \
             --timeout 15m
+
+      - name: Deploy external-dns (opt-in)
+        if: ${{ github.event.inputs.deploy_external_dns == 'true' }}
+        run: |
+          helm upgrade --install external-dns deploy/helm/external-dns \
+            --namespace kube-system \
+            --set serviceAccount.irsaRoleArn="${{ vars.EXTERNAL_DNS_ROLE_ARN }}" \
+            -f "deploy/values/${ENV}/external-dns.yaml" \
+            --wait \
+            --timeout 5m
 
       - name: Deploy observability stack (opt-in)
         if: ${{ github.event.inputs.deploy_observability == 'true' }}

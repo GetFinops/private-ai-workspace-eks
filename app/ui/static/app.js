@@ -266,15 +266,16 @@
       }
 
       var data = await resp.json();
-      if (!data.access_token) {
-        redirectToLogin('Identity provider returned no access token.');
+      // The control plane verifies the OIDC token's `aud` and `email` claims.
+      // For Cognito those live on the ID token (access tokens carry neither),
+      // so the ID token is the bearer we send — falling back to the access
+      // token only for providers that put the required claims there.
+      if (!data.id_token && !data.access_token) {
+        redirectToLogin('Identity provider returned no token.');
         return false;
       }
 
-      // Nonce check on the ID token (replay defence).  If no id_token was
-      // returned (e.g. provider configured to only issue access tokens),
-      // we still proceed — the access token will be verified server-side
-      // on the next API call, which is the real security boundary.
+      // Nonce check on the ID token (replay defence).
       var email = '';
       if (data.id_token) {
         var idClaims = decodeJwtPayload(data.id_token);
@@ -286,13 +287,15 @@
           email = idClaims.email || idClaims.preferred_username || '';
         }
       }
-      if (!email) {
+      if (!email && data.access_token) {
         // Try the access token (some providers include email there).
         var atClaims = decodeJwtPayload(data.access_token);
         if (atClaims) email = atClaims.email || atClaims.username || '';
       }
 
-      setToken(data.access_token, email);
+      // Prefer the ID token (carries aud + email for server-side verification);
+      // fall back to the access token only if no ID token was issued.
+      setToken(data.id_token || data.access_token, email);
 
       // Clear PKCE artefacts now that the exchange has succeeded.
       sessionStorage.removeItem('oidc_pkce_verifier');

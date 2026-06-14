@@ -1,0 +1,9 @@
+apiVersion: v2
+name: external-dns
+description: >-
+  external-dns controller that syncs Ingress hostnames into Route53, so the UI's
+  public DNS record follows the ALB lifecycle automatically. Runs in kube-system
+  with an IRSA role scoped to the project's hosted zone.
+type: application
+version: 0.1.0
+appVersion: "0.15.0"

@@ -109,3 +109,8 @@ output "ui_acm_certificate_arn" {
   description = "ACM certificate ARN for the UI ingress, or null when not created."
   value       = try(aws_acm_certificate.ui[0].arn, null)
 }
+
+output "external_dns_role_arn" {
+  description = "IRSA role ARN for external-dns, or null when disabled."
+  value       = try(module.irsa_external_dns[0].role_arn, null)
+}
