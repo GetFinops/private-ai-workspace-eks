@@ -40,6 +40,14 @@ config:
   embeddingModel: ""
   # OTEL gRPC collector endpoint.  Leave empty for no-op tracing.
   otelEndpoint: ""
+  # M11 agent tool framework. Disabled by default (operator kill-switch).
+  # When enabled, tools run out-of-process in a scrubbed/rlimited sandbox and
+  # are deny-by-default: only tenants in the allow-list may invoke a tool.
+  # agentToolsAllowlist is a JSON string: {"<tenant>": ["tool", ...]}.
+  agentToolsEnabled: false
+  agentToolsAllowlist: ""
+  agentToolsRatePerMinute: 30
+  agentToolsMaxConcurrency: 4
 
 externalSecrets:
   enabled: false

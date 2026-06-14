@@ -471,6 +471,32 @@ milestone sections.
     No chart source is copied into this repository.
 
 ────────────────────────────────────────────────────────────────────────────────
+M11 sandbox-design sign-off
+────────────────────────────────────────────────────────────────────────────────
+
+M11 build task 1 requires a tool-execution sandbox design reviewed and signed
+off by a maintainer before implementation (AGENTS.md escalation trigger).
+
+Design: docs/m11-sandbox-design.md (first increment — declarative, allow-listed
+tools run out-of-process with a scrubbed environment, RLIMIT CPU/memory/FSIZE
+limits, wall-clock timeout with SIGKILL, deny-by-default per-tenant allow-list,
+operator kill-switch, per-tenant rate/concurrency limits, and content-policy
+audit logging).
+
+Sign-off: approved by the maintainer for the first increment. Arbitrary
+shell/command execution, network-egress tools, filesystem-writing tools, and
+cloud-credential access remain EXCLUDED by default and require a separate,
+stronger sandbox (Kubernetes Job + NetworkPolicy deny-egress + read-only
+rootfs) with its own review before adoption.
+
+Provenance: tool-schema / tool-parsing / tool-result patterns are adapted
+(structural conventions only) from common agent-tooling designs; no third-party
+agent framework is vendored. The optional "deep-research" sub-feature (which
+would adapt actual Apache-2.0 upstream code) is NOT adopted in this increment
+and would require its own decision record + the Apache-2.0 attribution
+checkpoint in the M11 instruction file.
+
+────────────────────────────────────────────────────────────────────────────────
 Vector-storage decision record (M3 deferral)
 ────────────────────────────────────────────────────────────────────────────────
 

@@ -19,3 +19,11 @@ data:
   {{- if .Values.config.otelEndpoint }}
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.config.otelEndpoint | quote }}
   {{- end }}
+  {{- if .Values.config.agentToolsEnabled }}
+  AGENT_TOOLS_ENABLED: "true"
+  {{- if .Values.config.agentToolsAllowlist }}
+  AGENT_TOOLS_ALLOWLIST: {{ .Values.config.agentToolsAllowlist | quote }}
+  {{- end }}
+  AGENT_TOOLS_RATE_PER_MINUTE: {{ .Values.config.agentToolsRatePerMinute | default 30 | quote }}
+  AGENT_TOOLS_MAX_CONCURRENCY: {{ .Values.config.agentToolsMaxConcurrency | default 4 | quote }}
+  {{- end }}

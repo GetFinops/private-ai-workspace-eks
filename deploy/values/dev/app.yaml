@@ -29,6 +29,12 @@ config:
   inferenceBaseUrl: "http://vllm-inference.inference.svc.cluster.local:8000"
   secretsProvider: aws-secrets-manager
   otelEndpoint: ""             # Set to OTel Collector ClusterIP when observability stack is deployed
+  # M11 agent tool framework. Enabled in dev with a deny-by-default allow-list:
+  # only tenant-a.test (alice@tenant-a.test) may invoke the text_stats stub tool.
+  # bob@tenant-b.test is intentionally NOT listed → cross-tenant denial coverage.
+  # Operator kill-switch: set agentToolsEnabled=false to disable all tools.
+  agentToolsEnabled: true
+  agentToolsAllowlist: '{"tenant-a.test":["text_stats"]}'
 
 metrics:
   enabled: true
