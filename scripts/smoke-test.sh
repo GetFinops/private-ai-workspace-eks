@@ -239,6 +239,8 @@ req POST /v1/chat/completions "" '{"model":"x","messages":[{"role":"user","conte
 expect_status "POST /v1/chat/completions  no token → 401" 401
 req POST /v1/agent/tools/invoke "" '{"tool":"text_stats","arguments":{"text":"x"}}'
 expect_status "POST /v1/agent/tools/invoke  no token → 401" 401
+req POST /v1/agent/runs "" '{"task":"x"}'
+expect_status "POST /v1/agent/runs  no token → 401" 401
 
 if [[ "${RUN_AUTH}" -eq 1 ]]; then
   # ── M9: chat path (authenticated) ──────────────────────────────────────────
@@ -421,6 +423,22 @@ if [[ "${RUN_AUTH}" -eq 1 ]]; then
   else
     echo "==> M11 cross-tenant tool isolation — SKIPPED (pass --token-b)"
     echo "    Deny-by-default allow-list is unit-covered in tests/test_agent_tools.py."
+  fi
+
+  # ── M11: agent loop (plan→act→observe over allow-listed tools) ─────────────
+  # The loop drives tools via the LLM. End-to-end runs need the vLLM inference
+  # plane (GPU); the loop's authorization, budgets, and injection defenses are
+  # unit-covered in tests/test_agent_loop.py. Here we validate the live wired
+  # surface degrades cleanly: with no inference reachable it must refuse (503)
+  # or fail (502) — never 500/crash. With vLLM up it returns 200.
+  echo ""
+  echo "==> M11 agent loop (wired surface; inference-dependent)"
+  req POST /v1/agent/runs "${TOKEN}" '{"task":"count the words in: hello world"}'
+  if [[ "${LOCAL_MODE}" -eq 1 ]]; then
+    # Local server has no INFERENCE_BASE_URL → clean cold refusal.
+    expect_status "agent run, inference cold → 503 (clean refuse)" 503
+  else
+    expect_status_in "agent run (wired; 200 up / 502 unreachable / 503 cold)" "200 502 503"
   fi
 
   # ── M11: operator kill-switch (local mode only) ────────────────────────────

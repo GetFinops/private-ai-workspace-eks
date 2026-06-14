@@ -12,6 +12,7 @@ GET  /v1/memory                — list the caller's memories (M10)
 POST /v1/memory/recall         — per-user memory recall (M10)
 DELETE /v1/memory/{id}         — authoritative delete of a memory (M10)
 POST /v1/agent/tools/invoke    — sandboxed, allow-listed tool execution (M11)
+POST /v1/agent/runs            — LLM agent loop over allow-listed tools (M11)
 
 Authentication is enforced on the chat path:
   - Requests must carry an Authorization: Bearer <token> header.
@@ -79,6 +80,10 @@ from app.control_plane.agent_tools import (
     build_tool_invoke_response,
     parse_allowlist,
 )
+from app.control_plane.agent_loop import (
+    AgentLoopBudgets,
+    build_agent_run_response,
+)
 from app.control_plane.embeddings import (
     DeterministicEmbeddingClient,
     EmbeddingClient,
@@ -115,6 +120,7 @@ _RETRIEVAL_QUERY_PATH = "/v1/retrieval/query"
 _MEMORY_PATH = "/v1/memory"
 _MEMORY_RECALL_PATH = "/v1/memory/recall"
 _AGENT_TOOLS_INVOKE_PATH = "/v1/agent/tools/invoke"
+_AGENT_RUNS_PATH = "/v1/agent/runs"
 _METRICS_PATH = "/metrics"
 _MAX_REQUEST_BODY = 1 * 1024 * 1024  # 1 MiB
 
@@ -408,6 +414,10 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     agent_tools_allowlist: dict = {}  # type: ignore[type-arg]
     agent_tools_executor: SandboxExecutor = SandboxExecutor()
     agent_tools_rate_limiter: RateLimiter = RateLimiter()
+    # Agent loop (M11 follow-up). Shares the kill-switch + allow-list above and
+    # needs an inference client (None when inference is unconfigured → 503).
+    agent_loop_budgets: AgentLoopBudgets = AgentLoopBudgets()
+    agent_loop_inference_client: object | None = None
 
     # ── Request lifecycle ──────────────────────────────────────────────────────
 
@@ -562,6 +572,21 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     allowlist=self.__class__.agent_tools_allowlist,
                     executor=self.__class__.agent_tools_executor,
                     rate_limiter=self.__class__.agent_tools_rate_limiter,
+                    notification_store=self.__class__.notification_store,
+                )
+                return Response(status, payload)
+
+            if path == _AGENT_RUNS_PATH:
+                status, payload = build_agent_run_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    enabled=self.__class__.agent_tools_enabled,
+                    allowlist=self.__class__.agent_tools_allowlist,
+                    executor=self.__class__.agent_tools_executor,
+                    rate_limiter=self.__class__.agent_tools_rate_limiter,
+                    inference_client=self.__class__.agent_loop_inference_client,
+                    budgets=self.__class__.agent_loop_budgets,
                     notification_store=self.__class__.notification_store,
                 )
                 return Response(status, payload)
@@ -872,10 +897,27 @@ def run_server(
         per_minute=resolved_config.agent_tools_rate_per_minute,
         max_concurrency=resolved_config.agent_tools_max_concurrency,
     )
+    ControlPlaneHandler.agent_loop_budgets = AgentLoopBudgets(
+        max_steps=resolved_config.agent_loop_max_steps,
+        wall_clock_seconds=resolved_config.agent_loop_wall_clock_seconds,
+        max_tokens=resolved_config.agent_loop_max_tokens,
+        model=resolved_config.agent_loop_model,
+    )
+    # The agent loop needs an inference client; None when inference is cold so
+    # the run endpoint refuses cleanly (503) instead of faking work in-process.
+    ControlPlaneHandler.agent_loop_inference_client = (
+        VLLMInferenceClient(
+            base_url=resolved_config.inference_base_url,
+            timeout_seconds=resolved_config.agent_loop_wall_clock_seconds,
+        )
+        if resolved_config.inference_base_url
+        else None
+    )
     if resolved_config.agent_tools_enabled:
         logger.info(
-            "Agent tools ENABLED; allow-listed tenants: %d.",
+            "Agent tools ENABLED; allow-listed tenants: %d; agent runs: %s.",
             len(ControlPlaneHandler.agent_tools_allowlist),
+            "available" if ControlPlaneHandler.agent_loop_inference_client else "cold (no inference)",
         )
 
     server = ThreadingHTTPServer((host, port), ControlPlaneHandler)
