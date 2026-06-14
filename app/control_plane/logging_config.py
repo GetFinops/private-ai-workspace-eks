@@ -87,6 +87,13 @@ class _JsonFormatter(logging.Formatter):
             # which may contain DSNs, tokens, or user data.
             exc_type = record.exc_info[0]
             entry["exc_type"] = exc_type.__name__ if exc_type else "unknown"
+        # Whitelisted structured audit payload (M11 agent tools), carried via
+        # `extra={"audit": {...}}`. It is content-safe by construction — the
+        # emitter records argument SHAPE (key names + value type/size) only,
+        # never values — so surfacing it here does not violate the policy.
+        audit = getattr(record, "audit", None)
+        if isinstance(audit, dict):
+            entry["audit"] = audit
         return json.dumps(entry, ensure_ascii=False)
 
 

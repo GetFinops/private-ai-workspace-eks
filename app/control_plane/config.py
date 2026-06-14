@@ -32,6 +32,12 @@ class ControlPlaneConfig:
     # deployment). When unset, the deterministic dev embedding is used.
     embedding_base_url: str | None = None
     embedding_model: str = "embedding"
+    # Agent tool framework (M11). Disabled by default (operator kill-switch).
+    # AGENT_TOOLS_ALLOWLIST is JSON: {"<tenant>": ["tool", ...]} — deny by default.
+    agent_tools_enabled: bool = False
+    agent_tools_allowlist: str | None = None
+    agent_tools_rate_per_minute: int = 30
+    agent_tools_max_concurrency: int = 4
     auth: AuthSettings = field(default_factory=AuthSettings)
     # Optional: pre-shared token accepted only in development mode.
     # Set DEV_AUTH_TOKEN in local .env to enable DevTokenVerifier.
@@ -62,6 +68,10 @@ class ControlPlaneConfig:
             inference_base_url=_clean(values.get("INFERENCE_BASE_URL")),
             embedding_base_url=_clean(values.get("EMBEDDING_BASE_URL")),
             embedding_model=values.get("EMBEDDING_MODEL", "embedding"),
+            agent_tools_enabled=values.get("AGENT_TOOLS_ENABLED", "false").lower() == "true",
+            agent_tools_allowlist=_clean(values.get("AGENT_TOOLS_ALLOWLIST")),
+            agent_tools_rate_per_minute=int(values.get("AGENT_TOOLS_RATE_PER_MINUTE", "30") or "30"),
+            agent_tools_max_concurrency=int(values.get("AGENT_TOOLS_MAX_CONCURRENCY", "4") or "4"),
             auth=AuthSettings(
                 issuer_url=_clean(values.get("AUTH_ISSUER_URL")),
                 audience=_clean(values.get("AUTH_AUDIENCE")),

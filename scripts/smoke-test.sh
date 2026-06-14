@@ -91,7 +91,12 @@ if [[ "${LOCAL_MODE}" -eq 1 ]]; then
   SERVER_LOG="$(mktemp -t smoke-cp.XXXXXX.log)"
   echo "==> Starting control-plane server on port ${PORT} (development token verifier)"
   # NOTE: the entrypoint reads PORT/HOST from the environment, not argv.
+  # M11: enable the agent tool framework with a deny-by-default allow-list that
+  # only grants the dev principal (dev@localhost → tenant "localhost") the
+  # text_stats stub tool, so both the success and denial paths are exercisable.
   ENVIRONMENT=development DEV_AUTH_TOKEN="${DEV_TOKEN}" PORT="${PORT}" \
+    AGENT_TOOLS_ENABLED=true \
+    AGENT_TOOLS_ALLOWLIST='{"localhost":["text_stats"]}' \
     python3 -m app.control_plane >"${SERVER_LOG}" 2>&1 &
   SERVER_PID=$!
 fi
@@ -195,6 +200,25 @@ try:
 except Exception:
     print("err")' "${RESP_BODY}" "$1"
 }
+tool_result_ok() {  # tool_result_ok → "yes"/"no"/"err"  (M11: result has the text_stats shape)
+  python3 -c 'import sys, json
+try:
+    d = json.loads(sys.argv[1])
+    r = d.get("result", {})
+    ok = d.get("result_class") == "success" and all(k in r for k in ("characters", "words", "lines"))
+    print("yes" if ok else "no")
+except Exception:
+    print("err")' "${RESP_BODY}"
+}
+feed_has_class() {  # feed_has_class <event_class> → "yes"/"no"/"err"  (over notifications[].event_class)
+  python3 -c 'import sys, json
+try:
+    d = json.loads(sys.argv[1])
+    classes = [n.get("event_class") for n in d.get("notifications", [])]
+    print("yes" if sys.argv[2] in classes else "no")
+except Exception:
+    print("err")' "${RESP_BODY}" "$1"
+}
 
 # ── Core control-plane probes (public) ───────────────────────────────────────
 echo ""
@@ -213,6 +237,8 @@ req GET  /v1/notifications;             expect_status "GET  /v1/notifications  n
 req GET  /v1/notifications "bad-token"; expect_status "GET  /v1/notifications  bad token → 401" 401
 req POST /v1/chat/completions "" '{"model":"x","messages":[{"role":"user","content":"hi"}]}'
 expect_status "POST /v1/chat/completions  no token → 401" 401
+req POST /v1/agent/tools/invoke "" '{"tool":"text_stats","arguments":{"text":"x"}}'
+expect_status "POST /v1/agent/tools/invoke  no token → 401" 401
 
 if [[ "${RUN_AUTH}" -eq 1 ]]; then
   # ── M9: chat path (authenticated) ──────────────────────────────────────────
@@ -361,6 +387,71 @@ if [[ "${RUN_AUTH}" -eq 1 ]]; then
     echo "==> M10 cross-user memory isolation — SKIPPED"
     echo "    Pass --token-c \"\$TOKEN_USER_C\" (a second user in the SAME tenant as --token) to run it."
     echo "    Store-layer isolation is unit-covered in tests/test_memory.py."
+  fi
+
+  # ── M11: agent tool framework (invoke → denied → notification) ─────────────
+  # The allow-listed principal invokes the sandboxed text_stats stub; a
+  # not-allow-listed tool is rejected (deny-by-default); a successful run emits
+  # an agent_task_completed notification to the caller's feed. The sandbox runs
+  # the tool out-of-process with scrubbed env + rlimits (unit-covered in
+  # tests/test_agent_tools.py); this section validates the live wired surface.
+  echo ""
+  echo "==> M11 agent tool framework (sandboxed invoke → denied → notification)"
+  req POST /v1/agent/tools/invoke "${TOKEN}" '{"tool":"text_stats","arguments":{"text":"hello world\nsecond line"}}'
+  expect_status "invoke text_stats (allow-listed) → 200" 200
+  if [[ "$(tool_result_ok)" == "yes" ]]; then pass "sandboxed tool returned a text_stats result"; else flunk "invoke did not return a success result_class + stats"; fi
+
+  req POST /v1/agent/tools/invoke "${TOKEN}" '{"tool":"shell","arguments":{"cmd":"id"}}'
+  expect_status "invoke non-allow-listed tool (deny-by-default) → 403" 403
+
+  req POST /v1/agent/tools/invoke "${TOKEN}" '{"tool":"text_stats","arguments":{}}'
+  expect_status "invoke with missing required arg → 400" 400
+
+  # A successful invoke must surface an agent_task_completed notification.
+  req GET "/v1/notifications?include_read=true" "${TOKEN}"
+  expect_status "list notifications after invoke → 200" 200
+  if [[ "$(feed_has_class "agent_task_completed")" == "yes" ]]; then pass "invoke emitted an agent_task_completed notification"; else flunk "no agent_task_completed notification in the feed"; fi
+
+  # ── M11: cross-tenant tool isolation (B is not allow-listed → denied) ───────
+  echo ""
+  if [[ -n "${TOKEN_B}" ]]; then
+    echo "==> M11 cross-tenant tool isolation (B not allow-listed → denied)"
+    req POST /v1/agent/tools/invoke "${TOKEN_B}" '{"tool":"text_stats","arguments":{"text":"x"}}'
+    expect_status "B invokes text_stats (not allow-listed) → 403" 403
+  else
+    echo "==> M11 cross-tenant tool isolation — SKIPPED (pass --token-b)"
+    echo "    Deny-by-default allow-list is unit-covered in tests/test_agent_tools.py."
+  fi
+
+  # ── M11: operator kill-switch (local mode only) ────────────────────────────
+  # The kill-switch is a deploy-time toggle (AGENT_TOOLS_ENABLED), so it can't
+  # be flipped against a live deployment mid-run. In local mode we bring up a
+  # throwaway control plane with tools DISABLED and confirm invoke → 503.
+  echo ""
+  if [[ "${LOCAL_MODE}" -eq 1 ]]; then
+    echo "==> M11 operator kill-switch (tools disabled → 503)"
+    KS_PORT=$((PORT + 1))
+    KS_LOG="$(mktemp -t smoke-ks.XXXXXX.log)"
+    ENVIRONMENT=development DEV_AUTH_TOKEN="${DEV_TOKEN}" PORT="${KS_PORT}" \
+      AGENT_TOOLS_ENABLED=false \
+      python3 -m app.control_plane >"${KS_LOG}" 2>&1 &
+    KS_PID=$!
+    for i in $(seq 1 "${TIMEOUT}"); do
+      if curl -sf "http://localhost:${KS_PORT}/healthz" >/dev/null 2>&1; then break; fi
+      sleep 1
+    done
+    KS_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+      -H "Authorization: Bearer ${DEV_TOKEN}" -H "Content-Type: application/json" \
+      --data '{"tool":"text_stats","arguments":{"text":"x"}}' \
+      "http://localhost:${KS_PORT}/v1/agent/tools/invoke")"
+    if [[ "${KS_STATUS}" == "503" ]]; then pass "kill-switch: invoke with tools disabled → 503"; else flunk "kill-switch: expected 503, got ${KS_STATUS}"; fi
+    kill "${KS_PID}" 2>/dev/null || true
+    wait "${KS_PID}" 2>/dev/null || true
+    rm -f "${KS_LOG}"
+  else
+    echo "==> M11 operator kill-switch — SKIPPED (deploy-time toggle; not flippable live)"
+    echo "    Kill-switch is unit-covered in tests/test_agent_tools.py; verify in a"
+    echo "    deployment by setting config.agentToolsEnabled=false and re-checking 503."
   fi
 else
   echo ""

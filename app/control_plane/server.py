@@ -11,6 +11,7 @@ POST /v1/memory                — record a memory (explicit consent required) (
 GET  /v1/memory                — list the caller's memories (M10)
 POST /v1/memory/recall         — per-user memory recall (M10)
 DELETE /v1/memory/{id}         — authoritative delete of a memory (M10)
+POST /v1/agent/tools/invoke    — sandboxed, allow-listed tool execution (M11)
 
 Authentication is enforced on the chat path:
   - Requests must carry an Authorization: Bearer <token> header.
@@ -72,6 +73,12 @@ from app.control_plane.notifications import (
     build_notification_read_response,
     build_notifications_list_response,
 )
+from app.control_plane.agent_tools import (
+    RateLimiter,
+    SandboxExecutor,
+    build_tool_invoke_response,
+    parse_allowlist,
+)
 from app.control_plane.embeddings import (
     DeterministicEmbeddingClient,
     EmbeddingClient,
@@ -107,6 +114,7 @@ _RETRIEVAL_DOCUMENTS_PATH = "/v1/retrieval/documents"
 _RETRIEVAL_QUERY_PATH = "/v1/retrieval/query"
 _MEMORY_PATH = "/v1/memory"
 _MEMORY_RECALL_PATH = "/v1/memory/recall"
+_AGENT_TOOLS_INVOKE_PATH = "/v1/agent/tools/invoke"
 _METRICS_PATH = "/metrics"
 _MAX_REQUEST_BODY = 1 * 1024 * 1024  # 1 MiB
 
@@ -394,6 +402,12 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     retrieval_store: RetrievalStore = InMemoryRetrievalStore()  # type: ignore[assignment]
     memory_store: MemoryStore = InMemoryMemoryStore()  # type: ignore[assignment]
     embedding_client: EmbeddingClient = DeterministicEmbeddingClient()
+    # Agent tool framework (M11). Disabled by default (kill-switch off); the
+    # allow-list is empty (deny by default) until configured.
+    agent_tools_enabled: bool = False
+    agent_tools_allowlist: dict = {}  # type: ignore[type-arg]
+    agent_tools_executor: SandboxExecutor = SandboxExecutor()
+    agent_tools_rate_limiter: RateLimiter = RateLimiter()
 
     # ── Request lifecycle ──────────────────────────────────────────────────────
 
@@ -536,6 +550,19 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     token_verifier=self.__class__.token_verifier,
                     store=self.__class__.memory_store,
                     embedding_client=self.__class__.embedding_client,
+                )
+                return Response(status, payload)
+
+            if path == _AGENT_TOOLS_INVOKE_PATH:
+                status, payload = build_tool_invoke_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    enabled=self.__class__.agent_tools_enabled,
+                    allowlist=self.__class__.agent_tools_allowlist,
+                    executor=self.__class__.agent_tools_executor,
+                    rate_limiter=self.__class__.agent_tools_rate_limiter,
+                    notification_store=self.__class__.notification_store,
                 )
                 return Response(status, payload)
 
@@ -837,6 +864,19 @@ def run_server(
     ControlPlaneHandler.embedding_client = (
         embedding_client or _build_embedding_client(resolved_config)
     )
+    ControlPlaneHandler.agent_tools_enabled = resolved_config.agent_tools_enabled
+    ControlPlaneHandler.agent_tools_allowlist = parse_allowlist(
+        resolved_config.agent_tools_allowlist
+    )
+    ControlPlaneHandler.agent_tools_rate_limiter = RateLimiter(
+        per_minute=resolved_config.agent_tools_rate_per_minute,
+        max_concurrency=resolved_config.agent_tools_max_concurrency,
+    )
+    if resolved_config.agent_tools_enabled:
+        logger.info(
+            "Agent tools ENABLED; allow-listed tenants: %d.",
+            len(ControlPlaneHandler.agent_tools_allowlist),
+        )
 
     server = ThreadingHTTPServer((host, port), ControlPlaneHandler)
     server.serve_forever()
