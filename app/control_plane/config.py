@@ -38,6 +38,13 @@ class ControlPlaneConfig:
     agent_tools_allowlist: str | None = None
     agent_tools_rate_per_minute: int = 30
     agent_tools_max_concurrency: int = 4
+    # Agent loop (M11 follow-up). Shares the agent_tools kill-switch and
+    # allow-list; additionally requires inference to be configured (cold → 503).
+    # Budgets are server-enforced and never client/model settable.
+    agent_loop_max_steps: int = 6
+    agent_loop_wall_clock_seconds: float = 60.0
+    agent_loop_max_tokens: int = 512
+    agent_loop_model: str = "default"
     auth: AuthSettings = field(default_factory=AuthSettings)
     # Optional: pre-shared token accepted only in development mode.
     # Set DEV_AUTH_TOKEN in local .env to enable DevTokenVerifier.
@@ -72,6 +79,10 @@ class ControlPlaneConfig:
             agent_tools_allowlist=_clean(values.get("AGENT_TOOLS_ALLOWLIST")),
             agent_tools_rate_per_minute=int(values.get("AGENT_TOOLS_RATE_PER_MINUTE", "30") or "30"),
             agent_tools_max_concurrency=int(values.get("AGENT_TOOLS_MAX_CONCURRENCY", "4") or "4"),
+            agent_loop_max_steps=int(values.get("AGENT_LOOP_MAX_STEPS", "6") or "6"),
+            agent_loop_wall_clock_seconds=float(values.get("AGENT_LOOP_WALL_CLOCK_SECONDS", "60") or "60"),
+            agent_loop_max_tokens=int(values.get("AGENT_LOOP_MAX_TOKENS", "512") or "512"),
+            agent_loop_model=values.get("AGENT_LOOP_MODEL", "default") or "default",
             auth=AuthSettings(
                 issuer_url=_clean(values.get("AUTH_ISSUER_URL")),
                 audience=_clean(values.get("AUTH_AUDIENCE")),

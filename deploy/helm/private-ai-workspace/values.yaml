@@ -48,6 +48,14 @@ config:
   agentToolsAllowlist: ""
   agentToolsRatePerMinute: 30
   agentToolsMaxConcurrency: 4
+  # M11 agent loop (plan→act→observe). Shares the kill-switch + allow-list;
+  # runs require INFERENCE_BASE_URL reachable (else refused cleanly). Budgets
+  # are server-enforced. agentLoopModel is the served model name to target;
+  # leave empty to use the control-plane default until vLLM is deployed.
+  agentLoopMaxSteps: 6
+  agentLoopWallClockSeconds: 60
+  agentLoopMaxTokens: 512
+  agentLoopModel: ""
 
 externalSecrets:
   enabled: false

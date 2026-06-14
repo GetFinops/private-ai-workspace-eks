@@ -48,6 +48,7 @@ from app.control_plane.token_verifier import TokenClaims, TokenVerificationError
 ALLOWED_EVENT_CLASSES: frozenset[str] = frozenset({
     "indexing_complete",       # M10: RAG document indexed
     "agent_task_done",         # M11: long-running agent task (generic)
+    "agent_task_progress",     # M11: agent run started / in progress
     "agent_task_completed",    # M11: tool/agent task completed
     "agent_task_failed",       # M11: tool/agent task failed
     "media_generation_complete",  # M14: image/video generation completed

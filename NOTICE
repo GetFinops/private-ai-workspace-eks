@@ -497,6 +497,33 @@ and would require its own decision record + the Apache-2.0 attribution
 checkpoint in the M11 instruction file.
 
 ────────────────────────────────────────────────────────────────────────────────
+M11 agent-loop design sign-off
+────────────────────────────────────────────────────────────────────────────────
+
+The M11 agent-loop follow-up (docs/m11-followups/01-agent-loop.md) adds an
+LLM-driven plan→act→observe loop and is an AGENTS.md escalation trigger; its
+design is reviewed and signed off before implementation.
+
+Design: docs/m11-agent-loop-design.md (a DELTA on the reviewed tool-execution
+sandbox — it changes who selects the tool, not how a tool runs). The loop
+reuses, unchanged, the out-of-process SandboxExecutor, the deny-by-default
+per-tenant allow-list (re-checked every call), the operator kill-switch
+(AGENT_TOOLS_ENABLED — disabling tools disables the loop), and the shape-only
+audit log. New controls: server-enforced step / wall-clock / token budgets
+(not client- or model-settable), a model-agnostic JSON action protocol whose
+output is treated as untrusted, and clean refusal (503) when inference is cold.
+
+Sign-off: approved by the maintainer for this increment. The sandbox is NOT
+relaxed for the loop; model output and tool observations cannot widen
+authorization or budgets. Network-egress / FS-write / credential tools remain
+EXCLUDED (require the Job sandbox, follow-up 3). The "deep-research" sub-feature
+(follow-up 2) remains NOT adopted and keeps its separate decision record +
+Apache-2.0 attribution checkpoint.
+
+Provenance: no third-party agent framework is vendored; the loop is original
+control-plane code over the existing inference client.
+
+────────────────────────────────────────────────────────────────────────────────
 Vector-storage decision record (M3 deferral)
 ────────────────────────────────────────────────────────────────────────────────
 

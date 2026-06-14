@@ -26,4 +26,12 @@ data:
   {{- end }}
   AGENT_TOOLS_RATE_PER_MINUTE: {{ .Values.config.agentToolsRatePerMinute | default 30 | quote }}
   AGENT_TOOLS_MAX_CONCURRENCY: {{ .Values.config.agentToolsMaxConcurrency | default 4 | quote }}
+  # Agent loop (M11 follow-up) — shares the kill-switch above; runs need
+  # INFERENCE_BASE_URL reachable. Budgets are server-enforced.
+  AGENT_LOOP_MAX_STEPS: {{ .Values.config.agentLoopMaxSteps | default 6 | quote }}
+  AGENT_LOOP_WALL_CLOCK_SECONDS: {{ .Values.config.agentLoopWallClockSeconds | default 60 | quote }}
+  AGENT_LOOP_MAX_TOKENS: {{ .Values.config.agentLoopMaxTokens | default 512 | quote }}
+  {{- if .Values.config.agentLoopModel }}
+  AGENT_LOOP_MODEL: {{ .Values.config.agentLoopModel | quote }}
+  {{- end }}
   {{- end }}
