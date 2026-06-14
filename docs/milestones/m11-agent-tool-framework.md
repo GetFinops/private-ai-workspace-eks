@@ -14,9 +14,22 @@
 
 ## Status
 
-Not started. Scaffolded as part of the Phase 2 kickoff. Requires explicit
-maintainer adoption (see the Decision Checklist in the Phase 2 doc) and
-explicit sandbox-design review before implementation begins.
+**First increment delivered** (PR #30) and validated on the dev cluster: the
+out-of-process sandbox (`app/sandbox/`, framework in
+`app/control_plane/agent_tools.py`), deny-by-default per-tenant allow-list,
+operator kill-switch (`AGENT_TOOLS_ENABLED`), per-tenant rate/concurrency
+limits, content-safe audit logging, `POST /v1/agent/tools/invoke`, and
+`agent_task_completed`/`agent_task_failed` notifications. The sandbox design was
+reviewed at the escalation gate before implementation (`docs/m11-sandbox-design.md`
++ sign-off in `NOTICE`). Only an inert `text_stats` stub tool ships; arbitrary
+exec / network egress / FS-write / credential-access tools remain excluded by
+default.
+
+The capabilities that make agents *useful* are deferred to separately-adoptable
+follow-ups, each of which builds on (and does not relax) this sandbox — see
+[`../m11-followups/`](../m11-followups/): (1) the LLM agent loop (needs the M4
+vLLM/GPU inference plane), (2) the optional deep-research sub-feature, and (3) a
+Kubernetes-Job sandbox for IO-capable tools.
 
 ## Objective
 

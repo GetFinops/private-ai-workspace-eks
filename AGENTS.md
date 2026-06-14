@@ -19,9 +19,13 @@ derivative.
 
 ## Current Stage
 
-The repository is in an early bootstrap state.
+> Operational state moves faster than this policy doc. For the current build,
+> test, and dev-cluster commands and the live milestone status, see
+> [`CLAUDE.md`](CLAUDE.md). The platform baseline (M0–M6) plus the product
+> surface (M9), retrieval+memory (M10), and the M11 agent/tool-framework first
+> increment are delivered and validated on a live dev EKS cluster.
 
-Priorities:
+The durable priorities below still hold regardless of stage:
 
 - keep structure clean
 - keep governance strong
