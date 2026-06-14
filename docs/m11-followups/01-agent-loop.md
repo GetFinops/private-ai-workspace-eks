@@ -1,11 +1,18 @@
 # M11 Follow-up 1 — LLM Agent Loop
 
-> Status: **planned, not started.** Escalation gate applies — produce a design
-> delta and record sign-off in `NOTICE` before implementation.
+> Status: **shipped (PR #32) and cold-validated on dev; end-to-end pending the
+> vLLM/GPU plane.** Design reviewed at the escalation gate
+> ([`../m11-agent-loop-design.md`](../m11-agent-loop-design.md) + `NOTICE` sign-off).
+> Implemented in `app/control_plane/agent_loop.py` at `POST /v1/agent/runs`;
+> 22 unit tests vs a stub inference client. Live dev check passes the
+> auth-gating and clean-degradation paths (anonymous → 401, authenticated →
+> 502 when inference is unreachable). The **only remaining validation** is the
+> end-to-end 200 run, which needs the M4 vLLM/GPU inference plane deployed.
 >
 > Builds on the shipped M11 sandbox. Read
 > [`../milestones/m11-agent-tool-framework.md`](../milestones/m11-agent-tool-framework.md)
-> and [`README.md`](README.md) (invariants) first.
+> and [`README.md`](README.md) (invariants) first. The notes below are retained
+> as the design rationale.
 
 ## Objective
 
