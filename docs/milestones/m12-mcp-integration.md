@@ -10,9 +10,17 @@
 
 ## Status
 
-Not started. Scaffolded as part of the Phase 2 kickoff. Requires explicit
-maintainer adoption (see the Decision Checklist in the Phase 2 doc) before
-implementation begins.
+**Shipped** (PR #39) and live-validated on dev. The MCP integration layer runs
+MCP servers as sandboxed out-of-process subprocesses (JSON-RPC over stdio) inside
+the reviewed M11 boundary; connections are per-call (no pooled cross-tenant
+session), deny-by-default per-tenant allow-list (`MCP_ALLOWLIST`), per-tenant
+credential scoping, shape-only audit, and an operator kill-switch (`MCP_ENABLED`).
+Surface: `POST /v1/mcp/tools/list` and `POST /v1/mcp/invoke`. Design +
+adoption: [`../m12-mcp-design.md`](../m12-mcp-design.md) + `NOTICE`. Only a pure
+stub MCP server ships (per-server adoption is a separate gate). Live dev:
+allow-listed `tools/list`/`echo` round-trip succeeds, a second tenant is denied
+(403, audited), kill-switch returns 503; audit is shape-only with no content in
+logs.
 
 ## Objective
 
