@@ -1,0 +1,10 @@
+apiVersion: v2
+name: tool-runner
+description: >-
+  M11 Job-sandbox: the tool-runner dispatcher and the isolated agent-jobs
+  namespace. The dispatcher is the only component permitted to create Kubernetes
+  Jobs for IO-capable agent tools; the control plane holds zero Kubernetes
+  privileges and reaches it over HTTP. See docs/m11-job-sandbox-design.md.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

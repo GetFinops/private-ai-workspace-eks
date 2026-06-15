@@ -1,0 +1,45 @@
+{{- if .Values.networkPolicy.enabled }}
+# Dispatcher: ingress ONLY from the control-plane namespace; egress to DNS and
+# the API server (443) so it can create/read Jobs. Nothing else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tool-runner-dispatcher
+  namespace: {{ .Values.jobsNamespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tool-runner-dispatcher
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.controlPlaneNamespace }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.dispatcher.port }}
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - ports:
+        - protocol: TCP
+          port: 443
+---
+# Runner Jobs: DEFAULT-DENY all ingress and egress. The tool is pure compute;
+# it has no network at all (IMDS, egress, DNS — all blocked).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-tool-runner-deny-all
+  namespace: {{ .Values.jobsNamespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-tool-runner
+  policyTypes: ["Ingress", "Egress"]
+  # No ingress/egress rules → deny all.
+{{- end }}

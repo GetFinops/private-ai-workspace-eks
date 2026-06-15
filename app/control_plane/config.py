@@ -38,6 +38,12 @@ class ControlPlaneConfig:
     agent_tools_allowlist: str | None = None
     agent_tools_rate_per_minute: int = 30
     agent_tools_max_concurrency: int = 4
+    # Job-sandbox (M11 follow-up 3). Tools flagged executor="job" run via the
+    # tool-runner dispatcher; the control plane holds NO Kubernetes privileges
+    # and reaches the dispatcher over HTTP with a shared token. When unset, job-
+    # backed tools are unavailable (the subprocess sandbox is unaffected).
+    agent_tools_dispatcher_url: str | None = None
+    agent_tools_dispatcher_token: str | None = None
     # Agent loop (M11 follow-up). Shares the agent_tools kill-switch and
     # allow-list; additionally requires inference to be configured (cold → 503).
     # Budgets are server-enforced and never client/model settable.
@@ -83,6 +89,8 @@ class ControlPlaneConfig:
             agent_loop_wall_clock_seconds=float(values.get("AGENT_LOOP_WALL_CLOCK_SECONDS", "60") or "60"),
             agent_loop_max_tokens=int(values.get("AGENT_LOOP_MAX_TOKENS", "512") or "512"),
             agent_loop_model=values.get("AGENT_LOOP_MODEL", "default") or "default",
+            agent_tools_dispatcher_url=_clean(values.get("AGENT_TOOLS_DISPATCHER_URL")),
+            agent_tools_dispatcher_token=_clean(values.get("AGENT_TOOLS_DISPATCHER_TOKEN")),
             auth=AuthSettings(
                 issuer_url=_clean(values.get("AUTH_ISSUER_URL")),
                 audience=_clean(values.get("AUTH_AUDIENCE")),

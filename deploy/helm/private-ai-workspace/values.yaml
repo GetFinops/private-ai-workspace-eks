@@ -56,6 +56,11 @@ config:
   agentLoopWallClockSeconds: 60
   agentLoopMaxTokens: 512
   agentLoopModel: ""
+  # M11 Job-sandbox: where to reach the tool-runner dispatcher, and the name of
+  # the in-namespace Secret holding the shared DISPATCHER_TOKEN. Leave empty to
+  # disable job-backed tools (subprocess tools are unaffected).
+  agentToolsDispatcherUrl: ""
+  agentToolsDispatcherTokenSecret: ""
 
 externalSecrets:
   enabled: false

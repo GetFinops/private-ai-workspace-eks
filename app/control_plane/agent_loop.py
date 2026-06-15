@@ -34,10 +34,12 @@ from typing import Any, Protocol
 from app.control_plane.agent_tools import (
     RateLimiter,
     SandboxExecutor,
+    SandboxOutcome,
     _audit,
     is_allowed,
 )
 from app.control_plane.inference import ChatCompletionRequest, ChatMessage
+from app.sandbox.tools import tool_executor
 from app.control_plane.notifications import (
     ALLOWED_EVENT_CLASSES,
     NotificationEvent,
@@ -236,9 +238,11 @@ def run_agent_loop(
     inference_client: ChatClient,
     budgets: AgentLoopBudgets,
     notification_store: NotificationStore | None = None,
+    job_executor=None,
 ) -> AgentRunOutcome:
     """Drive the plan→act→observe loop. Pure orchestration; all execution is
-    delegated to the sandbox and all authorization to the allow-list."""
+    delegated to the sandbox and all authorization to the allow-list. Tools
+    flagged executor="job" run via the tool-runner dispatcher (job_executor)."""
     run_id = str(uuid.uuid4())
     _emit(notification_store, tenant_id=tenant_id, user_id=user_id,
           event_class=_EVENT_PROGRESS, run_id=run_id)
@@ -318,7 +322,15 @@ def run_agent_loop(
                                         "detail": "arguments must be an object."})))
                 continue
 
-            outcome = executor.execute(tool, arguments)
+            if tool_executor(tool) == "job":
+                outcome = (
+                    job_executor.execute(
+                        tool, arguments, tenant_id=tenant_id, run_id=str(uuid.uuid4()))
+                    if job_executor is not None
+                    else SandboxOutcome("tool_error")
+                )
+            else:
+                outcome = executor.execute(tool, arguments)
             _audit(
                 tenant=tenant_id, user=user_id, tool=tool, arguments=arguments,
                 decision="allowed", result_class=outcome.result_class,
@@ -353,6 +365,7 @@ def build_agent_run_response(
     inference_client: ChatClient | None,
     budgets: AgentLoopBudgets,
     notification_store: NotificationStore | None = None,
+    job_executor=None,
 ) -> tuple[int, dict]:
     """Handle POST /v1/agent/runs. Body: {"task": "<text>"}.
 
@@ -410,6 +423,7 @@ def build_agent_run_response(
             inference_client=inference_client,
             budgets=budgets,
             notification_store=notification_store,
+            job_executor=job_executor,
         )
     finally:
         rate_limiter.release()

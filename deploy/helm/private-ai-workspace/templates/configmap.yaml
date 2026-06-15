@@ -34,4 +34,7 @@ data:
   {{- if .Values.config.agentLoopModel }}
   AGENT_LOOP_MODEL: {{ .Values.config.agentLoopModel | quote }}
   {{- end }}
+  {{- if .Values.config.agentToolsDispatcherUrl }}
+  AGENT_TOOLS_DISPATCHER_URL: {{ .Values.config.agentToolsDispatcherUrl | quote }}
+  {{- end }}
   {{- end }}
