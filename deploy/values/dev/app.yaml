@@ -34,7 +34,7 @@ config:
   # bob@tenant-b.test is intentionally NOT listed → cross-tenant denial coverage.
   # Operator kill-switch: set agentToolsEnabled=false to disable all tools.
   agentToolsEnabled: true
-  agentToolsAllowlist: '{"tenant-a.test":["text_stats","text_stats_job"]}'
+  agentToolsAllowlist: '{"tenant-a.test":["text_stats","text_stats_job","deep_research"]}'
   # M11 Job-sandbox: reach the tool-runner dispatcher; the shared token lives in
   # an app-namespace Secret (created out-of-band, like the HF token).
   agentToolsDispatcherUrl: "http://tool-runner-dispatcher.agent-jobs.svc.cluster.local:8090"

@@ -13,6 +13,7 @@ POST /v1/memory/recall         — per-user memory recall (M10)
 DELETE /v1/memory/{id}         — authoritative delete of a memory (M10)
 POST /v1/agent/tools/invoke    — sandboxed, allow-listed tool execution (M11)
 POST /v1/agent/runs            — LLM agent loop over allow-listed tools (M11)
+POST /v1/agent/research        — deep-research (plan→retrieve→synthesize) (M11)
 
 Authentication is enforced on the chat path:
   - Requests must carry an Authorization: Bearer <token> header.
@@ -85,6 +86,10 @@ from app.control_plane.agent_loop import (
     build_agent_run_response,
 )
 from app.control_plane.job_executor import DispatcherJobExecutor
+from app.control_plane.deep_research import (
+    DeepResearchBudgets,
+    build_deep_research_response,
+)
 from app.control_plane.embeddings import (
     DeterministicEmbeddingClient,
     EmbeddingClient,
@@ -122,6 +127,7 @@ _MEMORY_PATH = "/v1/memory"
 _MEMORY_RECALL_PATH = "/v1/memory/recall"
 _AGENT_TOOLS_INVOKE_PATH = "/v1/agent/tools/invoke"
 _AGENT_RUNS_PATH = "/v1/agent/runs"
+_AGENT_RESEARCH_PATH = "/v1/agent/research"
 _METRICS_PATH = "/metrics"
 _MAX_REQUEST_BODY = 1 * 1024 * 1024  # 1 MiB
 
@@ -419,6 +425,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     # needs an inference client (None when inference is unconfigured → 503).
     agent_loop_budgets: AgentLoopBudgets = AgentLoopBudgets()
     agent_loop_inference_client: object | None = None
+    deep_research_budgets: DeepResearchBudgets = DeepResearchBudgets()
     # Job-sandbox dispatcher client; None/unconfigured → job-backed tools
     # are unavailable (subprocess tools unaffected).
     agent_tools_job_executor: object | None = None
@@ -594,6 +601,22 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     budgets=self.__class__.agent_loop_budgets,
                     notification_store=self.__class__.notification_store,
                     job_executor=self.__class__.agent_tools_job_executor,
+                )
+                return Response(status, payload)
+
+            if path == _AGENT_RESEARCH_PATH:
+                status, payload = build_deep_research_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    enabled=self.__class__.agent_tools_enabled,
+                    allowlist=self.__class__.agent_tools_allowlist,
+                    store=self.__class__.retrieval_store,
+                    embedding_client=self.__class__.embedding_client,
+                    inference_client=self.__class__.agent_loop_inference_client,
+                    budgets=self.__class__.deep_research_budgets,
+                    rate_limiter=self.__class__.agent_tools_rate_limiter,
+                    notification_store=self.__class__.notification_store,
                 )
                 return Response(status, payload)
 
@@ -922,6 +945,13 @@ def run_server(
     ControlPlaneHandler.agent_tools_job_executor = DispatcherJobExecutor(
         base_url=resolved_config.agent_tools_dispatcher_url,
         token=resolved_config.agent_tools_dispatcher_token,
+    )
+    ControlPlaneHandler.deep_research_budgets = DeepResearchBudgets(
+        max_subqueries=resolved_config.deep_research_max_subqueries,
+        top_k=resolved_config.deep_research_top_k,
+        wall_clock_seconds=resolved_config.deep_research_wall_clock_seconds,
+        max_tokens=resolved_config.agent_loop_max_tokens,
+        model=resolved_config.agent_loop_model,
     )
     if resolved_config.agent_tools_enabled:
         logger.info(

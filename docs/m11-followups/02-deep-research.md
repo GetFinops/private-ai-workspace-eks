@@ -1,8 +1,12 @@
 # M11 Follow-up 2 — Deep-Research Multi-Step Agent
 
-> Status: **planned, optional, not started.** Requires its **own adoption
-> decision** recorded in `NOTICE` plus the Apache-2.0 attribution checkpoint
-> below — on top of the standard escalation gate.
+> Status: **shipped (PR #38); e2e pending the vLLM/GPU plane** — like the agent
+> loop, the wiring + gating + clean degradation validate on dev without a GPU.
+> Adopted as ORIGINAL code (nothing vendored) — adoption decision in `NOTICE`
+> ("M11 deep-research adoption decision"); the Apache-2.0 checkpoint is N/A.
+> Implemented in `app/control_plane/deep_research.py` at `POST /v1/agent/research`
+> (plan → retrieve over the tenant's M10 corpus → synthesize with citations);
+> 16 unit tests. The notes below are retained as the design rationale.
 >
 > Builds on [Follow-up 1 (agent loop)](01-agent-loop.md) and M10 retrieval. Read
 > [`README.md`](README.md) (invariants) and the milestone doc's "Optional

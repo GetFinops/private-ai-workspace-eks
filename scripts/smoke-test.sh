@@ -241,6 +241,8 @@ req POST /v1/agent/tools/invoke "" '{"tool":"text_stats","arguments":{"text":"x"
 expect_status "POST /v1/agent/tools/invoke  no token → 401" 401
 req POST /v1/agent/runs "" '{"task":"x"}'
 expect_status "POST /v1/agent/runs  no token → 401" 401
+req POST /v1/agent/research "" '{"question":"x"}'
+expect_status "POST /v1/agent/research  no token → 401" 401
 
 if [[ "${RUN_AUTH}" -eq 1 ]]; then
   # ── M9: chat path (authenticated) ──────────────────────────────────────────
@@ -450,6 +452,15 @@ if [[ "${RUN_AUTH}" -eq 1 ]]; then
     expect_status "agent run, inference cold → 503 (clean refuse)" 503
   else
     expect_status_in "agent run (wired; 200 up / 502 unreachable / 503 cold)" "200 502 503"
+  fi
+
+  # M11 deep-research (plan→retrieve→synthesize over the tenant's M10 corpus).
+  # Needs inference (GPU) for e2e; the gating + clean degradation validate here.
+  req POST /v1/agent/research "${TOKEN}" '{"question":"how do pods autoscale?"}'
+  if [[ "${LOCAL_MODE}" -eq 1 ]]; then
+    expect_status "deep-research, inference cold → 503 (clean refuse)" 503
+  else
+    expect_status_in "deep-research (wired; 200 up / 502 unreachable / 503 cold)" "200 502 503"
   fi
 
   # ── M11: operator kill-switch (local mode only) ────────────────────────────

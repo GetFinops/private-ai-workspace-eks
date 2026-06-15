@@ -44,6 +44,12 @@ class ControlPlaneConfig:
     # backed tools are unavailable (the subprocess sandbox is unaffected).
     agent_tools_dispatcher_url: str | None = None
     agent_tools_dispatcher_token: str | None = None
+    # Deep-research (M11 follow-up 2). Shares the kill-switch + allow-list (the
+    # "deep_research" capability) and needs inference configured. Budgets are
+    # server-enforced; model/max_tokens reuse the agent-loop settings.
+    deep_research_max_subqueries: int = 4
+    deep_research_top_k: int = 5
+    deep_research_wall_clock_seconds: float = 90.0
     # Agent loop (M11 follow-up). Shares the agent_tools kill-switch and
     # allow-list; additionally requires inference to be configured (cold → 503).
     # Budgets are server-enforced and never client/model settable.
@@ -91,6 +97,9 @@ class ControlPlaneConfig:
             agent_loop_model=values.get("AGENT_LOOP_MODEL", "default") or "default",
             agent_tools_dispatcher_url=_clean(values.get("AGENT_TOOLS_DISPATCHER_URL")),
             agent_tools_dispatcher_token=_clean(values.get("AGENT_TOOLS_DISPATCHER_TOKEN")),
+            deep_research_max_subqueries=int(values.get("DEEP_RESEARCH_MAX_SUBQUERIES", "4") or "4"),
+            deep_research_top_k=int(values.get("DEEP_RESEARCH_TOP_K", "5") or "5"),
+            deep_research_wall_clock_seconds=float(values.get("DEEP_RESEARCH_WALL_CLOCK_SECONDS", "90") or "90"),
             auth=AuthSettings(
                 issuer_url=_clean(values.get("AUTH_ISSUER_URL")),
                 audience=_clean(values.get("AUTH_AUDIENCE")),
