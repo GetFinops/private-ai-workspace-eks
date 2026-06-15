@@ -38,3 +38,9 @@ data:
   AGENT_TOOLS_DISPATCHER_URL: {{ .Values.config.agentToolsDispatcherUrl | quote }}
   {{- end }}
   {{- end }}
+  {{- if .Values.config.mcpEnabled }}
+  MCP_ENABLED: "true"
+  {{- if .Values.config.mcpAllowlist }}
+  MCP_ALLOWLIST: {{ .Values.config.mcpAllowlist | quote }}
+  {{- end }}
+  {{- end }}

@@ -61,6 +61,11 @@ config:
   # disable job-backed tools (subprocess tools are unaffected).
   agentToolsDispatcherUrl: ""
   agentToolsDispatcherTokenSecret: ""
+  # M12 MCP integration. Disabled by default (operator kill-switch). MCP servers
+  # run in the M11 sandbox; deny-by-default per-tenant allow-list (JSON string
+  # {"<tenant>": ["<server>", ...]}).
+  mcpEnabled: false
+  mcpAllowlist: ""
 
 externalSecrets:
   enabled: false

@@ -582,6 +582,30 @@ audit/telemetry/notifications carry shape + run id only — never the question,
 retrieved passages, or the synthesized answer (M5 content policy).
 
 ────────────────────────────────────────────────────────────────────────────────
+M12 MCP adoption decision
+────────────────────────────────────────────────────────────────────────────────
+
+M12 (docs/milestones/m12-mcp-integration.md) exposes capabilities over the Model
+Context Protocol. Per the Phase 2 doc it is "standard" risk and depends on M11;
+adopting any individual MCP server is a separate per-server escalation trigger.
+
+Decision: the MCP integration LAYER is ADOPTED, implemented as ORIGINAL
+control-plane code. The connection-manager is reused as a PATTERN only — no MCP
+SDK or upstream connection-manager is vendored; the JSON-RPC stdio client is
+written from scratch over the reviewed M11 sandbox (docs/m12-mcp-design.md). MCP
+servers run as sandboxed subprocesses (the M11 boundary); connections are
+per-call (no pooled cross-tenant sessions); access is deny-by-default per tenant;
+credentials are resolved per-tenant from managed secret storage and injected only
+into that one process (never shared env); audit is shape-only; an operator
+kill-switch (MCP_ENABLED) disables it cluster-wide.
+
+Per-server records: the ONLY server shipped in this increment is a pure STUB
+(app/mcp_servers/stub_server.py) — stdlib-only, no network, no credentials, one
+inert `echo` tool. Nothing to license-review or credential-scope. Any real MCP
+server is a separate adoption decision with its own NOTICE record + licensing /
+isolation review (and, if it needs egress/creds, the Job sandbox + issue #36).
+
+────────────────────────────────────────────────────────────────────────────────
 Vector-storage decision record (M3 deferral)
 ────────────────────────────────────────────────────────────────────────────────
 

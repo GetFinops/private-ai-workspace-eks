@@ -97,6 +97,8 @@ if [[ "${LOCAL_MODE}" -eq 1 ]]; then
   ENVIRONMENT=development DEV_AUTH_TOKEN="${DEV_TOKEN}" PORT="${PORT}" \
     AGENT_TOOLS_ENABLED=true \
     AGENT_TOOLS_ALLOWLIST='{"localhost":["text_stats","text_stats_job"]}' \
+    MCP_ENABLED=true \
+    MCP_ALLOWLIST='{"localhost":["stub"]}' \
     python3 -m app.control_plane >"${SERVER_LOG}" 2>&1 &
   SERVER_PID=$!
 fi
@@ -219,6 +221,14 @@ try:
 except Exception:
     print("err")' "${RESP_BODY}" "$1"
 }
+mcp_echo_is() {  # mcp_echo_is <expected> → "yes"/"no"/"err"  (M12: result.content[0].text)
+  python3 -c 'import sys, json
+try:
+    d = json.loads(sys.argv[1])
+    print("yes" if d.get("result", {}).get("content", [{}])[0].get("text") == sys.argv[2] else "no")
+except Exception:
+    print("err")' "${RESP_BODY}" "$1"
+}
 
 # ── Core control-plane probes (public) ───────────────────────────────────────
 echo ""
@@ -243,6 +253,8 @@ req POST /v1/agent/runs "" '{"task":"x"}'
 expect_status "POST /v1/agent/runs  no token → 401" 401
 req POST /v1/agent/research "" '{"question":"x"}'
 expect_status "POST /v1/agent/research  no token → 401" 401
+req POST /v1/mcp/invoke "" '{"server":"stub","tool":"echo","arguments":{"message":"x"}}'
+expect_status "POST /v1/mcp/invoke  no token → 401" 401
 
 if [[ "${RUN_AUTH}" -eq 1 ]]; then
   # ── M9: chat path (authenticated) ──────────────────────────────────────────
@@ -463,6 +475,28 @@ if [[ "${RUN_AUTH}" -eq 1 ]]; then
     expect_status_in "deep-research (wired; 200 up / 502 unreachable / 503 cold)" "200 502 503"
   fi
 
+  # ── M12: MCP integration (sandboxed stub server, no inference needed) ───────
+  echo ""
+  echo "==> M12 MCP integration (allow-listed stub server)"
+  req POST /v1/mcp/tools/list "${TOKEN}" '{"server":"stub"}'
+  expect_status "mcp tools/list (allow-listed) → 200" 200
+  req POST /v1/mcp/invoke "${TOKEN}" '{"server":"stub","tool":"echo","arguments":{"message":"smoke-mcp"}}'
+  expect_status "mcp invoke echo → 200" 200
+  if [[ "$(mcp_echo_is "smoke-mcp")" == "yes" ]]; then pass "sandboxed MCP server echoed the message"; else flunk "MCP echo did not round-trip"; fi
+  req POST /v1/mcp/invoke "${TOKEN}" '{"server":"stub","tool":"ghost","arguments":{}}'
+  expect_status "mcp invoke unknown tool → 404" 404
+
+  # ── M12: cross-tenant MCP isolation (B not allow-listed → denied) ──────────
+  echo ""
+  if [[ -n "${TOKEN_B}" ]]; then
+    echo "==> M12 cross-tenant MCP isolation"
+    req POST /v1/mcp/invoke "${TOKEN_B}" '{"server":"stub","tool":"echo","arguments":{"message":"x"}}'
+    expect_status "B invokes stub (not allow-listed) → 403" 403
+  else
+    echo "==> M12 cross-tenant MCP isolation — SKIPPED (pass --token-b)"
+    echo "    Deny-by-default allow-list is unit-covered in tests/test_mcp.py."
+  fi
+
   # ── M11: operator kill-switch (local mode only) ────────────────────────────
   # The kill-switch is a deploy-time toggle (AGENT_TOOLS_ENABLED), so it can't
   # be flipped against a live deployment mid-run. In local mode we bring up a
@@ -485,6 +519,12 @@ if [[ "${RUN_AUTH}" -eq 1 ]]; then
       --data '{"tool":"text_stats","arguments":{"text":"x"}}' \
       "http://localhost:${KS_PORT}/v1/agent/tools/invoke")"
     if [[ "${KS_STATUS}" == "503" ]]; then pass "kill-switch: invoke with tools disabled → 503"; else flunk "kill-switch: expected 503, got ${KS_STATUS}"; fi
+    # M12: the throwaway server also has MCP disabled (MCP_ENABLED unset).
+    MCP_KS="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+      -H "Authorization: Bearer ${DEV_TOKEN}" -H "Content-Type: application/json" \
+      --data '{"server":"stub","tool":"echo","arguments":{"message":"x"}}' \
+      "http://localhost:${KS_PORT}/v1/mcp/invoke")"
+    if [[ "${MCP_KS}" == "503" ]]; then pass "kill-switch: MCP invoke with MCP disabled → 503"; else flunk "MCP kill-switch: expected 503, got ${MCP_KS}"; fi
     kill "${KS_PID}" 2>/dev/null || true
     wait "${KS_PID}" 2>/dev/null || true
     rm -f "${KS_LOG}"
