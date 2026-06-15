@@ -54,6 +54,15 @@ class ControlPlaneConfig:
     # MCP_ALLOWLIST is JSON: {"<tenant>": ["<server>", ...]} — deny by default.
     mcp_enabled: bool = False
     mcp_allowlist: str | None = None
+    # Personal-information integrations (M13). Disabled by default (operator
+    # kill-switch). INTEGRATIONS_ALLOWLIST is JSON: {"<tenant>": ["<integration>",
+    # ...]} — deny by default. The rate limiter is dedicated (not shared with the
+    # agent-tools budget). Credentials are resolved per tenant at request time.
+    integrations_enabled: bool = False
+    integrations_allowlist: str | None = None
+    integrations_rate_per_minute: int = 30
+    integrations_max_concurrency: int = 4
+    integrations_outbound_timeout_s: float = 10.0
     # Agent loop (M11 follow-up). Shares the agent_tools kill-switch and
     # allow-list; additionally requires inference to be configured (cold → 503).
     # Budgets are server-enforced and never client/model settable.
@@ -106,6 +115,11 @@ class ControlPlaneConfig:
             deep_research_wall_clock_seconds=float(values.get("DEEP_RESEARCH_WALL_CLOCK_SECONDS", "90") or "90"),
             mcp_enabled=values.get("MCP_ENABLED", "false").lower() == "true",
             mcp_allowlist=_clean(values.get("MCP_ALLOWLIST")),
+            integrations_enabled=values.get("INTEGRATIONS_ENABLED", "false").lower() == "true",
+            integrations_allowlist=_clean(values.get("INTEGRATIONS_ALLOWLIST")),
+            integrations_rate_per_minute=int(values.get("INTEGRATIONS_RATE_PER_MINUTE", "30") or "30"),
+            integrations_max_concurrency=int(values.get("INTEGRATIONS_MAX_CONCURRENCY", "4") or "4"),
+            integrations_outbound_timeout_s=float(values.get("INTEGRATIONS_OUTBOUND_TIMEOUT_S", "10") or "10"),
             auth=AuthSettings(
                 issuer_url=_clean(values.get("AUTH_ISSUER_URL")),
                 audience=_clean(values.get("AUTH_AUDIENCE")),

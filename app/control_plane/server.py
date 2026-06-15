@@ -98,6 +98,15 @@ from app.control_plane.mcp import (
     build_mcp_list_response,
     parse_mcp_allowlist,
 )
+from app.control_plane.integrations import (
+    InMemoryTenantIntegrationState,
+    IntegrationExecutor,
+    TenantIntegrationState,
+    build_integrations_invoke_response,
+    build_integrations_list_response,
+    parse_integration_allowlist,
+)
+from app.control_plane.integration_secrets import make_secrets_manager_resolver
 from app.control_plane.embeddings import (
     DeterministicEmbeddingClient,
     EmbeddingClient,
@@ -138,6 +147,8 @@ _AGENT_RUNS_PATH = "/v1/agent/runs"
 _AGENT_RESEARCH_PATH = "/v1/agent/research"
 _MCP_INVOKE_PATH = "/v1/mcp/invoke"
 _MCP_LIST_PATH = "/v1/mcp/tools/list"
+_INTEGRATIONS_INVOKE_PATH = "/v1/integrations/invoke"
+_INTEGRATIONS_LIST_PATH = "/v1/integrations/list"
 _METRICS_PATH = "/metrics"
 _MAX_REQUEST_BODY = 1 * 1024 * 1024  # 1 MiB
 
@@ -440,6 +451,13 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     mcp_enabled: bool = False
     mcp_allowlist: dict = {}  # type: ignore[type-arg]
     mcp_executor: MCPExecutor = MCPExecutor()
+    # Personal-info integrations (M13). Disabled by default; allow-list empty
+    # (deny by default); dedicated rate limiter; default-enabled tenant state.
+    integrations_enabled: bool = False
+    integrations_allowlist: dict = {}  # type: ignore[type-arg]
+    integrations_executor: IntegrationExecutor = IntegrationExecutor()
+    integrations_rate_limiter: RateLimiter = RateLimiter()
+    integrations_tenant_state: TenantIntegrationState = InMemoryTenantIntegrationState()
     # Job-sandbox dispatcher client; None/unconfigured → job-backed tools
     # are unavailable (subprocess tools unaffected).
     agent_tools_job_executor: object | None = None
@@ -654,6 +672,31 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     allowlist=self.__class__.mcp_allowlist,
                     executor=self.__class__.mcp_executor,
                     rate_limiter=self.__class__.agent_tools_rate_limiter,
+                    notification_store=self.__class__.notification_store,
+                )
+                return Response(status, payload)
+
+            if path == _INTEGRATIONS_LIST_PATH:
+                status, payload = build_integrations_list_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    enabled=self.__class__.integrations_enabled,
+                    allowlist=self.__class__.integrations_allowlist,
+                    executor=self.__class__.integrations_executor,
+                )
+                return Response(status, payload)
+
+            if path == _INTEGRATIONS_INVOKE_PATH:
+                status, payload = build_integrations_invoke_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    enabled=self.__class__.integrations_enabled,
+                    allowlist=self.__class__.integrations_allowlist,
+                    executor=self.__class__.integrations_executor,
+                    rate_limiter=self.__class__.integrations_rate_limiter,
+                    tenant_state=self.__class__.integrations_tenant_state,
                     notification_store=self.__class__.notification_store,
                 )
                 return Response(status, payload)
@@ -987,6 +1030,27 @@ def run_server(
     ControlPlaneHandler.mcp_enabled = resolved_config.mcp_enabled
     ControlPlaneHandler.mcp_allowlist = parse_mcp_allowlist(resolved_config.mcp_allowlist)
     ControlPlaneHandler.mcp_executor = MCPExecutor()
+    # M13 integrations. The per-tenant Secrets Manager resolver is wired only when
+    # integrations are enabled; boto3 is imported lazily on first fetch. The
+    # registry is empty until an integration is adopted, so the harness is inert
+    # (deny-by-default) even when enabled.
+    ControlPlaneHandler.integrations_enabled = resolved_config.integrations_enabled
+    ControlPlaneHandler.integrations_allowlist = parse_integration_allowlist(
+        resolved_config.integrations_allowlist
+    )
+    ControlPlaneHandler.integrations_executor = IntegrationExecutor(
+        secret_resolver=(
+            make_secrets_manager_resolver(resolved_config.environment)
+            if resolved_config.integrations_enabled
+            else None
+        ),
+        timeout_seconds=resolved_config.integrations_outbound_timeout_s,
+    )
+    ControlPlaneHandler.integrations_rate_limiter = RateLimiter(
+        per_minute=resolved_config.integrations_rate_per_minute,
+        max_concurrency=resolved_config.integrations_max_concurrency,
+    )
+    ControlPlaneHandler.integrations_tenant_state = InMemoryTenantIntegrationState()
     ControlPlaneHandler.deep_research_budgets = DeepResearchBudgets(
         max_subqueries=resolved_config.deep_research_max_subqueries,
         top_k=resolved_config.deep_research_top_k,
