@@ -1,8 +1,16 @@
 # M11 Follow-up 3 — Kubernetes-Job Sandbox for IO-Capable Tools
 
-> Status: **planned, not started.** Escalation gate applies — design + sign-off
-> in `NOTICE` before implementation. Any tool needing network egress or
-> credential access is itself an escalation trigger (milestone doc).
+> Status: **shipped (PR #35) with the tighter privilege model and live-validated
+> on dev for pure-compute tools.** Reviewed design + sign-off:
+> [`../m11-job-sandbox-design.md`](../m11-job-sandbox-design.md) + `NOTICE`.
+> Implemented in `app/dispatcher/` (tool-runner dispatcher; control plane keeps
+> zero k8s privileges) + `deploy/helm/tool-runner`; 27 unit tests. Live: the
+> control plane → dispatcher → Job → result path works and the runner has no
+> creds (no SA token, no AWS env). **Egress/IMDS isolation is gated on issue
+> #36** — the dev CNI doesn't enforce NetworkPolicy, so no `executor: "job"`
+> tool may use the network until that is fixed; the shipped demonstrator
+> (`text_stats_job`) is pure-compute. The notes below are retained as the design
+> rationale.
 >
 > Builds on the shipped M11 sandbox. Read [`README.md`](README.md) (invariants)
 > and the milestone doc first.
