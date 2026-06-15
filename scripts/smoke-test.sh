@@ -39,6 +39,14 @@
 #
 #       ./scripts/smoke-test.sh --base http://localhost:8080 --public-only
 #
+#   --integrations adds the M13 personal-information integration harness checks.
+#   In local mode it also starts the synthetic loopback fixture and enables the
+#   harness against it with a dev fixture credential (development only). It
+#   drives: list, one successful credentialed call through the URL guard, one
+#   private-IP target the guard must block, and a deny-by-default rejection.
+#
+#       ./scripts/smoke-test.sh --integrations
+#
 # Exit status is non-zero if any check fails.
 
 set -euo pipefail
@@ -49,10 +57,14 @@ TOKEN=""
 TOKEN_B=""
 TOKEN_C=""
 PUBLIC_ONLY=0
+RUN_INTEGRATIONS=0
 DEV_TOKEN="smoke-dev-token"   # local mode only; accepted by DevTokenVerifier
+FIXTURE_TOKEN="smoke-fixture-token"   # M13 dev fixture credential (local mode)
+FIXTURE_PORT="${FIXTURE_PORT:-8099}"
+FIXTURE_PID=""
 TIMEOUT=10
 
-usage() { sed -n '2,38p' "$0"; exit "${1:-0}"; }
+usage() { sed -n '2,46p' "$0"; exit "${1:-0}"; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -62,6 +74,7 @@ while [[ $# -gt 0 ]]; do
     --token-b)     TOKEN_B="$2"; shift 2 ;;
     --token-c)     TOKEN_C="$2"; shift 2 ;;
     --public-only) PUBLIC_ONLY=1; shift ;;
+    --integrations) RUN_INTEGRATIONS=1; shift ;;
     -h|--help)     usage 0 ;;
     *) echo "Unknown argument: $1" >&2; usage 1 ;;
   esac
@@ -94,11 +107,28 @@ if [[ "${LOCAL_MODE}" -eq 1 ]]; then
   # M11: enable the agent tool framework with a deny-by-default allow-list that
   # only grants the dev principal (dev@localhost → tenant "localhost") the
   # text_stats stub tool, so both the success and denial paths are exercisable.
-  ENVIRONMENT=development DEV_AUTH_TOKEN="${DEV_TOKEN}" PORT="${PORT}" \
+  # M13: when --integrations is requested, start the synthetic loopback fixture
+  # and enable the integration harness against it with a dev fixture credential
+  # (development-only; production resolves via Secrets Manager/IRSA).
+  INTEG_ENV=()
+  if [[ "${RUN_INTEGRATIONS}" -eq 1 ]]; then
+    echo "==> Starting M13 loopback fixture on port ${FIXTURE_PORT}"
+    PORT="${FIXTURE_PORT}" LOOPBACK_TOKEN="${FIXTURE_TOKEN}" \
+      python3 -m app.integration_fixtures.loopback_server >/dev/null 2>&1 &
+    FIXTURE_PID=$!
+    INTEG_ENV=(
+      INTEGRATIONS_ENABLED=true
+      INTEGRATIONS_ALLOWLIST='{"localhost":["loopback","blocked_probe"]}'
+      INTEGRATIONS_FIXTURE_URL="http://127.0.0.1:${FIXTURE_PORT}"
+      INTEGRATIONS_FIXTURE_TOKEN="${FIXTURE_TOKEN}"
+    )
+  fi
+  env ENVIRONMENT=development DEV_AUTH_TOKEN="${DEV_TOKEN}" PORT="${PORT}" \
     AGENT_TOOLS_ENABLED=true \
     AGENT_TOOLS_ALLOWLIST='{"localhost":["text_stats","text_stats_job"]}' \
     MCP_ENABLED=true \
     MCP_ALLOWLIST='{"localhost":["stub"]}' \
+    "${INTEG_ENV[@]}" \
     python3 -m app.control_plane >"${SERVER_LOG}" 2>&1 &
   SERVER_PID=$!
 fi
@@ -109,6 +139,10 @@ cleanup() {
     echo "==> Stopping server (PID ${SERVER_PID})"
     kill "${SERVER_PID}" 2>/dev/null || true
     wait "${SERVER_PID}" 2>/dev/null || true
+  fi
+  if [[ -n "${FIXTURE_PID}" ]]; then
+    kill "${FIXTURE_PID}" 2>/dev/null || true
+    wait "${FIXTURE_PID}" 2>/dev/null || true
   fi
   if [[ -n "${TMP_BODY}" ]]; then rm -f "${TMP_BODY}"; fi
   if [[ -n "${SERVER_LOG}" ]]; then rm -f "${SERVER_LOG}"; fi
@@ -532,6 +566,37 @@ if [[ "${RUN_AUTH}" -eq 1 ]]; then
     echo "==> M11 operator kill-switch — SKIPPED (deploy-time toggle; not flippable live)"
     echo "    Kill-switch is unit-covered in tests/test_agent_tools.py; verify in a"
     echo "    deployment by setting config.agentToolsEnabled=false and re-checking 503."
+  fi
+
+  # ── M13: personal-information integration harness (loopback fixture) ─────────
+  if [[ "${RUN_INTEGRATIONS}" -eq 1 ]]; then
+    echo ""
+    echo "==> M13 integration harness (synthetic loopback fixture)"
+
+    # (a) list — the loopback fixture is allow-listed for this tenant.
+    req POST /v1/integrations/list "${TOKEN}" '{}'
+    expect_status "list integrations → 200" 200
+    if echo "${RESP_BODY}" | grep -q '"loopback"'; then pass "loopback is allow-listed"; else flunk "loopback missing from list"; fi
+
+    # (b) one successful call: per-tenant credential resolved → URL guard (waiving
+    #     the fixture's private cluster IP, never the metadata IP) → fixture.
+    req POST /v1/integrations/invoke "${TOKEN}" '{"integration":"loopback","operation":"list_events","params":{}}'
+    expect_status "invoke loopback (creds → guard → fixture) → 200" 200
+    if echo "${RESP_BODY}" | grep -q '"events"'; then pass "fixture returned events through the guard"; else flunk "no events in fixture response"; fi
+
+    # (c) one denied call: a private-IP target the guard must refuse (audited).
+    req POST /v1/integrations/invoke "${TOKEN}" '{"integration":"blocked_probe","operation":"probe","params":{}}'
+    expect_status "invoke private-IP target → 502 blocked" 502
+    if echo "${RESP_BODY}" | grep -q 'outbound_blocked'; then pass "URL guard blocked the private-IP target"; else flunk "expected outbound_blocked"; fi
+
+    # (d) deny-by-default: a non-allow-listed integration is rejected.
+    req POST /v1/integrations/invoke "${TOKEN}" '{"integration":"ghost","operation":"x","params":{}}'
+    expect_status "invoke non-allow-listed integration → 403" 403
+
+    echo "    NOTE: per-tenant disable, operator kill-switch, and Secrets-Manager"
+    echo "    credential rotation are validated on the dev cluster (real IRSA path);"
+    echo "    they are unit-covered in tests/test_integrations.py and"
+    echo "    tests/test_integration_tenant_state_postgres.py."
   fi
 else
   echo ""

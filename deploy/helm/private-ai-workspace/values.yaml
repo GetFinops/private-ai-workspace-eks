@@ -66,6 +66,26 @@ config:
   # {"<tenant>": ["<server>", ...]}).
   mcpEnabled: false
   mcpAllowlist: ""
+  # M13 personal-information integrations. Disabled by default (operator
+  # kill-switch). Deny-by-default per-tenant allow-list (JSON string
+  # {"<tenant>": ["<integration>", ...]}). Credentials are resolved per tenant
+  # from Secrets Manager via IRSA; all egress routes through the hardened URL
+  # guard. The fixture token credential is NOT set here (dev fixture uses
+  # INTEGRATIONS_FIXTURE_TOKEN supplied out-of-band in development only).
+  integrationsEnabled: false
+  integrationsAllowlist: ""
+  integrationsRatePerMinute: 30
+  integrationsMaxConcurrency: 4
+  integrationsOutboundTimeoutS: 10
+
+# M13 dev-only synthetic loopback fixture. A fake in-cluster calendar provider
+# used to validate the integration harness end-to-end without a real third
+# party. NEVER enable outside development.
+integrationsFixture:
+  enabled: false
+  image: ""        # defaults to the control-plane image (same code, fixture entrypoint)
+  port: 8099
+  token: "fixture-token"   # dev fixture bearer; not a real credential
 
 externalSecrets:
   enabled: false

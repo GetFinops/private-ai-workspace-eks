@@ -147,6 +147,7 @@ def validate_outbound_url(
     *,
     allowed_hosts,
     allow_http: bool = False,
+    permit_hosts=frozenset(),
 ) -> ValidatedTarget:
     """Validate ``url`` and return a ``ValidatedTarget`` pinned to a safe IP.
 
@@ -154,6 +155,15 @@ def validate_outbound_url(
     hostnames; matched case-insensitively). ``allow_http`` permits the ``http``
     scheme and is intended only for the in-cluster loopback fixture — production
     integrations leave it ``False``.
+
+    ``permit_hosts`` is a narrow, opt-in escape hatch: for these explicitly
+    trusted hostnames the **private-IP** classification is waived, so an
+    in-cluster service (e.g. the dev loopback fixture, which necessarily resolves
+    to a private cluster IP) can be reached. It does NOT waive the
+    cloud-metadata block — ``169.254.169.254`` / ``fd00:ec2::254`` stay refused
+    even for a permitted host — nor malformed addresses. ``permit_hosts`` is
+    empty by default; production integrations leave it empty so the full guard
+    applies. A host here must still be in ``allowed_hosts``.
 
     Raises ``OutboundReject`` (with a closed-vocabulary ``reason``) on any
     failure. Resolves the host exactly once and pins the result, so the returned
@@ -195,11 +205,18 @@ def validate_outbound_url(
     if not infos:
         raise OutboundReject(REJECT_DNS, "no records")
 
+    permitted = {h.lower() for h in permit_hosts}
     resolved = [info[4][0] for info in infos]
     for raw_ip in resolved:
         reason = _classify_ip(raw_ip)
-        if reason is not None:
-            raise OutboundReject(reason)
+        if reason is None:
+            continue
+        # The cloud-metadata block is absolute and can never be waived; only the
+        # generic private-IP classification is waivable, and only for an
+        # explicitly permitted (trusted internal) host.
+        if reason == REJECT_PRIVATE_IP and host in permitted:
+            continue
+        raise OutboundReject(reason)
 
     # All records are safe; pin to the first.
     pinned_ip = resolved[0]

@@ -1,9 +1,10 @@
 # M13 Shared Harness — Build Plan
 
-> **Status: gated. Awaiting the A–C maintainer sign-off in
-> [`../m13-shared-harness-escalation.md`](../m13-shared-harness-escalation.md).
-> No code written.** PR 1 needs Decision A; PR 2 needs Decision B; PRs 3–4 need
-> A+B+C.
+> **Status: A–C signed off (recorded in `NOTICE`); harness shipped.** PR 1
+> (outbound URL guard) → PR 4 (loopback fixture + dev smoke) are implemented and
+> green in the local suite; the dev-cluster run against real Secrets Manager/IRSA
+> is the remaining maintainer step. No real provider adopted — build-task #1 is a
+> separate per-integration decision.
 >
 > Read [`../milestones/m13-personal-info-integrations.md`](../milestones/m13-personal-info-integrations.md)
 > and [`../12-phase-2-feature-adoption.md`](../12-phase-2-feature-adoption.md)

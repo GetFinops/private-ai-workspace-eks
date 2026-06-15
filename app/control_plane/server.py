@@ -854,6 +854,56 @@ def _build_storage_client(config: ControlPlaneConfig) -> S3StorageClient | None:
     return S3StorageClient(bucket=config.object_storage_bucket)
 
 
+def _build_integration_secret_resolver(config: ControlPlaneConfig):
+    """Return the per-tenant integration secret resolver, or None when disabled.
+
+    Production resolves ONLY through AWS Secrets Manager/IRSA. In development a
+    fixture token may be supplied directly (INTEGRATIONS_FIXTURE_TOKEN) so the
+    loopback smoke can run without AWS; that path is gated to the development
+    environment and only answers for the loopback fixture integration.
+    """
+    if not config.integrations_enabled:
+        return None
+    if config.environment == "development" and config.integrations_fixture_token:
+        token = config.integrations_fixture_token
+
+        def _dev_fixture_resolver(tenant_id: str, integration: str):
+            return {"TOKEN": token} if integration == "loopback" else None
+
+        logger.warning(
+            "Using DEV fixture credential for integrations (development only); "
+            "production resolves via AWS Secrets Manager/IRSA."
+        )
+        return _dev_fixture_resolver
+    return make_secrets_manager_resolver(config.environment)
+
+
+def _build_tenant_integration_state(config: ControlPlaneConfig) -> TenantIntegrationState:
+    """Return a Postgres-backed tenant state when DATABASE_URL is configured."""
+    if not config.database_url:
+        return InMemoryTenantIntegrationState()
+    try:
+        from app.db.connection import open_pool
+        from app.control_plane.integrations import PostgresTenantIntegrationState
+
+        pool = open_pool(config.database_url)
+        logger.info("Using PostgreSQL integration tenant-state store.")
+        return PostgresTenantIntegrationState(pool)
+    except Exception as exc:
+        exc_type = type(exc).__name__
+        if config.environment != "development":
+            raise RuntimeError(
+                f"Failed to initialize PostgreSQL integration tenant-state ({exc_type}); "
+                f"refusing to fall back in environment={config.environment!r}."
+            ) from None
+        logger.error(
+            "Failed to initialize PostgreSQL integration tenant-state (%s) — "
+            "falling back to in-memory (development only).",
+            exc_type,
+        )
+        return InMemoryTenantIntegrationState()
+
+
 def _build_notification_store(config: ControlPlaneConfig) -> NotificationStore:
     """Return a PostgresNotificationStore when DATABASE_URL is configured."""
     if not config.database_url:
@@ -1038,19 +1088,25 @@ def run_server(
     ControlPlaneHandler.integrations_allowlist = parse_integration_allowlist(
         resolved_config.integrations_allowlist
     )
+    # Dev-only: register the synthetic loopback fixture when its URL is set; the
+    # production registry stays empty until a real integration is adopted.
+    _fixture_registry = None
+    if resolved_config.integrations_fixture_url:
+        from app.integration_fixtures.loopback_integration import build_fixture_registry
+
+        _fixture_registry = build_fixture_registry(resolved_config.integrations_fixture_url)
     ControlPlaneHandler.integrations_executor = IntegrationExecutor(
-        secret_resolver=(
-            make_secrets_manager_resolver(resolved_config.environment)
-            if resolved_config.integrations_enabled
-            else None
-        ),
+        integrations=_fixture_registry,
+        secret_resolver=_build_integration_secret_resolver(resolved_config),
         timeout_seconds=resolved_config.integrations_outbound_timeout_s,
     )
     ControlPlaneHandler.integrations_rate_limiter = RateLimiter(
         per_minute=resolved_config.integrations_rate_per_minute,
         max_concurrency=resolved_config.integrations_max_concurrency,
     )
-    ControlPlaneHandler.integrations_tenant_state = InMemoryTenantIntegrationState()
+    ControlPlaneHandler.integrations_tenant_state = _build_tenant_integration_state(
+        resolved_config
+    )
     ControlPlaneHandler.deep_research_budgets = DeepResearchBudgets(
         max_subqueries=resolved_config.deep_research_max_subqueries,
         top_k=resolved_config.deep_research_top_k,
