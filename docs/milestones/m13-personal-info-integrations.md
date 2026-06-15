@@ -22,6 +22,9 @@ maintainer adoption per integration (see the Decision Checklist in the
 Phase 2 doc) and explicit credential-handling review before any individual
 integration ships.
 
+Shared-harness plan + open escalation (decisions A–C, awaiting maintainer
+sign-off): [`../m13-shared-harness-escalation.md`](../m13-shared-harness-escalation.md).
+
 ## Objective
 
 Optional calendar, contacts, and mail integrations behind the hardened
