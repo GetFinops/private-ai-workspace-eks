@@ -18,7 +18,18 @@ terraform {
 
 locals {
   name = "${var.project_name}-${var.environment}"
+
+  # M13 per-tenant integration credentials live under a dedicated Secrets Manager
+  # prefix, distinct from the platform's own RDS/app-config secrets. The IRSA
+  # grant below is scoped to this prefix only — never all secrets.
+  integrations_secret_prefix = "${var.project_name}/${var.environment}/integrations/"
 }
+
+data "aws_caller_identity" "current" {}
+
+data "aws_region" "current" {}
+
+data "aws_partition" "current" {}
 
 # ── Trust policy ──────────────────────────────────────────────────────────────
 
@@ -75,6 +86,23 @@ data "aws_iam_policy_document" "app" {
     ]
   }
 
+  # M13: read per-tenant integration credentials. Scoped to the integrations
+  # prefix only (with the rotation-staging "-*" suffix), so the control plane can
+  # never read another component's secrets via this grant. Per-tenant isolation
+  # itself is enforced in app code (integration_secrets.build_secret_id), which
+  # derives the secret id from the verified token's tenant.
+  statement {
+    sid    = "SecretsManagerIntegrationsRead"
+    effect = "Allow"
+    actions = [
+      "secretsmanager:GetSecretValue",
+      "secretsmanager:DescribeSecret",
+    ]
+    resources = [
+      "arn:${data.aws_partition.current.partition}:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${local.integrations_secret_prefix}*",
+    ]
+  }
+
   # Read and write artifacts to S3.
   statement {
     sid    = "S3Objects"
@@ -88,9 +116,9 @@ data "aws_iam_policy_document" "app" {
   }
 
   statement {
-    sid    = "S3ListBucket"
-    effect = "Allow"
-    actions = ["s3:ListBucket"]
+    sid       = "S3ListBucket"
+    effect    = "Allow"
+    actions   = ["s3:ListBucket"]
     resources = [var.s3_bucket_arn]
   }
 }
