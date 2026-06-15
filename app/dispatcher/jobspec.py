@@ -81,7 +81,9 @@ def build_job_manifest(
             {"name": "AGENT_TOOL_INPUT", "value": payload},
             {"name": "PYTHONDONTWRITEBYTECODE", "value": "1"},
             {"name": "PYTHONHASHSEED", "value": "0"},
-            {"name": "HOME", "value": "/workspace"},
+            # NOTE: do NOT mount a volume over the image's /workspace WORKDIR —
+            # the app package lives there. The writable scratch dir is /work.
+            {"name": "HOME", "value": "/work"},
             {"name": "TMPDIR", "value": "/tmp"},
         ],
         "securityContext": {
@@ -97,7 +99,7 @@ def build_job_manifest(
             "limits": {"cpu": cpu_limit, "memory": memory_limit},
         },
         "volumeMounts": [
-            {"name": "workspace", "mountPath": "/workspace"},
+            {"name": "workspace", "mountPath": "/work"},
             {"name": "tmp", "mountPath": "/tmp"},
         ],
     }

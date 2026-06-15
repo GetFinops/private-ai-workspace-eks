@@ -85,6 +85,15 @@ class TestJobManifestIsolation(unittest.TestCase):
         payload = json.loads(env["AGENT_TOOL_INPUT"])
         self.assertEqual(payload, {"tool": "text_stats_job", "arguments": {"text": "hi"}})
 
+    def test_writable_mounts_do_not_shadow_app_code(self):
+        # Regression: the image WORKDIR /workspace holds the app package; a
+        # writable volume must NOT mount over it (else `-m app.sandbox.runner`
+        # fails with ModuleNotFoundError). Scratch dirs are /work and /tmp only.
+        mounts = {m["mountPath"] for m in self.container["volumeMounts"]}
+        self.assertNotIn("/workspace", mounts)
+        self.assertNotIn("/", mounts)
+        self.assertEqual(mounts, {"/work", "/tmp"})
+
     def test_names_are_dns_safe(self):
         m = _manifest(run_id="Weird_ID/with.bad:chars")
         name = m["metadata"]["name"]
