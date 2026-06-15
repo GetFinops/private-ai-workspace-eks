@@ -14,6 +14,8 @@ DELETE /v1/memory/{id}         — authoritative delete of a memory (M10)
 POST /v1/agent/tools/invoke    — sandboxed, allow-listed tool execution (M11)
 POST /v1/agent/runs            — LLM agent loop over allow-listed tools (M11)
 POST /v1/agent/research        — deep-research (plan→retrieve→synthesize) (M11)
+POST /v1/mcp/tools/list        — list an allow-listed MCP server's tools (M12)
+POST /v1/mcp/invoke            — invoke a tool on a sandboxed MCP server (M12)
 
 Authentication is enforced on the chat path:
   - Requests must carry an Authorization: Bearer <token> header.
@@ -90,6 +92,12 @@ from app.control_plane.deep_research import (
     DeepResearchBudgets,
     build_deep_research_response,
 )
+from app.control_plane.mcp import (
+    MCPExecutor,
+    build_mcp_invoke_response,
+    build_mcp_list_response,
+    parse_mcp_allowlist,
+)
 from app.control_plane.embeddings import (
     DeterministicEmbeddingClient,
     EmbeddingClient,
@@ -128,6 +136,8 @@ _MEMORY_RECALL_PATH = "/v1/memory/recall"
 _AGENT_TOOLS_INVOKE_PATH = "/v1/agent/tools/invoke"
 _AGENT_RUNS_PATH = "/v1/agent/runs"
 _AGENT_RESEARCH_PATH = "/v1/agent/research"
+_MCP_INVOKE_PATH = "/v1/mcp/invoke"
+_MCP_LIST_PATH = "/v1/mcp/tools/list"
 _METRICS_PATH = "/metrics"
 _MAX_REQUEST_BODY = 1 * 1024 * 1024  # 1 MiB
 
@@ -426,6 +436,10 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     agent_loop_budgets: AgentLoopBudgets = AgentLoopBudgets()
     agent_loop_inference_client: object | None = None
     deep_research_budgets: DeepResearchBudgets = DeepResearchBudgets()
+    # MCP integration (M12). Disabled by default; allow-list empty (deny by default).
+    mcp_enabled: bool = False
+    mcp_allowlist: dict = {}  # type: ignore[type-arg]
+    mcp_executor: MCPExecutor = MCPExecutor()
     # Job-sandbox dispatcher client; None/unconfigured → job-backed tools
     # are unavailable (subprocess tools unaffected).
     agent_tools_job_executor: object | None = None
@@ -615,6 +629,30 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     embedding_client=self.__class__.embedding_client,
                     inference_client=self.__class__.agent_loop_inference_client,
                     budgets=self.__class__.deep_research_budgets,
+                    rate_limiter=self.__class__.agent_tools_rate_limiter,
+                    notification_store=self.__class__.notification_store,
+                )
+                return Response(status, payload)
+
+            if path == _MCP_LIST_PATH:
+                status, payload = build_mcp_list_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    enabled=self.__class__.mcp_enabled,
+                    allowlist=self.__class__.mcp_allowlist,
+                    executor=self.__class__.mcp_executor,
+                )
+                return Response(status, payload)
+
+            if path == _MCP_INVOKE_PATH:
+                status, payload = build_mcp_invoke_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    enabled=self.__class__.mcp_enabled,
+                    allowlist=self.__class__.mcp_allowlist,
+                    executor=self.__class__.mcp_executor,
                     rate_limiter=self.__class__.agent_tools_rate_limiter,
                     notification_store=self.__class__.notification_store,
                 )
@@ -946,6 +984,9 @@ def run_server(
         base_url=resolved_config.agent_tools_dispatcher_url,
         token=resolved_config.agent_tools_dispatcher_token,
     )
+    ControlPlaneHandler.mcp_enabled = resolved_config.mcp_enabled
+    ControlPlaneHandler.mcp_allowlist = parse_mcp_allowlist(resolved_config.mcp_allowlist)
+    ControlPlaneHandler.mcp_executor = MCPExecutor()
     ControlPlaneHandler.deep_research_budgets = DeepResearchBudgets(
         max_subqueries=resolved_config.deep_research_max_subqueries,
         top_k=resolved_config.deep_research_top_k,

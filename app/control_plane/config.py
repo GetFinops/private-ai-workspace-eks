@@ -50,6 +50,10 @@ class ControlPlaneConfig:
     deep_research_max_subqueries: int = 4
     deep_research_top_k: int = 5
     deep_research_wall_clock_seconds: float = 90.0
+    # MCP integration (M12). Disabled by default (operator kill-switch).
+    # MCP_ALLOWLIST is JSON: {"<tenant>": ["<server>", ...]} — deny by default.
+    mcp_enabled: bool = False
+    mcp_allowlist: str | None = None
     # Agent loop (M11 follow-up). Shares the agent_tools kill-switch and
     # allow-list; additionally requires inference to be configured (cold → 503).
     # Budgets are server-enforced and never client/model settable.
@@ -100,6 +104,8 @@ class ControlPlaneConfig:
             deep_research_max_subqueries=int(values.get("DEEP_RESEARCH_MAX_SUBQUERIES", "4") or "4"),
             deep_research_top_k=int(values.get("DEEP_RESEARCH_TOP_K", "5") or "5"),
             deep_research_wall_clock_seconds=float(values.get("DEEP_RESEARCH_WALL_CLOCK_SECONDS", "90") or "90"),
+            mcp_enabled=values.get("MCP_ENABLED", "false").lower() == "true",
+            mcp_allowlist=_clean(values.get("MCP_ALLOWLIST")),
             auth=AuthSettings(
                 issuer_url=_clean(values.get("AUTH_ISSUER_URL")),
                 audience=_clean(values.get("AUTH_AUDIENCE")),

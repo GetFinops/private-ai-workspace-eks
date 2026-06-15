@@ -39,6 +39,10 @@ config:
   # an app-namespace Secret (created out-of-band, like the HF token).
   agentToolsDispatcherUrl: "http://tool-runner-dispatcher.agent-jobs.svc.cluster.local:8090"
   agentToolsDispatcherTokenSecret: "tool-runner-dispatcher-token"
+  # M12 MCP: enable with the pure stub server allow-listed for tenant-a.test.
+  # bob@tenant-b.test is intentionally NOT listed → cross-tenant denial coverage.
+  mcpEnabled: true
+  mcpAllowlist: '{"tenant-a.test":["stub"]}'
 
 metrics:
   enabled: true
