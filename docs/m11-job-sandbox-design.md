@@ -117,6 +117,32 @@ dispatcher token, (e) the control plane retaining **zero** K8s RBAC. Recorded in
 - Dispatcher rejects unauthenticated / wrong-namespace callers.
 - **Live dev validation needs no GPU** — Jobs run on CPU nodes.
 
+## Deployment prerequisite — NetworkPolicy enforcement (live finding)
+
+Dev live validation (2026-06-15) confirmed the **credential** isolation
+end-to-end: the runner pod has **no ServiceAccount token mounted** and **no AWS
+credentials in its environment**, and the control plane holds zero Kubernetes
+privileges. The end-to-end path (control plane → dispatcher → Job → result →
+reap) works.
+
+However, the **network** isolation (default-deny egress, IMDS unreachable) is
+expressed as a `NetworkPolicy`, and **the current dev cluster's CNI does not
+enforce NetworkPolicy** — a probe pod with the runner's identity could still
+reach `169.254.169.254` (IMDS) and the internet. The shipped first tool is
+pure-compute and uses no network, so it is unaffected; but this is a **hard
+prerequisite before any egress-capable or IMDS-sensitive Job tool ships**:
+
+- enable VPC CNI NetworkPolicy enforcement (or a policy-enforcing CNI), **and/or**
+- set the node IMDS hop limit to 1 (`HttpPutResponseHopLimit=1`) so pods cannot
+  reach the instance metadata service and steal the node role.
+
+Tracked as issue #36. Until it is in place, the Job sandbox is limited to
+pure-compute tools (no `executor: "job"` tool may use network).
+
+Pipeline note: dev validation deployed the `tool-runner` chart via direct
+`helm`; adding a `deploy_tool_runner` step (with shared-token secret management)
+to the Deploy workflow is a small follow-up.
+
 ## Non-goals / unchanged red lines
 Per-call ephemeral Jobs only (no daemons). Arbitrary shell / unrestricted egress
 stay excluded by default. The subprocess sandbox remains the default for
