@@ -558,6 +558,30 @@ and its in-cluster Kubernetes client are original stdlib-only control-plane
 code.
 
 ────────────────────────────────────────────────────────────────────────────────
+M11 deep-research adoption decision
+────────────────────────────────────────────────────────────────────────────────
+
+The optional M11 "deep-research" sub-feature (docs/m11-followups/02-deep-research.md)
+is a multi-step agent workflow (plan → retrieve → synthesize). The milestone
+requires a separate adoption decision here, plus an Apache-2.0 attribution
+checkpoint IF upstream code is adapted.
+
+Decision: ADOPTED, implemented as ORIGINAL control-plane code. NO upstream
+"deep-research" source is vendored or adapted — the controller is written from
+scratch over the already-reviewed M11 agent loop (docs/m11-agent-loop-design.md)
+and the existing M10 retrieval store. Therefore the Apache-2.0 attribution
+checkpoint is N/A (nothing to attribute); no third-party agent/runtime framework
+is introduced.
+
+Constraints (carried, not relaxed): runs only when the tenant is allow-listed
+for the "deep_research" capability (deny by default); shares the operator
+kill-switch (AGENT_TOOLS_ENABLED) and refuses cleanly when inference is cold;
+server-enforced budgets (sub-query count, top-k, wall-clock, tokens); retrieval
+is the tenant's OWN corpus via the M10 store (per-tenant isolation, no bypass);
+audit/telemetry/notifications carry shape + run id only — never the question,
+retrieved passages, or the synthesized answer (M5 content policy).
+
+────────────────────────────────────────────────────────────────────────────────
 Vector-storage decision record (M3 deferral)
 ────────────────────────────────────────────────────────────────────────────────
 
