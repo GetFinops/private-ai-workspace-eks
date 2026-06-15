@@ -14,7 +14,7 @@ sandbox — none of them relax it.
 | --- | --- | --- | --- | --- | --- |
 | 1 | [Agent loop](01-agent-loop.md) | **shipped; e2e pending GPU** | LLM-driven plan→act→observe loop that selects and calls tools | M4 inference plane (vLLM on GPU) | prompt-injection driving tool selection |
 | 2 | [Deep-research](02-deep-research.md) | planned | Multi-step research agent (plan → retrieve → synthesize) | #1 + M10 retrieval | Apache-2.0 provenance; longer autonomous runs |
-| 3 | [Job sandbox](03-job-sandbox.md) | planned | Per-call Kubernetes-Job isolation for IO-capable tools | EKS + per-tenant RBAC | tools that need scoped network/FS at all |
+| 3 | [Job sandbox](03-job-sandbox.md) | **shipped (pure-compute); egress gated on #36** | Per-call Kubernetes-Job isolation for IO-capable tools | EKS + per-tenant RBAC | tools that need scoped network/FS at all |
 
 ## Sequencing
 
