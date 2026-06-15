@@ -1,0 +1,41 @@
+# tool-runner (M11 Job-sandbox) chart values.
+#
+# The dispatcher runs from the SAME image as the control plane (it shares
+# app/dispatcher + app/sandbox); set image.repository/tag to the control-plane
+# ECR image at deploy time.
+
+# Namespace that holds the dispatcher and the runner Jobs. Created by the chart.
+jobsNamespace: agent-jobs
+
+# Namespace the control plane runs in — the ONLY source allowed to reach the
+# dispatcher (NetworkPolicy ingress).
+controlPlaneNamespace: app
+
+image:
+  repository: ""          # control-plane ECR image
+  tag: "latest"
+  pullPolicy: Always
+
+dispatcher:
+  replicaCount: 1
+  port: 8090
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 250m, memory: 128Mi }
+
+# Shared bearer token the control plane uses to call the dispatcher. Provided at
+# deploy time (also set as AGENT_TOOLS_DISPATCHER_TOKEN on the control plane).
+# Stored in a Secret in the jobs namespace.
+sharedToken: ""
+
+# Locked-down runner Job parameters (the dispatcher renders the fixed template).
+runner:
+  serviceAccountName: agent-tool-runner
+  cpuLimit: "500m"
+  memoryLimit: "256Mi"
+  deadlineSeconds: 30
+  ttlSeconds: 120
+
+# NetworkPolicy: default-deny for runner pods + DNS for the dispatcher only.
+networkPolicy:
+  enabled: true

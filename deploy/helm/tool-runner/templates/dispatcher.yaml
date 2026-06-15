@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tool-runner-dispatcher
+  namespace: {{ .Values.jobsNamespace }}
+  labels:
+    app.kubernetes.io/name: tool-runner-dispatcher
+spec:
+  replicas: {{ .Values.dispatcher.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tool-runner-dispatcher
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tool-runner-dispatcher
+    spec:
+      serviceAccountName: tool-runner-dispatcher
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dispatcher
+          image: "{{ required "image.repository is required" .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python3", "-m", "app.dispatcher"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.dispatcher.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.dispatcher.port | quote }}
+            - name: JOBS_NAMESPACE
+              value: {{ .Values.jobsNamespace | quote }}
+            - name: RUNNER_IMAGE
+              value: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+            - name: RUNNER_SERVICE_ACCOUNT
+              value: {{ .Values.runner.serviceAccountName | quote }}
+            - name: RUNNER_CPU_LIMIT
+              value: {{ .Values.runner.cpuLimit | quote }}
+            - name: RUNNER_MEMORY_LIMIT
+              value: {{ .Values.runner.memoryLimit | quote }}
+            - name: RUNNER_DEADLINE_SECONDS
+              value: {{ .Values.runner.deadlineSeconds | quote }}
+            - name: RUNNER_TTL_SECONDS
+              value: {{ .Values.runner.ttlSeconds | quote }}
+            - name: DISPATCHER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: tool-runner-dispatcher-token
+                  key: DISPATCHER_TOKEN
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.dispatcher.resources | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 16Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tool-runner-dispatcher
+  namespace: {{ .Values.jobsNamespace }}
+  labels:
+    app.kubernetes.io/name: tool-runner-dispatcher
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: tool-runner-dispatcher
+  ports:
+    - name: http
+      port: {{ .Values.dispatcher.port }}
+      targetPort: http

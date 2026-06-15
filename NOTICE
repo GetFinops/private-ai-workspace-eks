@@ -524,6 +524,40 @@ Provenance: no third-party agent framework is vendored; the loop is original
 control-plane code over the existing inference client.
 
 ────────────────────────────────────────────────────────────────────────────────
+M11 Job-sandbox design sign-off
+────────────────────────────────────────────────────────────────────────────────
+
+The M11 Job-sandbox follow-up (docs/m11-followups/03-job-sandbox.md) adds a
+SECOND, stronger executor for IO-capable tools — a per-call Kubernetes Job — and
+is an AGENTS.md escalation trigger (it introduces a component that can create
+pods). Reviewed and signed off before implementation.
+
+Design: docs/m11-job-sandbox-design.md (a DELTA on the reviewed subprocess
+sandbox; the subprocess sandbox stays the default for pure-compute tools and is
+NOT relaxed). An earlier draft that granted the control-plane ServiceAccount
+Job-create RBAC was REJECTED at review for blast radius. The signed-off design
+uses the TIGHTER privilege model: the internet-facing control plane keeps ZERO
+Kubernetes privileges; Job creation is isolated in a small, non-user-facing
+tool-runner dispatcher (its own `agent-jobs` namespace, ingress restricted to
+the control-plane namespace + a shared token) that owns a FIXED, locked-down pod
+template the control plane cannot influence. The runner Job is unprivileged: a
+dedicated SA with NO IRSA and automountServiceAccountToken=false, runAsNonRoot,
+read-only rootfs, dropped capabilities, default-deny NetworkPolicy (IMDS/egress
+blocked), scoped emptyDir, activeDeadlineSeconds, backoffLimit=0, and
+ttlSecondsAfterFinished.
+
+Sign-off: approved for this increment with the tighter model. The first
+Job-backed tool is a pure-compute demonstrator (no real network egress) so the
+isolation mechanics can be validated without opening egress. Network-egress /
+filesystem-writing-beyond-the-scoped-volume / credential-access tools remain
+EXCLUDED by default and require, per tool, an egress allow-list and their own
+review. The control plane gains NO Kubernetes RBAC.
+
+Provenance: no third-party agent/runtime framework is vendored; the dispatcher
+and its in-cluster Kubernetes client are original stdlib-only control-plane
+code.
+
+────────────────────────────────────────────────────────────────────────────────
 Vector-storage decision record (M3 deferral)
 ────────────────────────────────────────────────────────────────────────────────
 

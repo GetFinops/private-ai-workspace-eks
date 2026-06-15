@@ -1,0 +1,34 @@
+# deploy/values/dev/tool-runner.yaml
+# M11 Job-sandbox dispatcher overrides for dev.
+#
+# Usage:
+#   helm upgrade --install tool-runner deploy/helm/tool-runner \
+#     --set image.repository=<CONTROL_PLANE_ECR_URL> \
+#     --set image.tag=<GIT_SHA> \
+#     --set sharedToken=<TOKEN> \
+#     -f deploy/values/dev/tool-runner.yaml
+#
+# The dispatcher runs from the control-plane image (shares app/dispatcher +
+# app/sandbox). sharedToken must match the DISPATCHER_TOKEN Secret the control
+# plane reads in the app namespace.
+
+jobsNamespace: agent-jobs
+controlPlaneNamespace: app
+
+image:
+  tag: "latest"        # set to the GIT_SHA at deploy time
+  pullPolicy: Always
+
+dispatcher:
+  replicaCount: 1
+  port: 8090
+
+runner:
+  serviceAccountName: agent-tool-runner
+  cpuLimit: "500m"
+  memoryLimit: "256Mi"
+  deadlineSeconds: 30
+  ttlSeconds: 120
+
+networkPolicy:
+  enabled: true

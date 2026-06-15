@@ -33,6 +33,12 @@ def _text_stats(arguments: dict) -> dict:
 # name -> spec. `schema` is the minimal declarative argument contract the
 # control plane validates before spawning; `run` is the pure executor the
 # runner invokes inside the sandbox.
+#   `executor` — which sandbox backend runs the tool:
+#     "subprocess" (default) — out-of-process child of the control plane; correct
+#       for pure compute;
+#     "job" — a per-call Kubernetes Job via the tool-runner dispatcher (M11
+#       Job-sandbox); stronger isolation for tools needing a filesystem
+#       workspace or allow-listed egress. Both run this same pure registry.
 TOOLS: dict[str, dict] = {
     "text_stats": {
         "description": "Return character, word, and line counts for a text string.",
@@ -40,9 +46,27 @@ TOOLS: dict[str, dict] = {
             "text": {"type": "string", "required": True, "max_len": _MAX_TEXT},
         },
         "run": _text_stats,
+        "executor": "subprocess",
+    },
+    # Pure-compute demonstrator for the Job-sandbox path: identical logic to
+    # text_stats but routed through a Kubernetes Job, so the isolation mechanics
+    # (no creds, default-deny network, ephemeral FS, reaping) can be validated
+    # without introducing a real IO/egress tool.
+    "text_stats_job": {
+        "description": "Like text_stats, but executed in an isolated Kubernetes Job.",
+        "schema": {
+            "text": {"type": "string", "required": True, "max_len": _MAX_TEXT},
+        },
+        "run": _text_stats,
+        "executor": "job",
     },
 }
 
 
 def tool_names() -> list[str]:
     return sorted(TOOLS.keys())
+
+
+def tool_executor(name: str) -> str:
+    """Return the executor backend for a tool ("subprocess" | "job")."""
+    return TOOLS.get(name, {}).get("executor", "subprocess")

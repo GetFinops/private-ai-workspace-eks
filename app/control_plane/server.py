@@ -84,6 +84,7 @@ from app.control_plane.agent_loop import (
     AgentLoopBudgets,
     build_agent_run_response,
 )
+from app.control_plane.job_executor import DispatcherJobExecutor
 from app.control_plane.embeddings import (
     DeterministicEmbeddingClient,
     EmbeddingClient,
@@ -418,6 +419,9 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     # needs an inference client (None when inference is unconfigured → 503).
     agent_loop_budgets: AgentLoopBudgets = AgentLoopBudgets()
     agent_loop_inference_client: object | None = None
+    # Job-sandbox dispatcher client; None/unconfigured → job-backed tools
+    # are unavailable (subprocess tools unaffected).
+    agent_tools_job_executor: object | None = None
 
     # ── Request lifecycle ──────────────────────────────────────────────────────
 
@@ -573,6 +577,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     executor=self.__class__.agent_tools_executor,
                     rate_limiter=self.__class__.agent_tools_rate_limiter,
                     notification_store=self.__class__.notification_store,
+                    job_executor=self.__class__.agent_tools_job_executor,
                 )
                 return Response(status, payload)
 
@@ -588,6 +593,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     inference_client=self.__class__.agent_loop_inference_client,
                     budgets=self.__class__.agent_loop_budgets,
                     notification_store=self.__class__.notification_store,
+                    job_executor=self.__class__.agent_tools_job_executor,
                 )
                 return Response(status, payload)
 
@@ -912,6 +918,10 @@ def run_server(
         )
         if resolved_config.inference_base_url
         else None
+    )
+    ControlPlaneHandler.agent_tools_job_executor = DispatcherJobExecutor(
+        base_url=resolved_config.agent_tools_dispatcher_url,
+        token=resolved_config.agent_tools_dispatcher_token,
     )
     if resolved_config.agent_tools_enabled:
         logger.info(

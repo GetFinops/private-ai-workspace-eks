@@ -43,6 +43,15 @@ spec:
             - secretRef:
                 name: {{ .Values.externalSecrets.existingSecret }}
             {{- end }}
+          {{- if .Values.config.agentToolsDispatcherTokenSecret }}
+          env:
+            # Shared bearer token for the M11 tool-runner dispatcher (Job-sandbox).
+            - name: AGENT_TOOLS_DISPATCHER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.config.agentToolsDispatcherTokenSecret }}
+                  key: DISPATCHER_TOKEN
+          {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

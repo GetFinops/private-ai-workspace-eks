@@ -46,7 +46,7 @@ from app.control_plane.notifications import (
     _verify_and_extract,
 )
 from app.control_plane.token_verifier import TokenVerifier
-from app.sandbox.tools import TOOLS
+from app.sandbox.tools import TOOLS, tool_executor
 
 logger = logging.getLogger(__name__)
 
@@ -300,11 +300,15 @@ def build_tool_invoke_response(
     executor: SandboxExecutor,
     rate_limiter: RateLimiter,
     notification_store: NotificationStore | None = None,
+    job_executor=None,
 ) -> tuple[int, dict]:
     """Handle POST /v1/agent/tools/invoke.
 
     Body: {"tool": "<name>", "arguments": {...}}. The tool runs only if the
-    caller's tenant allow-lists it; execution is sandboxed and audited.
+    caller's tenant allow-lists it; execution is sandboxed and audited. Tools
+    flagged executor="job" run via the tool-runner dispatcher (job_executor);
+    all others run in the in-process subprocess sandbox. Authorization, kill-
+    switch, rate limit, and audit are identical for both backends.
     """
     claims, err = _verify_and_extract(authorization, token_verifier)
     if err is not None:
@@ -365,8 +369,16 @@ def build_tool_invoke_response(
         }
 
     started = time.monotonic()
+    run_id = str(uuid.uuid4())
     try:
-        outcome = executor.execute(tool, arguments)
+        if tool_executor(tool) == "job":
+            outcome = (
+                job_executor.execute(tool, arguments, tenant_id=tenant_id, run_id=run_id)
+                if job_executor is not None
+                else SandboxOutcome("tool_error")
+            )
+        else:
+            outcome = executor.execute(tool, arguments)
     finally:
         rate_limiter.release()
     latency_ms = int((time.monotonic() - started) * 1000)

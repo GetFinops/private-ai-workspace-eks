@@ -96,7 +96,7 @@ if [[ "${LOCAL_MODE}" -eq 1 ]]; then
   # text_stats stub tool, so both the success and denial paths are exercisable.
   ENVIRONMENT=development DEV_AUTH_TOKEN="${DEV_TOKEN}" PORT="${PORT}" \
     AGENT_TOOLS_ENABLED=true \
-    AGENT_TOOLS_ALLOWLIST='{"localhost":["text_stats"]}' \
+    AGENT_TOOLS_ALLOWLIST='{"localhost":["text_stats","text_stats_job"]}' \
     python3 -m app.control_plane >"${SERVER_LOG}" 2>&1 &
   SERVER_PID=$!
 fi
@@ -402,6 +402,17 @@ if [[ "${RUN_AUTH}" -eq 1 ]]; then
   req POST /v1/agent/tools/invoke "${TOKEN}" '{"tool":"text_stats","arguments":{"text":"hello world\nsecond line"}}'
   expect_status "invoke text_stats (allow-listed) → 200" 200
   if [[ "$(tool_result_ok)" == "yes" ]]; then pass "sandboxed tool returned a text_stats result"; else flunk "invoke did not return a success result_class + stats"; fi
+
+  # M11 Job-sandbox: a job-executor tool routes to the tool-runner dispatcher.
+  # End-to-end needs the dispatcher + cluster; with none wired it must degrade
+  # cleanly (502 tool_error), never 500/crash. The Job isolation guarantees are
+  # unit-covered in tests/test_job_sandbox.py and validated live on dev.
+  req POST /v1/agent/tools/invoke "${TOKEN}" '{"tool":"text_stats_job","arguments":{"text":"hi"}}'
+  if [[ "${LOCAL_MODE}" -eq 1 ]]; then
+    expect_status "invoke job-tool, no dispatcher → 502 (clean)" 502
+  else
+    expect_status_in "invoke job-tool (200 wired / 502 unwired)" "200 502"
+  fi
 
   req POST /v1/agent/tools/invoke "${TOKEN}" '{"tool":"shell","arguments":{"cmd":"id"}}'
   expect_status "invoke non-allow-listed tool (deny-by-default) → 403" 403
