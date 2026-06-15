@@ -1,0 +1,64 @@
+{{- if .Values.integrationsFixture.enabled }}
+# M13 dev-only synthetic loopback fixture — a fake in-cluster calendar provider
+# for validating the integration harness. NOT part of the default build; guarded
+# by integrationsFixture.enabled (default false). Never enable outside dev.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "private-ai-workspace.fullname" . }}-loopback-fixture
+  labels:
+    app.kubernetes.io/name: {{ include "private-ai-workspace.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: integrations-fixture
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "private-ai-workspace.name" . }}
+      app.kubernetes.io/component: integrations-fixture
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "private-ai-workspace.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: integrations-fixture
+    spec:
+      containers:
+        - name: loopback-fixture
+          image: {{ .Values.integrationsFixture.image | default (printf "%s:%s" .Values.image.repository .Values.image.tag) | quote }}
+          command: ["python3", "-m", "app.integration_fixtures.loopback_server"]
+          env:
+            - name: PORT
+              value: {{ .Values.integrationsFixture.port | quote }}
+            - name: LOOPBACK_TOKEN
+              value: {{ .Values.integrationsFixture.token | quote }}
+          ports:
+            - containerPort: {{ .Values.integrationsFixture.port }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.integrationsFixture.port }}
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "private-ai-workspace.fullname" . }}-loopback-fixture
+  labels:
+    app.kubernetes.io/name: {{ include "private-ai-workspace.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: integrations-fixture
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "private-ai-workspace.name" . }}
+    app.kubernetes.io/component: integrations-fixture
+  ports:
+    - port: {{ .Values.integrationsFixture.port }}
+      targetPort: {{ .Values.integrationsFixture.port }}
+{{- end }}

@@ -22,8 +22,19 @@ maintainer adoption per integration (see the Decision Checklist in the
 Phase 2 doc) and explicit credential-handling review before any individual
 integration ships.
 
-Shared-harness plan + open escalation (decisions A–C, awaiting maintainer
-sign-off): [`../m13-shared-harness-escalation.md`](../m13-shared-harness-escalation.md).
+Shared-harness plan + escalation (decisions A–C, signed off in `NOTICE`):
+[`../m13-shared-harness-escalation.md`](../m13-shared-harness-escalation.md) and
+[`../m13-followups/00-build-plan.md`](../m13-followups/00-build-plan.md).
+
+**Shared harness: delivered.** Build-tasks #2–#6 (the reusable machinery — URL
+guard, per-tenant Secrets Manager resolver + scoped IRSA, deny-by-default
+allow-list, operator + per-tenant kill-switches, shape-only audit) shipped as
+original code and validated end-to-end in the local smoke against a synthetic
+loopback fixture (`./scripts/smoke-test.sh --integrations`). The dev-cluster run
+against real Secrets Manager/IRSA remains the maintainer step. **No real
+provider is adopted** — build-task #1 (pick the first calendar/mail/contacts
+integration) is a separate per-integration decision with its own credential
+review.
 
 ## Objective
 

@@ -44,3 +44,18 @@ data:
   MCP_ALLOWLIST: {{ .Values.config.mcpAllowlist | quote }}
   {{- end }}
   {{- end }}
+  {{- if .Values.config.integrationsEnabled }}
+  # M13 personal-information integrations. Deny-by-default; credentials resolved
+  # per tenant from Secrets Manager via IRSA; all egress through the URL guard.
+  INTEGRATIONS_ENABLED: "true"
+  {{- if .Values.config.integrationsAllowlist }}
+  INTEGRATIONS_ALLOWLIST: {{ .Values.config.integrationsAllowlist | quote }}
+  {{- end }}
+  INTEGRATIONS_RATE_PER_MINUTE: {{ .Values.config.integrationsRatePerMinute | default 30 | quote }}
+  INTEGRATIONS_MAX_CONCURRENCY: {{ .Values.config.integrationsMaxConcurrency | default 4 | quote }}
+  INTEGRATIONS_OUTBOUND_TIMEOUT_S: {{ .Values.config.integrationsOutboundTimeoutS | default 10 | quote }}
+  {{- if .Values.integrationsFixture.enabled }}
+  # Dev-only synthetic fixture (never enable outside dev).
+  INTEGRATIONS_FIXTURE_URL: {{ printf "http://%s-loopback-fixture:%v" (include "private-ai-workspace.fullname" .) .Values.integrationsFixture.port | quote }}
+  {{- end }}
+  {{- end }}

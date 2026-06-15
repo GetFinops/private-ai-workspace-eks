@@ -90,3 +90,17 @@ CREATE TABLE IF NOT EXISTS memories (
 CREATE INDEX IF NOT EXISTS idx_memories_user
     ON memories (tenant_id, user_id, created_at DESC);
 
+-- Migration 0005: per-tenant integration operator switch (M13)
+-- Operator per-tenant disable for personal-information integrations, distinct
+-- from the deny-by-default allow-list. Default-enabled: absence of a row means
+-- enabled; a row with enabled = FALSE switches a tenant off cluster-side
+-- (incident response, abuse) without editing the allow-list. Carries no
+-- credentials or content — tenant + integration name + flag + timestamp only.
+CREATE TABLE IF NOT EXISTS integration_tenant_state (
+    tenant_id   TEXT        NOT NULL,
+    integration TEXT        NOT NULL,
+    enabled     BOOLEAN     NOT NULL DEFAULT TRUE,
+    updated_at  TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (tenant_id, integration)
+);
+

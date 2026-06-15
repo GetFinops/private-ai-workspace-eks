@@ -166,6 +166,42 @@ class TestDnsFailure(unittest.TestCase):
         self.assertEqual(cm.exception.reason, outbound.REJECT_DNS)
 
 
+class TestPermitHosts(unittest.TestCase):
+    def test_private_ip_allowed_for_permitted_host(self):
+        # An explicitly trusted host (the dev fixture) may resolve to a private IP.
+        with _resolve("10.0.0.5"):
+            target = _validate(
+                "https://api.example.com/x",
+                permit_hosts=frozenset({"api.example.com"}),
+            )
+        self.assertEqual(target.ip, "10.0.0.5")
+
+    def test_loopback_allowed_for_permitted_host(self):
+        with _resolve("127.0.0.1"):
+            target = _validate(
+                "http://localhost.fixture/x",
+                allow_http=True,
+                permit_hosts=frozenset({"localhost.fixture"}),
+            )
+        self.assertEqual(target.ip, "127.0.0.1")
+
+    def test_metadata_never_waived_even_when_permitted(self):
+        # The cloud-metadata block is absolute; permit_hosts cannot waive it.
+        with _resolve("169.254.169.254"):
+            with self.assertRaises(OutboundReject) as cm:
+                _validate(
+                    "https://api.example.com/x",
+                    permit_hosts=frozenset({"api.example.com"}),
+                )
+        self.assertEqual(cm.exception.reason, outbound.REJECT_METADATA)
+
+    def test_unpermitted_host_still_blocked(self):
+        with _resolve("10.0.0.5"):
+            with self.assertRaises(OutboundReject) as cm:
+                _validate("https://api.example.com/x")  # no permit_hosts
+        self.assertEqual(cm.exception.reason, outbound.REJECT_PRIVATE_IP)
+
+
 class TestResponseShape(unittest.TestCase):
     def test_result_class_is_coarse(self):
         self.assertEqual(outbound.OutboundResponse(204, {}, b"").result_class, "2xx")

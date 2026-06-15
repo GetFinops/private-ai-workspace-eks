@@ -63,6 +63,15 @@ class ControlPlaneConfig:
     integrations_rate_per_minute: int = 30
     integrations_max_concurrency: int = 4
     integrations_outbound_timeout_s: float = 10.0
+    # Dev-only: when set, registers the synthetic loopback fixture integration
+    # pointing at this base URL. Leave unset in staging/production (the registry
+    # is empty there until a real integration is adopted).
+    integrations_fixture_url: str | None = None
+    # Dev-only: a fixture credential supplied directly (development environment
+    # only) so the loopback smoke can exercise the full credentialed round-trip
+    # without AWS Secrets Manager. Production resolves credentials ONLY through
+    # Secrets Manager/IRSA — this field is ignored outside development.
+    integrations_fixture_token: str | None = None
     # Agent loop (M11 follow-up). Shares the agent_tools kill-switch and
     # allow-list; additionally requires inference to be configured (cold → 503).
     # Budgets are server-enforced and never client/model settable.
@@ -120,6 +129,8 @@ class ControlPlaneConfig:
             integrations_rate_per_minute=int(values.get("INTEGRATIONS_RATE_PER_MINUTE", "30") or "30"),
             integrations_max_concurrency=int(values.get("INTEGRATIONS_MAX_CONCURRENCY", "4") or "4"),
             integrations_outbound_timeout_s=float(values.get("INTEGRATIONS_OUTBOUND_TIMEOUT_S", "10") or "10"),
+            integrations_fixture_url=_clean(values.get("INTEGRATIONS_FIXTURE_URL")),
+            integrations_fixture_token=_clean(values.get("INTEGRATIONS_FIXTURE_TOKEN")),
             auth=AuthSettings(
                 issuer_url=_clean(values.get("AUTH_ISSUER_URL")),
                 audience=_clean(values.get("AUTH_AUDIENCE")),

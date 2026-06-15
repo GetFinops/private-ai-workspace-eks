@@ -29,7 +29,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from http import HTTPStatus
-from typing import Callable, Protocol
+from typing import Callable, Protocol, runtime_checkable
 
 from app.control_plane.agent_tools import RateLimiter, _audit, is_allowed
 from app.control_plane.notifications import (
@@ -96,6 +96,7 @@ class UnknownOperation(Exception):
 # ── Per-tenant operator disable ───────────────────────────────────────────────
 
 
+@runtime_checkable
 class TenantIntegrationState(Protocol):
     """Operator per-tenant switch. Default is enabled; a record disables.
 
@@ -124,6 +125,46 @@ class InMemoryTenantIntegrationState:
 
     def is_enabled(self, tenant_id: str, integration: str) -> bool:
         return (tenant_id, integration) not in self._disabled
+
+
+class PostgresTenantIntegrationState:
+    """Production tenant state backed by the integration_tenant_state table.
+
+    Default-enabled: a tenant is enabled for an integration unless a row exists
+    with enabled = FALSE. Safe for multi-replica deployments (state in the DB,
+    not process memory). Mirrors the PostgresSessionStore connection model.
+    """
+
+    def __init__(self, pool: object) -> None:
+        self._pool = pool
+
+    def is_enabled(self, tenant_id: str, integration: str) -> bool:
+        with self._pool.connection() as conn:  # type: ignore[union-attr]
+            row = conn.execute(
+                "SELECT enabled FROM integration_tenant_state "
+                "WHERE tenant_id = %s AND integration = %s",
+                (tenant_id, integration),
+            ).fetchone()
+        return True if row is None else bool(row[0])
+
+    def _set(self, tenant_id: str, integration: str, enabled: bool) -> None:
+        from app.control_plane.notifications import _now_utc
+
+        with self._pool.connection() as conn:  # type: ignore[union-attr]
+            conn.execute(
+                "INSERT INTO integration_tenant_state "
+                "(tenant_id, integration, enabled, updated_at) VALUES (%s, %s, %s, %s) "
+                "ON CONFLICT (tenant_id, integration) "
+                "DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = EXCLUDED.updated_at",
+                (tenant_id, integration, enabled, _now_utc()),
+            )
+            conn.commit()
+
+    def disable(self, tenant_id: str, integration: str) -> None:
+        self._set(tenant_id, integration, False)
+
+    def enable(self, tenant_id: str, integration: str) -> None:
+        self._set(tenant_id, integration, True)
 
 
 # ── Executor ──────────────────────────────────────────────────────────────────
@@ -186,11 +227,15 @@ class IntegrationExecutor:
             return IntegrationOutcome("upstream_error")
 
         # The single chokepoint: validate + pin before any byte leaves the pod.
+        # permit_hosts is empty for every real integration; only the dev loopback
+        # fixture sets it (to reach an in-cluster private IP). The metadata block
+        # is never waived by it.
         try:
             target = validate_outbound_url(
                 request.url,
                 allowed_hosts=spec.allowed_hosts,
                 allow_http=request.allow_http,
+                permit_hosts=getattr(spec, "permit_private_hosts", frozenset()),
             )
         except OutboundReject as rej:
             return IntegrationOutcome(f"blocked:{rej.reason}")

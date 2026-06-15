@@ -624,3 +624,46 @@ Rationale:
 Escalation: the vector-storage strategy requires maintainer review before
 adoption, per the M3 escalation triggers.  A recommendation will be brought
 to review at the start of M4.
+
+────────────────────────────────────────────────────────────────────────────────
+M13 shared-harness adoption decision
+────────────────────────────────────────────────────────────────────────────────
+
+M13 (docs/milestones/m13-personal-info-integrations.md) adds optional personal-
+information integrations. This record covers the SHARED HARNESS only (milestone
+build-tasks #2–#6); each real integration is a separate per-integration adoption
++ credential review. Design + escalation: docs/m13-shared-harness-escalation.md
+(decisions A–C) and docs/m13-followups/00-build-plan.md.
+
+Decision: the M13 shared harness is ADOPTED, implemented as ORIGINAL control-
+plane code. No upstream integration code is vendored (the upstream CardDAV-class
+URL/credential handling flagged in 02-review-summary.md is specifically NOT
+ported).
+
+- Outbound calls route through a new stdlib URL-validation layer
+  (app/control_plane/outbound.py), designated the M3 hardened layer of record
+  (Decision A): https-only, deny-by-default host allow-list, resolve-then-pin
+  against DNS rebinding, private/loopback/link-local/reserved + the cloud
+  metadata IPs (169.254.169.254 / fd00:ec2::254, incl. IPv4-mapped) blocked. A
+  narrow opt-in permit_hosts waives ONLY the private-IP class for an explicitly
+  trusted in-cluster host (the dev fixture); the metadata block is never waived.
+- Per-tenant credentials are resolved at runtime from AWS Secrets Manager via
+  IRSA (app/control_plane/integration_secrets.py; boto3 behind an injected
+  interface, already present via app/storage/s3.py), scoped to
+  <project>/<env>/integrations/<tenant>/<integration>[/<user>] — the IRSA grant
+  is prefix-scoped to .../integrations/* (Decision B), no blanket secret access.
+  Production resolves ONLY through Secrets Manager; a development-only fixture
+  token path is gated to ENVIRONMENT=development.
+- Access is deny-by-default per tenant (INTEGRATIONS_ALLOWLIST); an operator
+  kill-switch (INTEGRATIONS_ENABLED) disables it cluster-wide; a per-tenant DB
+  switch (integration_tenant_state) disables it per tenant. Audit is shape-only
+  (host, method, response class, latency, decision, reject-reason — never URL
+  path/query, params, or credentials). A dedicated rate/concurrency limiter is
+  used (not the agent-tools budget).
+
+Per-integration records: the ONLY integration shipped in this increment is a
+synthetic LOOPBACK FIXTURE (app/integration_fixtures/, fake in-cluster calendar
+server) plus a blocked_probe used solely to dev-validate the harness — no real
+provider, no real credentials. Any real integration (calendar/contacts/mail) is
+a separate adoption decision (Decision C) with its own NOTICE record, SDK
+licensing review, and credential-handling security review (milestone task #6).
