@@ -875,7 +875,12 @@ def _build_integration_secret_resolver(config: ControlPlaneConfig):
             "production resolves via AWS Secrets Manager/IRSA."
         )
         return _dev_fixture_resolver
-    return make_secrets_manager_resolver(config.environment)
+    # Secret ids are built under the infra environment token (e.g. "dev"), which
+    # may differ from the app's ENVIRONMENT ("development"); honour the override.
+    return make_secrets_manager_resolver(
+        config.integrations_secret_env or config.environment,
+        ttl_seconds=config.integrations_secret_ttl_s,
+    )
 
 
 def _build_tenant_integration_state(config: ControlPlaneConfig) -> TenantIntegrationState:
