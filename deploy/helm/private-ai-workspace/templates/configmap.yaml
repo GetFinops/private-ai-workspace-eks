@@ -54,6 +54,13 @@ data:
   INTEGRATIONS_RATE_PER_MINUTE: {{ .Values.config.integrationsRatePerMinute | default 30 | quote }}
   INTEGRATIONS_MAX_CONCURRENCY: {{ .Values.config.integrationsMaxConcurrency | default 4 | quote }}
   INTEGRATIONS_OUTBOUND_TIMEOUT_S: {{ .Values.config.integrationsOutboundTimeoutS | default 10 | quote }}
+  {{- if .Values.config.integrationsSecretEnv }}
+  # Aligns the integration secret-id prefix with the Terraform/IRSA env token.
+  INTEGRATIONS_SECRET_ENV: {{ .Values.config.integrationsSecretEnv | quote }}
+  {{- end }}
+  {{- if .Values.config.integrationsSecretTtlS }}
+  INTEGRATIONS_SECRET_TTL_S: {{ .Values.config.integrationsSecretTtlS | quote }}
+  {{- end }}
   {{- if .Values.integrationsFixture.enabled }}
   # Dev-only synthetic fixture (never enable outside dev).
   INTEGRATIONS_FIXTURE_URL: {{ printf "http://%s-loopback-fixture:%v" (include "private-ai-workspace.fullname" .) .Values.integrationsFixture.port | quote }}

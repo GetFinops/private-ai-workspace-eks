@@ -67,6 +67,16 @@ class ControlPlaneConfig:
     # pointing at this base URL. Leave unset in staging/production (the registry
     # is empty there until a real integration is adopted).
     integrations_fixture_url: str | None = None
+    # The environment token used to build integration secret ids
+    # (<project>/<secret_env>/integrations/...). Defaults to `environment`, but
+    # the platform's Secrets Manager naming uses the Terraform environment token
+    # ("dev"), which differs from the app's ENVIRONMENT ("development"); set
+    # INTEGRATIONS_SECRET_ENV to align with the IRSA-scoped prefix.
+    integrations_secret_env: str | None = None
+    # TTL (seconds) of the per-secret resolver cache. A rotated Secrets Manager
+    # value propagates within this window with no pod restart. Lower in dev for
+    # faster rotation validation.
+    integrations_secret_ttl_s: int = 300
     # Dev-only: a fixture credential supplied directly (development environment
     # only) so the loopback smoke can exercise the full credentialed round-trip
     # without AWS Secrets Manager. Production resolves credentials ONLY through
@@ -130,6 +140,8 @@ class ControlPlaneConfig:
             integrations_max_concurrency=int(values.get("INTEGRATIONS_MAX_CONCURRENCY", "4") or "4"),
             integrations_outbound_timeout_s=float(values.get("INTEGRATIONS_OUTBOUND_TIMEOUT_S", "10") or "10"),
             integrations_fixture_url=_clean(values.get("INTEGRATIONS_FIXTURE_URL")),
+            integrations_secret_env=_clean(values.get("INTEGRATIONS_SECRET_ENV")),
+            integrations_secret_ttl_s=int(values.get("INTEGRATIONS_SECRET_TTL_S", "300") or "300"),
             integrations_fixture_token=_clean(values.get("INTEGRATIONS_FIXTURE_TOKEN")),
             auth=AuthSettings(
                 issuer_url=_clean(values.get("AUTH_ISSUER_URL")),

@@ -43,6 +43,23 @@ config:
   # bob@tenant-b.test is intentionally NOT listed → cross-tenant denial coverage.
   mcpEnabled: true
   mcpAllowlist: '{"tenant-a.test":["stub"]}'
+  # M13 integrations: enable with the synthetic loopback fixture allow-listed for
+  # tenant-a.test (bob@tenant-b.test NOT listed → cross-tenant denial coverage).
+  # Credentials resolve from Secrets Manager via IRSA under the "dev" env prefix
+  # (Terraform var.environment), which differs from the app ENVIRONMENT
+  # ("development") — hence integrationsSecretEnv. Short TTL for fast rotation
+  # validation. No INTEGRATIONS_FIXTURE_TOKEN → the real Secrets Manager path is
+  # used, not the dev fixture-token shortcut.
+  integrationsEnabled: true
+  integrationsAllowlist: '{"tenant-a.test":["loopback","blocked_probe"]}'
+  integrationsSecretEnv: "dev"
+  integrationsSecretTtlS: 30
+
+# M13 dev-only synthetic loopback fixture (fake in-cluster calendar provider).
+integrationsFixture:
+  enabled: true
+  port: 8099
+  token: "dev-loopback-token"   # the fixture's expected bearer (matches the SM secret)
 
 metrics:
   enabled: true

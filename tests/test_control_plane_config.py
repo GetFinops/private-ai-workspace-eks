@@ -40,6 +40,18 @@ class ControlPlaneConfigTests(TestCase):
         self.assertEqual(config.integrations_max_concurrency, 2)
         self.assertEqual(config.integrations_outbound_timeout_s, 5.0)
 
+    def test_integrations_secret_env_and_ttl(self) -> None:
+        # Default: secret-env unset (falls back to ENVIRONMENT), TTL 300s.
+        default = ControlPlaneConfig.from_env({})
+        self.assertIsNone(default.integrations_secret_env)
+        self.assertEqual(default.integrations_secret_ttl_s, 300)
+        # Override: align the secret prefix with the Terraform env token + short TTL.
+        config = ControlPlaneConfig.from_env(
+            {"INTEGRATIONS_SECRET_ENV": "dev", "INTEGRATIONS_SECRET_TTL_S": "30"}
+        )
+        self.assertEqual(config.integrations_secret_env, "dev")
+        self.assertEqual(config.integrations_secret_ttl_s, 30)
+
     def test_readiness_requires_external_state_configuration(self) -> None:
         config = ControlPlaneConfig.from_env(
             {
