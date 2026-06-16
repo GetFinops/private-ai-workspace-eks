@@ -32,6 +32,7 @@ _FORBIDDEN_IMPORTS = frozenset({
 _M13_INTEGRATION_SOURCES = (
     "app/control_plane/integrations.py",
     "app/control_plane/integration_secrets.py",
+    "app/control_plane/integrations_google.py",
     "app/integration_fixtures",  # directory, scanned recursively if present
 )
 

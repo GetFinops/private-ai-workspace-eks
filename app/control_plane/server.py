@@ -1088,15 +1088,19 @@ def run_server(
     ControlPlaneHandler.integrations_allowlist = parse_integration_allowlist(
         resolved_config.integrations_allowlist
     )
-    # Dev-only: register the synthetic loopback fixture when its URL is set; the
-    # production registry stays empty until a real integration is adopted.
-    _fixture_registry = None
+    # Adopted real integrations are registered here; access is still deny-by-
+    # default via the per-tenant allow-list, so an unconfigured tenant reaches
+    # nothing. Google Calendar is the first adopted integration (NOTICE).
+    from app.control_plane.integrations_google import register as register_google
+
+    _registry = register_google({})
+    # Dev-only: also register the synthetic loopback fixture when its URL is set.
     if resolved_config.integrations_fixture_url:
         from app.integration_fixtures.loopback_integration import build_fixture_registry
 
-        _fixture_registry = build_fixture_registry(resolved_config.integrations_fixture_url)
+        _registry.update(build_fixture_registry(resolved_config.integrations_fixture_url))
     ControlPlaneHandler.integrations_executor = IntegrationExecutor(
-        integrations=_fixture_registry,
+        integrations=_registry,
         secret_resolver=_build_integration_secret_resolver(resolved_config),
         timeout_seconds=resolved_config.integrations_outbound_timeout_s,
     )
