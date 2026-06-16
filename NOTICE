@@ -661,9 +661,45 @@ ported).
   path/query, params, or credentials). A dedicated rate/concurrency limiter is
   used (not the agent-tools budget).
 
-Per-integration records: the ONLY integration shipped in this increment is a
-synthetic LOOPBACK FIXTURE (app/integration_fixtures/, fake in-cluster calendar
-server) plus a blocked_probe used solely to dev-validate the harness — no real
-provider, no real credentials. Any real integration (calendar/contacts/mail) is
-a separate adoption decision (Decision C) with its own NOTICE record, SDK
-licensing review, and credential-handling security review (milestone task #6).
+Per-integration records: the harness increment shipped a synthetic LOOPBACK
+FIXTURE (app/integration_fixtures/, fake in-cluster calendar server) plus a
+blocked_probe used solely to dev-validate the harness — no real provider, no real
+credentials. The harness was validated end-to-end on the dev cluster against the
+fixture over the REAL Secrets Manager/IRSA path (per-tenant credential resolution,
+SSRF block, cross-tenant denial, credential rotation without pod restart, and the
+per-tenant kill-switch). Any real integration (calendar/contacts/mail) is a
+separate adoption decision (Decision C) with its own NOTICE record, SDK licensing
+review, and credential-handling security review (milestone task #6).
+
+────────────────────────────────────────────────────────────────────────────────
+M13 Google Calendar integration (first real provider)
+────────────────────────────────────────────────────────────────────────────────
+
+The first REAL personal-information integration adopted on the M13 harness
+(Decision C). Implemented as ORIGINAL control-plane code
+(app/control_plane/integrations_google.py).
+
+Decision: ADOPTED (read-only calendar access: list events, get event).
+
+- Licensing: NO SDK vendored. Requests are plain HTTPS against the public Google
+  Calendar REST API (www.googleapis.com), so there is no third-party
+  dependency/licensing footprint to review beyond the existing stdlib + the
+  harness. Google API Terms of Service govern use of the API itself.
+- Credential model: per-tenant (per-user where configured) OAuth2 credentials are
+  resolved at request time from AWS Secrets Manager via IRSA, identical to every
+  integration — never env vars/ConfigMaps. The stored secret provides a current
+  OAuth2 access token (ACCESS_TOKEN) sent as a bearer. Refresh-token exchange
+  (minting a fresh access token via oauth2.googleapis.com) is a documented
+  FOLLOW-UP — it is itself a guarded outbound call and is out of this first
+  increment; until then the stored access token is used directly.
+- Security: the integration is a pure request builder and opens no socket; all
+  egress routes through the hardened URL guard. permit_private_hosts is EMPTY
+  (unlike the dev fixture), so the full guard applies — only the public
+  www.googleapis.com host is reachable; private/loopback/metadata targets are
+  refused (covered by a defense-in-depth rebinding test). Access is deny-by-
+  default per tenant; the operator + per-tenant kill-switches apply.
+- Live validation against the real Google API requires real OAuth2 credentials
+  provisioned per tenant in Secrets Manager; that provisioning is a maintainer
+  step (real third-party endpoints are out of scope for the dev fixture). The
+  integration + credential path + guard routing are unit-covered
+  (tests/test_google_calendar.py).

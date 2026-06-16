@@ -26,15 +26,24 @@ Shared-harness plan + escalation (decisions A–C, signed off in `NOTICE`):
 [`../m13-shared-harness-escalation.md`](../m13-shared-harness-escalation.md) and
 [`../m13-followups/00-build-plan.md`](../m13-followups/00-build-plan.md).
 
-**Shared harness: delivered.** Build-tasks #2–#6 (the reusable machinery — URL
-guard, per-tenant Secrets Manager resolver + scoped IRSA, deny-by-default
-allow-list, operator + per-tenant kill-switches, shape-only audit) shipped as
-original code and validated end-to-end in the local smoke against a synthetic
-loopback fixture (`./scripts/smoke-test.sh --integrations`). The dev-cluster run
-against real Secrets Manager/IRSA remains the maintainer step. **No real
-provider is adopted** — build-task #1 (pick the first calendar/mail/contacts
-integration) is a separate per-integration decision with its own credential
-review.
+**Shared harness: delivered and dev-validated.** Build-tasks #2–#6 (the reusable
+machinery — URL guard, per-tenant Secrets Manager resolver + scoped IRSA,
+deny-by-default allow-list, operator + per-tenant kill-switches, shape-only
+audit) shipped as original code. The harness was validated **end-to-end on the
+dev cluster** against the synthetic loopback fixture over the **real Secrets
+Manager/IRSA path**: per-tenant credential resolution (200), SSRF block (502),
+cross-tenant denial (403), **credential rotation without pod restart**, and the
+**per-tenant kill-switch** (DB disable → 403 → re-enable → 200).
+
+**First real integration (build-task #1): Google Calendar — adopted.** Read-only
+calendar access (`list_events`, `get_event`) as original code
+(`app/control_plane/integrations_google.py`); no SDK vendered (raw HTTPS to the
+public API through the guard); per-tenant OAuth2 access token from Secrets
+Manager; `permit_private_hosts` empty so the full guard applies. See `NOTICE`
+("M13 Google Calendar integration"). Live validation against the real Google API
+needs per-tenant OAuth2 credentials provisioned in Secrets Manager (maintainer
+step); the integration is unit-covered. OAuth2 **refresh-token exchange** is the
+documented next follow-up.
 
 ## Objective
 
