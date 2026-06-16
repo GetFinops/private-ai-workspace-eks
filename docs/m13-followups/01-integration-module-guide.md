@@ -79,12 +79,19 @@ missing secret as a surprise.
 - The `<env>` component uses the infra/Terraform token (e.g. `dev`), set via
   `INTEGRATIONS_SECRET_ENV` when it differs from the app `ENVIRONMENT`. The IRSA
   grant is prefix-scoped to `.../integrations/*` (see `modules/irsa-app`).
-- Put the credential keys your builder needs into the secret JSON (e.g. Google
-  Calendar uses `{"ACCESS_TOKEN": "..."}` and reads `creds["ACCESS_TOKEN"]`).
-- **OAuth2 refresh** (minting a fresh access token from a refresh token) is a
-  *second* guarded outbound call; today integrations use the stored access token
-  directly. A standardized refresh helper is a planned harness extension — until
-  then, document the token lifecycle in your `NOTICE` record.
+- Put the credential keys your builder needs into the secret JSON (e.g. an
+  access-token integration reads `creds["ACCESS_TOKEN"]`).
+- **OAuth2 refresh (standardized).** If your provider issues short-lived access
+  tokens, expose a `token_refresh` (the `TokenRefresh` protocol in
+  `integrations.py`) instead of storing an access token. The harness mints a
+  fresh token before the call — itself a **guard-routed** outbound request
+  against the refresher's own `allowed_hosts` (e.g. `oauth2.googleapis.com`) —
+  caches it per `(tenant, integration)` for the lifetime the provider reports
+  (refreshing before expiry), and injects it as `creds[token_key]`. Your
+  `build_request` stays a pure builder and just reads the injected token. The
+  secret then holds the refresh material (e.g. `CLIENT_ID` / `CLIENT_SECRET` /
+  `REFRESH_TOKEN`), never a long-lived access token. See `GoogleOAuthRefresh` in
+  [`integrations_google.py`](../../app/control_plane/integrations_google.py).
 
 ## 4. Register it
 
@@ -132,7 +139,12 @@ Mirror [`tests/test_google_calendar.py`](../../tests/test_google_calendar.py):
    IP and `integrations.guarded_open` patched (no real network / no real
    provider call); assert the guarded sender got the right host.
 6. **`no_credentials`** when the resolver returns `None`.
-7. Add the module path to `_M13_INTEGRATION_SOURCES` in
+7. **If you use `token_refresh`:** the refresh happens before the call (assert
+   two guarded calls — token endpoint then API), the minted token is injected,
+   it is cached/reused within its lifetime and re-minted after, and a non-200
+   token response yields `refresh_failed`. Generic refresh-cache behavior (clock
+   expiry, per-tenant) is covered in `tests/test_integrations.py`.
+8. Add the module path to `_M13_INTEGRATION_SOURCES` in
    `tests/test_outbound_no_bypass.py` so the no-egress guard covers it.
 
 Cross-tenant denial and kill-switch behavior are covered once at the harness

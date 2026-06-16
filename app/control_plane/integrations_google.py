@@ -21,16 +21,60 @@ private/loopback/metadata targets are refused.
 
 from __future__ import annotations
 
-from urllib.parse import quote
+import json
+from urllib.parse import quote, urlencode
 
 from app.control_plane.integrations import OutboundRequest, UnknownOperation
 
 _API_HOST = "www.googleapis.com"
+_OAUTH_HOST = "oauth2.googleapis.com"
 _MAX_RESULTS_CAP = 250
 
 
 def _bearer(creds: "dict | None") -> str:
     return (creds or {}).get("ACCESS_TOKEN", "")
+
+
+class GoogleOAuthRefresh:
+    """OAuth2 refresh-token exchange for Google APIs (guard-routed).
+
+    The per-tenant secret holds ``CLIENT_ID`` / ``CLIENT_SECRET`` /
+    ``REFRESH_TOKEN``; the harness exchanges them for a short-lived access token
+    at ``oauth2.googleapis.com/token`` (through the URL guard) and caches it for
+    the lifetime Google reports. The minted access token is injected as
+    ``ACCESS_TOKEN`` and never logged or stored.
+    """
+
+    allowed_hosts = frozenset({_OAUTH_HOST})
+    token_key = "ACCESS_TOKEN"
+
+    def build_request(self, creds: dict) -> OutboundRequest:
+        form = urlencode({
+            "client_id": creds.get("CLIENT_ID", ""),
+            "client_secret": creds.get("CLIENT_SECRET", ""),
+            "refresh_token": creds.get("REFRESH_TOKEN", ""),
+            "grant_type": "refresh_token",
+        }).encode("utf-8")
+        return OutboundRequest(
+            method="POST",
+            url=f"https://{_OAUTH_HOST}/token",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            body=form,
+        )
+
+    def parse_token(self, status: int, body: bytes) -> "tuple[str | None, int]":
+        if status != 200:
+            return None, 0
+        try:
+            data = json.loads(body)
+        except (ValueError, json.JSONDecodeError):
+            return None, 0
+        token = data.get("access_token")
+        try:
+            lifetime = int(data.get("expires_in", 0))
+        except (TypeError, ValueError):
+            lifetime = 0
+        return (token if isinstance(token, str) and token else None), lifetime
 
 
 class GoogleCalendarIntegration:
@@ -41,6 +85,9 @@ class GoogleCalendarIntegration:
     allowed_hosts = frozenset({_API_HOST})
     # Real integration: the full guard applies. NEVER permit private hosts here.
     permit_private_hosts = frozenset()
+    # The harness mints/refreshes the access token (guard-routed) before each
+    # call from the per-tenant CLIENT_ID/CLIENT_SECRET/REFRESH_TOKEN secret.
+    token_refresh = GoogleOAuthRefresh()
 
     def build_request(self, operation: str, params: dict, creds: "dict | None") -> OutboundRequest:
         headers = {
