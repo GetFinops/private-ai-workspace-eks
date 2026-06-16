@@ -40,10 +40,12 @@ calendar access (`list_events`, `get_event`) as original code
 (`app/control_plane/integrations_google.py`); no SDK vendered (raw HTTPS to the
 public API through the guard); per-tenant OAuth2 access token from Secrets
 Manager; `permit_private_hosts` empty so the full guard applies. See `NOTICE`
-("M13 Google Calendar integration"). Live validation against the real Google API
-needs per-tenant OAuth2 credentials provisioned in Secrets Manager (maintainer
-step); the integration is unit-covered. OAuth2 **refresh-token exchange** is the
-documented next follow-up.
+("M13 Google Calendar integration"). **OAuth2 refresh-token exchange is
+implemented** as a generic, guard-routed harness capability (`TokenRefresh`):
+the per-tenant secret holds `CLIENT_ID`/`CLIENT_SECRET`/`REFRESH_TOKEN` and the
+harness mints + caches a short-lived access token. Live validation against the
+real Google API needs per-tenant OAuth2 credentials provisioned in Secrets
+Manager (maintainer step); the integration is unit-covered.
 
 ## Objective
 

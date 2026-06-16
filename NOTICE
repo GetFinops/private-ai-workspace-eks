@@ -687,11 +687,13 @@ Decision: ADOPTED (read-only calendar access: list events, get event).
   harness. Google API Terms of Service govern use of the API itself.
 - Credential model: per-tenant (per-user where configured) OAuth2 credentials are
   resolved at request time from AWS Secrets Manager via IRSA, identical to every
-  integration — never env vars/ConfigMaps. The stored secret provides a current
-  OAuth2 access token (ACCESS_TOKEN) sent as a bearer. Refresh-token exchange
-  (minting a fresh access token via oauth2.googleapis.com) is a documented
-  FOLLOW-UP — it is itself a guarded outbound call and is out of this first
-  increment; until then the stored access token is used directly.
+  integration — never env vars/ConfigMaps. The stored secret holds CLIENT_ID /
+  CLIENT_SECRET / REFRESH_TOKEN; the harness exchanges them for a short-lived
+  access token at oauth2.googleapis.com/token (a guard-routed outbound call) and
+  caches it per (tenant, integration) for the lifetime Google reports, refreshing
+  before expiry. The minted access token is injected as a bearer and is never
+  logged or stored. (The refresh capability is a generic harness feature —
+  integrations.TokenRefresh — not Google-specific.)
 - Security: the integration is a pure request builder and opens no socket; all
   egress routes through the hardened URL guard. permit_private_hosts is EMPTY
   (unlike the dev fixture), so the full guard applies — only the public

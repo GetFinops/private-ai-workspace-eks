@@ -173,14 +173,39 @@ class PostgresTenantIntegrationState:
 @dataclass(frozen=True)
 class IntegrationOutcome:
     # success | unknown_integration | unknown_operation | no_credentials |
-    # blocked:<reason> | upstream_error | upstream_timeout
+    # refresh_failed | blocked:<reason> | upstream_error | upstream_timeout
     result_class: str
     status: int | None = None
     result: dict | None = None
 
 
+class TokenRefresh(Protocol):
+    """Optional OAuth2-style credential refresh declared by an integration.
+
+    When an integration exposes a ``token_refresh``, the harness mints a fresh
+    access token before the main request whenever the cached one is missing or
+    expired. The refresh call ALSO goes through the URL guard (its own
+    ``allowed_hosts``), the new token is cached per (tenant, integration) for the
+    lifetime the provider reports, and it is injected into ``creds[token_key]``.
+    The integration's ``build_request`` stays a pure builder.
+    """
+
+    allowed_hosts: frozenset
+    token_key: str  # creds key to populate, e.g. "ACCESS_TOKEN"
+
+    def build_request(self, creds: dict) -> OutboundRequest:
+        ...
+
+    def parse_token(self, status: int, body: bytes) -> "tuple[str | None, int]":
+        """Return (access_token, lifetime_seconds); access_token None on failure."""
+        ...
+
+
 class IntegrationExecutor:
     """Resolves credentials, builds the request, and sends it through the guard."""
+
+    # Refresh a token this many seconds before it actually expires.
+    _TOKEN_MARGIN_S = 60
 
     def __init__(
         self,
@@ -188,11 +213,16 @@ class IntegrationExecutor:
         integrations: "dict[str, Integration] | None" = None,
         secret_resolver: "Callable[[str, str], dict | None] | None" = None,
         timeout_seconds: float = _DEFAULT_TIMEOUT,
+        clock: "Callable[[], float]" = time.monotonic,
     ) -> None:
         self._integrations = integrations if integrations is not None else INTEGRATIONS
         # secret_resolver(tenant_id, integration) -> env/cred mapping | None.
         self._secret_resolver = secret_resolver
         self._timeout = timeout_seconds
+        self._clock = clock
+        # (tenant, integration) -> (access_token, expiry_monotonic). Minted access
+        # tokens never touch the audit log or disk; they live only here.
+        self._token_cache: dict[tuple[str, str], tuple[str, float]] = {}
 
     def available(self, tenant_id: str, allowlist: dict) -> list[str]:
         """Integrations both registered and allow-listed for this tenant."""
@@ -201,6 +231,64 @@ class IntegrationExecutor:
             for name in self._integrations
             if is_allowed(allowlist, tenant_id, name)
         )
+
+    def _send(self, allowed_hosts, permit_hosts, request: OutboundRequest):
+        """Validate + pin + send one request through the guard.
+
+        Returns (response, None) on success or (None, IntegrationOutcome) on a
+        guard rejection / transport failure.
+        """
+        try:
+            target = validate_outbound_url(
+                request.url,
+                allowed_hosts=allowed_hosts,
+                allow_http=request.allow_http,
+                permit_hosts=permit_hosts,
+            )
+        except OutboundReject as rej:
+            return None, IntegrationOutcome(f"blocked:{rej.reason}")
+        try:
+            resp = guarded_open(
+                target,
+                method=request.method,
+                headers=request.headers,
+                body=request.body,
+                timeout=self._timeout,
+                max_response_bytes=_MAX_RESULT_BYTES,
+            )
+        except TimeoutError:
+            return None, IntegrationOutcome("upstream_timeout")
+        except OSError:
+            return None, IntegrationOutcome("upstream_error")
+        return resp, None
+
+    def _ensure_access_token(self, integration: str, spec, tenant_id: str, creds: dict):
+        """Refresh + inject an access token when the integration declares one.
+
+        Returns None when ready (or no refresh is needed), or an
+        IntegrationOutcome to abort with. The refresh request is guard-routed
+        against the refresher's own allowed_hosts (no private-host permit).
+        """
+        refresher: "TokenRefresh | None" = getattr(spec, "token_refresh", None)
+        if refresher is None:
+            return None
+        key = (tenant_id, integration)
+        now = self._clock()
+        cached = self._token_cache.get(key)
+        if cached is not None and cached[1] > now:
+            creds[refresher.token_key] = cached[0]
+            return None
+        resp, err = self._send(refresher.allowed_hosts, frozenset(), refresher.build_request(creds))
+        if err is not None:
+            # A guard block (e.g. rebinding to a private IP) surfaces as blocked:*;
+            # a transport failure as upstream_*. Either aborts the call.
+            return err
+        token, lifetime = refresher.parse_token(resp.status, resp.body)
+        if not token:
+            return IntegrationOutcome("refresh_failed")
+        self._token_cache[key] = (token, now + max(0, lifetime - self._TOKEN_MARGIN_S))
+        creds[refresher.token_key] = token
+        return None
 
     def invoke(
         self, integration: str, operation: str, params: dict, *, tenant_id: str
@@ -211,13 +299,18 @@ class IntegrationExecutor:
 
         creds: dict | None = None
         if spec.requires_secret:
-            creds = (
+            resolved = (
                 self._secret_resolver(tenant_id, integration)
                 if self._secret_resolver is not None
                 else None
             )
-            if not creds:
+            if not resolved:
                 return IntegrationOutcome("no_credentials")
+            # Copy: we may inject a refreshed token; never mutate the resolver cache.
+            creds = dict(resolved)
+            refresh_err = self._ensure_access_token(integration, spec, tenant_id, creds)
+            if refresh_err is not None:
+                return refresh_err
 
         try:
             request = spec.build_request(operation, params, creds)
@@ -230,30 +323,11 @@ class IntegrationExecutor:
         # permit_hosts is empty for every real integration; only the dev loopback
         # fixture sets it (to reach an in-cluster private IP). The metadata block
         # is never waived by it.
-        try:
-            target = validate_outbound_url(
-                request.url,
-                allowed_hosts=spec.allowed_hosts,
-                allow_http=request.allow_http,
-                permit_hosts=getattr(spec, "permit_private_hosts", frozenset()),
-            )
-        except OutboundReject as rej:
-            return IntegrationOutcome(f"blocked:{rej.reason}")
-
-        try:
-            resp = guarded_open(
-                target,
-                method=request.method,
-                headers=request.headers,
-                body=request.body,
-                timeout=self._timeout,
-                max_response_bytes=_MAX_RESULT_BYTES,
-            )
-        except TimeoutError:
-            return IntegrationOutcome("upstream_timeout")
-        except OSError:
-            return IntegrationOutcome("upstream_error")
-
+        resp, err = self._send(
+            spec.allowed_hosts, getattr(spec, "permit_private_hosts", frozenset()), request
+        )
+        if err is not None:
+            return err
         return IntegrationOutcome("success", status=resp.status, result=_decode(resp))
 
 
@@ -384,6 +458,8 @@ def _to_http(outcome: IntegrationOutcome) -> tuple[int, dict]:
         return HTTPStatus.NOT_FOUND, {"error": "unknown_operation"}
     if rc == "no_credentials":
         return HTTPStatus.BAD_GATEWAY, {"error": "no_credentials", "status": "degraded"}
+    if rc == "refresh_failed":
+        return HTTPStatus.BAD_GATEWAY, {"error": "credential_refresh_failed", "status": "degraded"}
     if rc.startswith("blocked:"):
         # The URL guard refused the target (SSRF defense). Do not echo the URL.
         return HTTPStatus.BAD_GATEWAY, {"error": "outbound_blocked", "reason": rc.split(":", 1)[1]}

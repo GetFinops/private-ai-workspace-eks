@@ -11,7 +11,11 @@ from unittest import mock
 from app.control_plane import integrations as integ
 from app.control_plane import outbound
 from app.control_plane.integrations import IntegrationExecutor, UnknownOperation
-from app.control_plane.integrations_google import GoogleCalendarIntegration, register
+from app.control_plane.integrations_google import (
+    GoogleCalendarIntegration,
+    GoogleOAuthRefresh,
+    register,
+)
 from app.control_plane.outbound import OutboundResponse
 
 
@@ -60,6 +64,38 @@ class TestRequestBuilding(unittest.TestCase):
         self.assertEqual(req.headers["Authorization"], "Bearer ")
 
 
+class TestOAuthRefresher(unittest.TestCase):
+    def setUp(self):
+        self.r = GoogleOAuthRefresh()
+
+    def test_declares_oauth_host_and_token_key(self):
+        self.assertEqual(self.r.allowed_hosts, frozenset({"oauth2.googleapis.com"}))
+        self.assertEqual(self.r.token_key, "ACCESS_TOKEN")
+
+    def test_build_request_is_form_post_to_token_endpoint(self):
+        req = self.r.build_request({"CLIENT_ID": "cid", "CLIENT_SECRET": "s", "REFRESH_TOKEN": "rt"})
+        self.assertEqual(req.method, "POST")
+        self.assertEqual(req.url, "https://oauth2.googleapis.com/token")
+        self.assertEqual(req.headers["Content-Type"], "application/x-www-form-urlencoded")
+        self.assertIn(b"grant_type=refresh_token", req.body)
+        self.assertIn(b"refresh_token=rt", req.body)
+        self.assertFalse(req.allow_http)
+
+    def test_parse_token_success(self):
+        token, life = self.r.parse_token(200, b'{"access_token": "AT", "expires_in": 3599}')
+        self.assertEqual(token, "AT")
+        self.assertEqual(life, 3599)
+
+    def test_parse_token_non_200(self):
+        self.assertEqual(self.r.parse_token(401, b'{"error": "x"}'), (None, 0))
+
+    def test_parse_token_bad_json(self):
+        self.assertEqual(self.r.parse_token(200, b"not json"), (None, 0))
+
+    def test_parse_token_missing_field(self):
+        self.assertEqual(self.r.parse_token(200, b'{"expires_in": 10}'), (None, 10))
+
+
 class TestRegister(unittest.TestCase):
     def test_register_adds_to_registry(self):
         reg = register({})
@@ -77,27 +113,58 @@ def _private_dns():
     return mock.patch.object(outbound.socket, "getaddrinfo", return_value=info)
 
 
+_OAUTH_CREDS = {"CLIENT_ID": "cid", "CLIENT_SECRET": "csec", "REFRESH_TOKEN": "rtok"}
+_TOKEN_RESP = OutboundResponse(
+    200, {"content-type": "application/json"}, b'{"access_token": "minted-AT", "expires_in": 3600}')
+_CAL_RESP = OutboundResponse(
+    200, {"content-type": "application/json"}, b'{"items": [{"id": "e1", "summary": "Sync"}]}')
+
+
+def _by_host(token=_TOKEN_RESP, calendar=_CAL_RESP):
+    """guarded_open side_effect routing by target host (oauth vs api)."""
+    def _send(target, **kw):
+        if target.host == "oauth2.googleapis.com":
+            return token
+        return calendar
+    return _send
+
+
 class TestExecutorRoundTrip(unittest.TestCase):
-    def _executor(self, token="tok"):
+    def _executor(self):
+        # Secret now holds OAuth2 refresh material; the access token is minted.
         return IntegrationExecutor(
             integrations=register({}),
-            secret_resolver=lambda t, i: {"ACCESS_TOKEN": token} if i == "google_calendar" else None,
+            secret_resolver=lambda t, i: dict(_OAUTH_CREDS) if i == "google_calendar" else None,
         )
 
-    def test_success_through_guard(self):
+    def test_success_refreshes_then_calls(self):
         ex = self._executor()
-        body = b'{"items": [{"id": "e1", "summary": "Sync"}]}'
-        with _public_dns(), mock.patch.object(
-            integ, "guarded_open",
-            return_value=OutboundResponse(200, {"content-type": "application/json"}, body),
-        ) as go:
+        with _public_dns(), mock.patch.object(integ, "guarded_open", side_effect=_by_host()) as go:
             outcome = ex.invoke("google_calendar", "list_events", {}, tenant_id="tenant-a.test")
         self.assertEqual(outcome.result_class, "success")
-        self.assertEqual(outcome.status, 200)
         self.assertEqual(outcome.result["data"]["items"][0]["id"], "e1")
-        # The guarded sender was given the googleapis host, pinned to a public IP.
-        target = go.call_args.args[0]
-        self.assertEqual(target.host, "www.googleapis.com")
+        # Two guarded calls: token endpoint then the calendar API.
+        hosts = [c.args[0].host for c in go.call_args_list]
+        self.assertEqual(hosts, ["oauth2.googleapis.com", "www.googleapis.com"])
+        # The calendar request carried the MINTED token, not anything from the secret.
+        cal_call = go.call_args_list[1]
+        self.assertEqual(cal_call.kwargs["headers"]["Authorization"], "Bearer minted-AT")
+
+    def test_token_cached_across_calls(self):
+        ex = self._executor()
+        with _public_dns(), mock.patch.object(integ, "guarded_open", side_effect=_by_host()) as go:
+            ex.invoke("google_calendar", "list_events", {}, tenant_id="tenant-a.test")
+            ex.invoke("google_calendar", "list_events", {}, tenant_id="tenant-a.test")
+        hosts = [c.args[0].host for c in go.call_args_list]
+        # One refresh, then two calendar calls (token reused on the 2nd invoke).
+        self.assertEqual(hosts, ["oauth2.googleapis.com", "www.googleapis.com", "www.googleapis.com"])
+
+    def test_refresh_failure_aborts(self):
+        ex = self._executor()
+        bad_token = OutboundResponse(401, {}, b'{"error": "invalid_grant"}')
+        with _public_dns(), mock.patch.object(integ, "guarded_open", side_effect=_by_host(token=bad_token)):
+            outcome = ex.invoke("google_calendar", "list_events", {}, tenant_id="tenant-a.test")
+        self.assertEqual(outcome.result_class, "refresh_failed")
 
     def test_no_credentials_blocks_before_egress(self):
         ex = IntegrationExecutor(integrations=register({}), secret_resolver=lambda t, i: None)
@@ -106,7 +173,8 @@ class TestExecutorRoundTrip(unittest.TestCase):
 
     def test_guard_blocks_if_host_resolves_private(self):
         # Defense-in-depth: even Google's host, if it somehow resolved to a
-        # private IP (rebinding), is refused — permit_private_hosts is empty.
+        # private IP (rebinding), is refused — permit_private_hosts is empty. The
+        # refresh call is the first to hit the guard, so it is blocked first.
         ex = self._executor()
         with _private_dns(), mock.patch.object(integ, "guarded_open") as go:
             outcome = ex.invoke("google_calendar", "list_events", {}, tenant_id="tenant-a.test")

@@ -237,6 +237,97 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(status, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
 
 
+class _FakeRefresher:
+    allowed_hosts = frozenset({"auth.example.com"})
+    token_key = "ACCESS_TOKEN"
+
+    def __init__(self, lifetime=100):
+        self.lifetime = lifetime
+        self.calls = 0
+
+    def build_request(self, creds):
+        return OutboundRequest(method="POST", url="https://auth.example.com/token", headers={})
+
+    def parse_token(self, status, body):
+        self.calls += 1
+        return f"AT-{self.calls}", self.lifetime
+
+
+class _RefreshableIntegration:
+    name = "calendar"
+    requires_secret = True
+    allowed_hosts = frozenset({"api.example.com"})
+
+    def __init__(self, refresher):
+        self.token_refresh = refresher
+
+    def build_request(self, operation, params, creds):
+        return OutboundRequest(
+            method="GET", url="https://api.example.com/cal",
+            headers={"Authorization": f"Bearer {creds.get('ACCESS_TOKEN', '')}"})
+
+
+class _Clock:
+    def __init__(self):
+        self.t = 1000.0
+
+    def __call__(self):
+        return self.t
+
+
+class TestTokenRefresh(unittest.TestCase):
+    def _setup(self, lifetime=100):
+        refresher = _FakeRefresher(lifetime=lifetime)
+        clock = _Clock()
+        ex = IntegrationExecutor(
+            integrations={"calendar": _RefreshableIntegration(refresher)},
+            secret_resolver=lambda t, i: {"REFRESH_TOKEN": "rt"},
+            clock=clock,
+        )
+        return ex, refresher, clock
+
+    def _routed(self):
+        token_resp = OutboundResponse(200, {}, b"{}")  # parse_token is faked, body unused
+        cal_resp = OutboundResponse(200, {"content-type": "application/json"}, b'{"ok": true}')
+
+        def _send(target, **kw):
+            return token_resp if target.host == "auth.example.com" else cal_resp
+        return _send
+
+    def test_refresh_then_call_and_inject_token(self):
+        ex, refresher, _ = self._setup()
+        with _public_dns(), mock.patch.object(integ, "guarded_open", side_effect=self._routed()) as go:
+            outcome = ex.invoke("calendar", "list", {}, tenant_id="tenant-a.test")
+        self.assertEqual(outcome.result_class, "success")
+        self.assertEqual(refresher.calls, 1)
+        cal = go.call_args_list[1]
+        self.assertEqual(cal.kwargs["headers"]["Authorization"], "Bearer AT-1")
+
+    def test_token_reused_within_lifetime(self):
+        ex, refresher, clock = self._setup(lifetime=100)
+        with _public_dns(), mock.patch.object(integ, "guarded_open", side_effect=self._routed()):
+            ex.invoke("calendar", "list", {}, tenant_id="tenant-a.test")
+            clock.t += 30  # well within (lifetime - margin)
+            ex.invoke("calendar", "list", {}, tenant_id="tenant-a.test")
+        self.assertEqual(refresher.calls, 1)  # not refreshed again
+
+    def test_token_refreshed_after_expiry(self):
+        # lifetime 100s, margin 60s → usable for ~40s.
+        ex, refresher, clock = self._setup(lifetime=100)
+        with _public_dns(), mock.patch.object(integ, "guarded_open", side_effect=self._routed()):
+            ex.invoke("calendar", "list", {}, tenant_id="tenant-a.test")
+            clock.t += 50  # past (lifetime - margin)
+            ex.invoke("calendar", "list", {}, tenant_id="tenant-a.test")
+        self.assertEqual(refresher.calls, 2)
+
+    def test_refresh_token_cache_is_per_tenant(self):
+        ex, refresher, _ = self._setup()
+        with _public_dns(), mock.patch.object(integ, "guarded_open", side_effect=self._routed()):
+            ex.invoke("calendar", "list", {}, tenant_id="tenant-a.test")
+            ex.invoke("calendar", "list", {}, tenant_id="tenant-b.test")
+        self.assertEqual(refresher.calls, 2)  # each tenant refreshes independently
+
+
 class TestAuditContentSafety(unittest.TestCase):
     def test_audit_records_shape_not_values(self):
         params = {"calendar_id": "SUPER-SECRET-CALENDAR-ID"}
