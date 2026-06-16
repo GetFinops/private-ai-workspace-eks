@@ -40,7 +40,8 @@ Per-milestone build instructions live in `docs/milestones/`.
 | M10 | Retrieval + per-user memory on pgvector | Complete (dev) |
 | M11 | Agent + tool framework (sandbox, agent loop, Job sandbox, deep-research) | Complete (dev) |
 | M12 | MCP integration layer (sandboxed, per-tenant, deny-by-default) | Complete (dev) |
-| M13–M14 | Phase 2: personal-info integrations, media — individually adoption-gated | Planned |
+| M13 | Personal-info integrations: shared harness + Google Calendar (first provider) | Harness complete (dev-validated); providers adoption-gated |
+| M14 | Phase 2: media services — adoption-gated | Planned |
 | M7b | Full staging hardening across platform + adopted Phase 2 features | Planned (post–Phase 2) |
 | M8 | Public production release | Planned (post–Phase 2) |
 
@@ -202,6 +203,7 @@ python3 -m app.control_plane
 - Gap analysis: `docs/11-gap-analysis.md`
 - Phase 2 feature adoption track (proposed): `docs/12-phase-2-feature-adoption.md`
 - Per-milestone build instructions: `docs/milestones/`
+- **Building an integration module (M13 standard):** `docs/m13-followups/01-integration-module-guide.md`
 - Observability content & telemetry policy: `docs/07-observability.md`
 - Scaling and fallback policy (M6): `docs/09-scaling-policy.md`
 - Cost estimates: `ESTIMATION_COSTS.md`

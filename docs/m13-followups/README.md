@@ -15,8 +15,9 @@ separate decision with its own `NOTICE` record and credential review.
 
 | # | Doc | Status | Covers |
 | --- | --- | --- | --- |
-| — | [Escalation note](../m13-shared-harness-escalation.md) | **awaiting A–C sign-off** | the three maintainer-only decisions that gate all build work + draft `NOTICE` record |
-| 0 | [Build plan](00-build-plan.md) | **gated on the escalation** | execution-ready PR-by-PR breakdown of the shared harness |
+| — | [Escalation note](../m13-shared-harness-escalation.md) | A–C signed off (`NOTICE`) | the three maintainer-only decisions that gated the build + the `NOTICE` record |
+| 0 | [Build plan](00-build-plan.md) | shipped | PR-by-PR breakdown of the shared harness (PRs #41/#45/#43/#44) |
+| 1 | [Integration module guide](01-integration-module-guide.md) | **standard** | how to add a new integration as a standardized module (the contract, credentials, registration, tests, NOTICE, dev validation) — read before building any provider |
 
 ## Two scoping facts that shaped these plans
 
