@@ -51,7 +51,7 @@ config:
   # validation. No INTEGRATIONS_FIXTURE_TOKEN → the real Secrets Manager path is
   # used, not the dev fixture-token shortcut.
   integrationsEnabled: true
-  integrationsAllowlist: '{"tenant-a.test":["loopback","blocked_probe"]}'
+  integrationsAllowlist: '{"tenant-a.test":["loopback","blocked_probe","google_calendar"]}'
   integrationsSecretEnv: "dev"
   integrationsSecretTtlS: 30
 
