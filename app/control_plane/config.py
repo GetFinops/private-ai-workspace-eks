@@ -82,6 +82,17 @@ class ControlPlaneConfig:
     # without AWS Secrets Manager. Production resolves credentials ONLY through
     # Secrets Manager/IRSA — this field is ignored outside development.
     integrations_fixture_token: str | None = None
+    # Media services (M14). Disabled by default (operator kill-switch). Each
+    # service runs as an isolated GPU backend; the control plane routes to it.
+    # MEDIA_ALLOWLIST is JSON {"<tenant>": ["<service>", ...]} — deny by default.
+    # MEDIA_SERVICES is JSON {"<name>": {"kind": "stt"|"image", "base_url": "..."}}.
+    media_enabled: bool = False
+    media_allowlist: str | None = None
+    media_services: str | None = None
+    media_rate_per_minute: int = 10
+    media_max_concurrency: int = 2
+    media_max_audio_bytes: int = 25 * 1024 * 1024
+    media_max_prompt_chars: int = 2000
     # Agent loop (M11 follow-up). Shares the agent_tools kill-switch and
     # allow-list; additionally requires inference to be configured (cold → 503).
     # Budgets are server-enforced and never client/model settable.
@@ -143,6 +154,13 @@ class ControlPlaneConfig:
             integrations_secret_env=_clean(values.get("INTEGRATIONS_SECRET_ENV")),
             integrations_secret_ttl_s=int(values.get("INTEGRATIONS_SECRET_TTL_S", "300") or "300"),
             integrations_fixture_token=_clean(values.get("INTEGRATIONS_FIXTURE_TOKEN")),
+            media_enabled=values.get("MEDIA_ENABLED", "false").lower() == "true",
+            media_allowlist=_clean(values.get("MEDIA_ALLOWLIST")),
+            media_services=_clean(values.get("MEDIA_SERVICES")),
+            media_rate_per_minute=int(values.get("MEDIA_RATE_PER_MINUTE", "10") or "10"),
+            media_max_concurrency=int(values.get("MEDIA_MAX_CONCURRENCY", "2") or "2"),
+            media_max_audio_bytes=int(values.get("MEDIA_MAX_AUDIO_BYTES", str(25 * 1024 * 1024)) or str(25 * 1024 * 1024)),
+            media_max_prompt_chars=int(values.get("MEDIA_MAX_PROMPT_CHARS", "2000") or "2000"),
             auth=AuthSettings(
                 issuer_url=_clean(values.get("AUTH_ISSUER_URL")),
                 audience=_clean(values.get("AUTH_AUDIENCE")),

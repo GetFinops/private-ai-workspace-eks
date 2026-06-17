@@ -107,6 +107,14 @@ from app.control_plane.integrations import (
     parse_integration_allowlist,
 )
 from app.control_plane.integration_secrets import make_secrets_manager_resolver
+from app.control_plane.media import (
+    MediaExecutor,
+    build_media_generate_response,
+    build_media_list_response,
+    build_media_transcribe_response,
+    parse_media_allowlist,
+    parse_media_services,
+)
 from app.control_plane.embeddings import (
     DeterministicEmbeddingClient,
     EmbeddingClient,
@@ -149,6 +157,9 @@ _MCP_INVOKE_PATH = "/v1/mcp/invoke"
 _MCP_LIST_PATH = "/v1/mcp/tools/list"
 _INTEGRATIONS_INVOKE_PATH = "/v1/integrations/invoke"
 _INTEGRATIONS_LIST_PATH = "/v1/integrations/list"
+_MEDIA_LIST_PATH = "/v1/media/list"
+_MEDIA_TRANSCRIBE_PATH = "/v1/media/transcribe"
+_MEDIA_GENERATE_PATH = "/v1/media/generate"
 _METRICS_PATH = "/metrics"
 _MAX_REQUEST_BODY = 1 * 1024 * 1024  # 1 MiB
 
@@ -458,6 +469,15 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     integrations_executor: IntegrationExecutor = IntegrationExecutor()
     integrations_rate_limiter: RateLimiter = RateLimiter()
     integrations_tenant_state: TenantIntegrationState = InMemoryTenantIntegrationState()
+    # Media services (M14). Disabled by default; allow-list empty (deny by
+    # default); dedicated rate limiter; per-tenant disable reuses the
+    # integrations tenant-state. Registry empty until services are configured.
+    media_enabled: bool = False
+    media_allowlist: dict = {}  # type: ignore[type-arg]
+    media_executor: MediaExecutor = MediaExecutor()
+    media_rate_limiter: RateLimiter = RateLimiter()
+    media_max_audio_bytes: int = 25 * 1024 * 1024
+    media_max_prompt_chars: int = 2000
     # Job-sandbox dispatcher client; None/unconfigured → job-backed tools
     # are unavailable (subprocess tools unaffected).
     agent_tools_job_executor: object | None = None
@@ -544,7 +564,14 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
         def _post() -> Response:
             path = self.path.split("?", 1)[0]
             content_length = int(self.headers.get("Content-Length", 0) or 0)
-            if content_length > _MAX_REQUEST_BODY:
+            # Media transcription uploads audio, which needs a higher cap than the
+            # default 1 MiB JSON-request limit.
+            max_body = (
+                self.__class__.media_max_audio_bytes
+                if path == _MEDIA_TRANSCRIBE_PATH
+                else _MAX_REQUEST_BODY
+            )
+            if content_length > max_body:
                 return Response(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "request_too_large"})
             body = self.rfile.read(content_length) if content_length > 0 else b""
 
@@ -697,6 +724,52 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     executor=self.__class__.integrations_executor,
                     rate_limiter=self.__class__.integrations_rate_limiter,
                     tenant_state=self.__class__.integrations_tenant_state,
+                    notification_store=self.__class__.notification_store,
+                )
+                return Response(status, payload)
+
+            if path == _MEDIA_LIST_PATH:
+                status, payload = build_media_list_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    enabled=self.__class__.media_enabled,
+                    allowlist=self.__class__.media_allowlist,
+                    executor=self.__class__.media_executor,
+                )
+                return Response(status, payload)
+
+            if path == _MEDIA_TRANSCRIBE_PATH:
+                from urllib.parse import parse_qs, urlsplit
+
+                service = parse_qs(urlsplit(self.path).query).get("service", [None])[0]
+                status, payload = build_media_transcribe_response(
+                    authorization=self.headers.get("Authorization"),
+                    service=service,
+                    body=body,
+                    content_type=self.headers.get("Content-Type"),
+                    token_verifier=self.__class__.token_verifier,
+                    enabled=self.__class__.media_enabled,
+                    allowlist=self.__class__.media_allowlist,
+                    executor=self.__class__.media_executor,
+                    rate_limiter=self.__class__.media_rate_limiter,
+                    tenant_state=self.__class__.integrations_tenant_state,
+                    max_audio_bytes=self.__class__.media_max_audio_bytes,
+                    notification_store=self.__class__.notification_store,
+                )
+                return Response(status, payload)
+
+            if path == _MEDIA_GENERATE_PATH:
+                status, payload = build_media_generate_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    enabled=self.__class__.media_enabled,
+                    allowlist=self.__class__.media_allowlist,
+                    executor=self.__class__.media_executor,
+                    rate_limiter=self.__class__.media_rate_limiter,
+                    tenant_state=self.__class__.integrations_tenant_state,
+                    max_prompt_chars=self.__class__.media_max_prompt_chars,
                     notification_store=self.__class__.notification_store,
                 )
                 return Response(status, payload)
@@ -1116,6 +1189,21 @@ def run_server(
     ControlPlaneHandler.integrations_tenant_state = _build_tenant_integration_state(
         resolved_config
     )
+    # M14 media services. Backends are registered from MEDIA_SERVICES; the
+    # registry is empty (deny-by-default) until services are configured. Artifacts
+    # are stored per-tenant via the shared S3 client (set above).
+    ControlPlaneHandler.media_enabled = resolved_config.media_enabled
+    ControlPlaneHandler.media_allowlist = parse_media_allowlist(resolved_config.media_allowlist)
+    ControlPlaneHandler.media_executor = MediaExecutor(
+        services=parse_media_services(resolved_config.media_services),
+        storage_client=ControlPlaneHandler.storage_client,
+    )
+    ControlPlaneHandler.media_rate_limiter = RateLimiter(
+        per_minute=resolved_config.media_rate_per_minute,
+        max_concurrency=resolved_config.media_max_concurrency,
+    )
+    ControlPlaneHandler.media_max_audio_bytes = resolved_config.media_max_audio_bytes
+    ControlPlaneHandler.media_max_prompt_chars = resolved_config.media_max_prompt_chars
     ControlPlaneHandler.deep_research_budgets = DeepResearchBudgets(
         max_subqueries=resolved_config.deep_research_max_subqueries,
         top_k=resolved_config.deep_research_top_k,

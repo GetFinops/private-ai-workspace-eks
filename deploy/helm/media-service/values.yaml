@@ -1,0 +1,65 @@
+# Generic media-service values. Override per release (whisper-stt, sdxl-image).
+# fullnameOverride sets the Service name the control plane targets via
+# MEDIA_SERVICES base_url, e.g. http://<fullnameOverride>.<ns>.svc:<port>.
+fullnameOverride: ""
+nameOverride: ""
+
+replicaCount: 1
+
+image:
+  repository: ""        # required: the model-server image (license-reviewed)
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# Container command/args/env. The runtime must expose the OpenAI-compatible
+# endpoint the control plane calls: /v1/audio/transcriptions (stt) or
+# /v1/images/generations (image).
+command: []
+args: []
+extraEnv: []
+
+# Model id pulled at runtime. For gated models set externalSecrets.enabled=true
+# and provide the HF token via Secrets Manager/IRSA (like the vLLM chart).
+model:
+  id: ""
+
+service:
+  type: ClusterIP
+  port: 8000
+
+# GPU request/limit + the inference-plane placement (taint toleration + selector).
+resources:
+  requests:
+    nvidia.com/gpu: 1
+  limits:
+    nvidia.com/gpu: 1
+tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Exists"
+    effect: "NoSchedule"
+nodeSelector:
+  private-ai-workspace/plane: inference
+
+serviceAccount:
+  create: true
+  irsaRoleArn: ""        # only needed for gated-model HF token access
+
+# NetworkPolicy: ingress ONLY from the control-plane namespace (egress is left
+# open so the pod can pull model weights). Mirrors the vLLM chart.
+networkPolicy:
+  enabled: false
+  controlPlaneNamespace: app
+
+# Gated-model HF token via External Secrets (off for ungated models like Whisper).
+externalSecrets:
+  enabled: false
+  awsRegion: us-west-2
+  hfTokenSecretName: ""
+  refreshInterval: "12h"
+
+# Probes — model load can take a while; generous initial delays.
+probe:
+  path: /health
+  initialDelaySeconds: 60
+
+podAnnotations: {}

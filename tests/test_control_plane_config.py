@@ -40,6 +40,26 @@ class ControlPlaneConfigTests(TestCase):
         self.assertEqual(config.integrations_max_concurrency, 2)
         self.assertEqual(config.integrations_outbound_timeout_s, 5.0)
 
+    def test_media_disabled_by_default(self) -> None:
+        config = ControlPlaneConfig.from_env({})
+        # M14 kill-switch: deny by default — media off, no allow-list/services.
+        self.assertFalse(config.media_enabled)
+        self.assertIsNone(config.media_allowlist)
+        self.assertIsNone(config.media_services)
+        self.assertEqual(config.media_rate_per_minute, 10)
+        self.assertEqual(config.media_max_audio_bytes, 25 * 1024 * 1024)
+
+    def test_media_settings_parsed_from_env(self) -> None:
+        config = ControlPlaneConfig.from_env({
+            "MEDIA_ENABLED": "true",
+            "MEDIA_ALLOWLIST": '{"tenant-a.test": ["whisper"]}',
+            "MEDIA_SERVICES": '{"whisper": {"kind": "stt", "base_url": "http://w:8000"}}',
+            "MEDIA_MAX_PROMPT_CHARS": "500",
+        })
+        self.assertTrue(config.media_enabled)
+        self.assertEqual(config.media_allowlist, '{"tenant-a.test": ["whisper"]}')
+        self.assertEqual(config.media_max_prompt_chars, 500)
+
     def test_integrations_secret_env_and_ttl(self) -> None:
         # Default: secret-env unset (falls back to ENVIRONMENT), TTL 300s.
         default = ControlPlaneConfig.from_env({})
