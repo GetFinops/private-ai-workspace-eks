@@ -61,6 +61,16 @@ integrationsFixture:
   port: 8099
   token: "dev-loopback-token"   # the fixture's expected bearer (matches the SM secret)
 
+# Egress lockdown for the control plane (defense-in-depth behind the M13 URL
+# guard). The dev cluster enforces NetworkPolicy (vpc-cni enableNetworkPolicy).
+# Blocks the IMDS + lateral VPC movement; allows DNS, in-cluster services, RDS,
+# and public 443 (AWS APIs via NAT + Google).
+networkPolicy:
+  enabled: true
+  vpcCidr: "10.0.0.0/16"
+  dbEgressCidrs:
+    - "10.0.20.11/32"   # RDS instance (private-ai-workspace-dev). Scope to /32.
+
 metrics:
   enabled: true
   serviceMonitor:

@@ -1,0 +1,74 @@
+{{- if .Values.networkPolicy.enabled }}
+# Control-plane egress lockdown (defense-in-depth behind the M13 application-level
+# URL guard). Default-deny egress with an explicit allow-list:
+#   - DNS to kube-dns
+#   - in-cluster services (this namespace + inference + agent-jobs)
+#   - the database (explicit CIDRs only)
+#   - the public internet on 443 (AWS APIs via NAT + integration providers),
+#     EXCEPT the VPC CIDR (no lateral movement) and link-local (blocks the IMDS
+#     at 169.254.169.254 — IRSA is unaffected, it uses STS over the internet).
+# Ingress is intentionally left default-allow (handled by the ingress tier).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "private-ai-workspace.fullname" . }}-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "private-ai-workspace.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "private-ai-workspace.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: ["Egress"]
+  egress:
+    # 1. DNS resolution (kube-dns).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # 2. In-cluster services: same namespace (loopback fixture), the inference
+    #    plane, and the agent-jobs dispatcher.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.inferenceNamespace }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.jobsNamespace }}
+    # 3. Database (explicit in-VPC allow; everything else in the VPC is blocked).
+    {{- if .Values.networkPolicy.dbEgressCidrs }}
+    - to:
+        {{- range .Values.networkPolicy.dbEgressCidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.dbPort | default 5432 }}
+    {{- end }}
+    # 4. Public internet on 443 (AWS APIs via NAT: Secrets Manager, STS, S3,
+    #    Cognito JWKS; and integration providers e.g. Google). The VPC CIDR and
+    #    link-local (IMDS) are excluded.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - {{ .Values.networkPolicy.vpcCidr | quote }}
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+{{- end }}
