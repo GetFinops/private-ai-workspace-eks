@@ -100,6 +100,22 @@ externalSecrets:
   existingSecret: ""
   refreshInterval: "1h"
 
+# Control-plane egress NetworkPolicy (defense-in-depth behind the M13 URL guard).
+# Requires the cluster to ENFORCE NetworkPolicy (EKS VPC CNI enableNetworkPolicy,
+# Calico, or Cilium) — otherwise this renders but is a no-op. Disabled by default;
+# enable per-environment once the VPC/DB CIDRs below are set correctly.
+networkPolicy:
+  enabled: false
+  # VPC CIDR excluded from the internet allow rule (blocks lateral movement).
+  vpcCidr: "10.0.0.0/16"
+  # Namespaces hosting in-cluster services the control plane calls.
+  inferenceNamespace: inference
+  jobsNamespace: agent-jobs
+  # Explicit in-VPC egress allow-list (the database). Scope tightly — e.g. the
+  # RDS instance IP /32. Everything else in the VPC is denied.
+  dbEgressCidrs: []
+  dbPort: 5432
+
 resources:
   requests:
     cpu: 100m

@@ -67,6 +67,11 @@ module "eks" {
       most_recent                 = true
       resolve_conflicts_on_create = "OVERWRITE"
       configuration_values = jsonencode({
+        # Enforce Kubernetes NetworkPolicy via the VPC CNI network-policy agent
+        # (issue #36). Without this the agent runs but does not enforce, so
+        # NetworkPolicy objects are no-ops. The control-plane egress policy and
+        # the agent-jobs deny-all policies depend on this.
+        enableNetworkPolicy = "true"
         env = {
           ENABLE_PREFIX_DELEGATION = "true"
           WARM_PREFIX_TARGET       = "1"
@@ -107,7 +112,7 @@ module "eks" {
       # and scale this Auto Scaling Group.  The "enabled" tag opts the ASG
       # into discovery; the cluster-name tag scopes the IRSA permissions.
       tags = {
-        "k8s.io/cluster-autoscaler/enabled"     = "true"
+        "k8s.io/cluster-autoscaler/enabled"       = "true"
         "k8s.io/cluster-autoscaler/${local.name}" = "owned"
       }
     }
@@ -131,8 +136,8 @@ module "eks" {
       ami_type = "AL2023_x86_64_NVIDIA"
 
       labels = {
-        "private-ai-workspace/plane"  = "inference"
-        "nvidia.com/gpu.present"       = "true"
+        "private-ai-workspace/plane" = "inference"
+        "nvidia.com/gpu.present"     = "true"
       }
 
       taints = {
@@ -190,10 +195,10 @@ resource "aws_iam_role_policy_attachment" "aws_lb_controller" {
 }
 
 resource "helm_release" "aws_lb_controller" {
-  name       = "aws-load-balancer-controller"
-  namespace  = "kube-system"
-  repository = "https://aws.github.io/eks-charts"
-  chart      = "aws-load-balancer-controller"
+  name            = "aws-load-balancer-controller"
+  namespace       = "kube-system"
+  repository      = "https://aws.github.io/eks-charts"
+  chart           = "aws-load-balancer-controller"
   version         = "3.4.0"
   wait            = true
   timeout         = 600
