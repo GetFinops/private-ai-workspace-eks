@@ -63,6 +63,27 @@ class MediaService:
     name: str
     kind: str
     base_url: str  # in-cluster ClusterIP base, e.g. http://whisper.inference.svc:8000
+    model: str = "whisper-1"  # OpenAI-API "model" field sent to the backend
+
+
+def _multipart_audio(audio: bytes, filename: str, model: str) -> "tuple[bytes, str]":
+    """Build an OpenAI /v1/audio/transcriptions multipart/form-data body."""
+    boundary = "----media" + uuid.uuid4().hex
+    crlf = b"\r\n"
+    parts = [
+        b"--" + boundary.encode(),
+        b'Content-Disposition: form-data; name="model"',
+        b"",
+        model.encode(),
+        b"--" + boundary.encode(),
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"'.encode(),
+        b"Content-Type: application/octet-stream",
+        b"",
+        audio,
+        b"--" + boundary.encode() + b"--",
+        b"",
+    ]
+    return crlf.join(parts), f"multipart/form-data; boundary={boundary}"
 
 
 # Default registry is EMPTY — deny by default. Real services are registered at
@@ -87,8 +108,12 @@ def parse_media_services(raw: str | None) -> dict[str, MediaService]:
             continue
         kind = spec.get("kind")
         base_url = spec.get("base_url")
+        model = spec.get("model")
         if kind in ("stt", "image") and isinstance(base_url, str) and base_url:
-            out[str(name)] = MediaService(name=str(name), kind=kind, base_url=base_url.rstrip("/"))
+            kwargs = {"name": str(name), "kind": kind, "base_url": base_url.rstrip("/")}
+            if isinstance(model, str) and model:
+                kwargs["model"] = model
+            out[str(name)] = MediaService(**kwargs)
     return out
 
 
@@ -155,9 +180,12 @@ class MediaExecutor:
             return MediaOutcome("unknown_service")
         if spec.kind != "stt":
             return MediaOutcome("wrong_kind")
+        # The OpenAI transcriptions API takes multipart/form-data (file + model),
+        # not raw audio bytes.
+        mp_body, mp_ctype = _multipart_audio(audio, "audio", spec.model)
         try:
             status, body, _ = self._post(
-                f"{spec.base_url}/v1/audio/transcriptions", data=audio, content_type=content_type
+                f"{spec.base_url}/v1/audio/transcriptions", data=mp_body, content_type=mp_ctype
             )
         except HTTPError as e:
             return MediaOutcome("backend_error", status=e.code)

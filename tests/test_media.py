@@ -184,6 +184,23 @@ class TestTranscribe(unittest.TestCase):
         status, payload = _transcribe("whisper", b"x", executor=_executor(boom))
         self.assertEqual(status, HTTPStatus.GATEWAY_TIMEOUT)
 
+    def test_request_is_multipart_with_model_and_file(self):
+        seen = {}
+
+        def capture(req, timeout=None):
+            seen["url"] = req.full_url
+            seen["ctype"] = req.headers.get("Content-type")
+            seen["body"] = req.data
+            return _resp(200, b'{"text":"hi"}')
+
+        status, _ = _transcribe("whisper", b"AUDIOBYTES", executor=_executor(capture))
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertTrue(seen["url"].endswith("/v1/audio/transcriptions"))
+        self.assertTrue(seen["ctype"].startswith("multipart/form-data; boundary="))
+        self.assertIn(b'name="file"', seen["body"])
+        self.assertIn(b'name="model"', seen["body"])
+        self.assertIn(b"AUDIOBYTES", seen["body"])
+
 
 def _generate(body, *, verifier=_ALICE, enabled=True, allowlist=_ALLOW, executor=None,
               rl=None, state=None, store=None, max_prompt=2000):
