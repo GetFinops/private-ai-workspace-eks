@@ -705,3 +705,37 @@ Decision: ADOPTED (read-only calendar access: list events, get event).
   step (real third-party endpoints are out of scope for the dev fixture). The
   integration + credential path + guard routing are unit-covered
   (tests/test_google_calendar.py).
+
+────────────────────────────────────────────────────────────────────────────────
+M14 media-services adoption decision
+────────────────────────────────────────────────────────────────────────────────
+
+M14 (docs/milestones/m14-media-services.md) adds optional GPU media services. This
+record covers the SHARED HARNESS (control-plane routing + the generic media-service
+Helm chart); each model is a separate per-service adoption with its own license
+record below.
+
+Decision: the M14 media harness is ADOPTED, implemented as ORIGINAL control-plane
+code (app/control_plane/media.py) + an ORIGINAL generic Helm chart
+(deploy/helm/media-service, vLLM-shape). No model weights are vendored into any
+image — they are pulled at runtime. Each media service runs as its own isolated
+GPU release: ClusterIP, NetworkPolicy restricting ingress to the control-plane
+namespace, GPU taint toleration + inference-plane nodeSelector. The control plane
+is the only caller and enforces: deny-by-default per-tenant allow-list
+(MEDIA_ALLOWLIST), operator kill-switch (MEDIA_ENABLED), per-tenant disable
+(reuses integration_tenant_state), a dedicated per-tenant rate/concurrency limiter,
+server-side size caps (audio bytes / prompt chars), per-tenant S3 isolation for
+artifacts (key media/<tenant>/<user>/...), shape-only audit (never media content/
+prompts/transcripts), and media_task_completed/failed notifications. Backends are
+reached over plain in-cluster HTTP (trusted internal services, like vLLM) — NOT
+the M13 integration egress path.
+
+Per-model records:
+
+  M14 Whisper STT (first model). Decision: ADOPTED. Model = OpenAI Whisper
+  (Systran/faster-whisper-small for dev) — weights are MIT, UNGATED (no HF token).
+  Runtime = faster-whisper / CTranslate2 (MIT) via an OpenAI-compatible server
+  image (fedirz/faster-whisper-server, MIT; pin a digest + re-review before any
+  production use). No copyleft/AGPL in the default dependency set. Exposes
+  /v1/audio/transcriptions. Live GPU validation uses the smallest model to bound
+  cost; the routing/limits/isolation are unit-covered (tests/test_media.py).

@@ -77,6 +77,17 @@ config:
   integrationsRatePerMinute: 30
   integrationsMaxConcurrency: 4
   integrationsOutboundTimeoutS: 10
+  # M14 media services. Disabled by default (operator kill-switch). Deny-by-default
+  # per-tenant allow-list (JSON {"<tenant>": ["<service>"]}). MEDIA_SERVICES is JSON
+  # {"<name>": {"kind": "stt"|"image", "base_url": "..."}} pointing at the isolated
+  # GPU backends. Server-side rate + size caps.
+  mediaEnabled: false
+  mediaAllowlist: ""
+  mediaServices: ""
+  mediaRatePerMinute: 10
+  mediaMaxConcurrency: 2
+  mediaMaxAudioBytes: "26214400"   # 25 MiB (string to avoid helm float coercion)
+  mediaMaxPromptChars: 2000
 
 # M13 dev-only synthetic loopback fixture. A fake in-cluster calendar provider
 # used to validate the integration harness end-to-end without a real third

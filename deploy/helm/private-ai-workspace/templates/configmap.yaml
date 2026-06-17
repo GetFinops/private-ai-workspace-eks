@@ -66,3 +66,18 @@ data:
   INTEGRATIONS_FIXTURE_URL: {{ printf "http://%s-loopback-fixture:%v" (include "private-ai-workspace.fullname" .) .Values.integrationsFixture.port | quote }}
   {{- end }}
   {{- end }}
+  {{- if .Values.config.mediaEnabled }}
+  # M14 media services. Deny-by-default per-tenant; the control plane routes to
+  # isolated GPU backends (MEDIA_SERVICES). Server-side rate + size caps.
+  MEDIA_ENABLED: "true"
+  {{- if .Values.config.mediaAllowlist }}
+  MEDIA_ALLOWLIST: {{ .Values.config.mediaAllowlist | quote }}
+  {{- end }}
+  {{- if .Values.config.mediaServices }}
+  MEDIA_SERVICES: {{ .Values.config.mediaServices | quote }}
+  {{- end }}
+  MEDIA_RATE_PER_MINUTE: {{ .Values.config.mediaRatePerMinute | default 10 | quote }}
+  MEDIA_MAX_CONCURRENCY: {{ .Values.config.mediaMaxConcurrency | default 2 | quote }}
+  MEDIA_MAX_AUDIO_BYTES: {{ .Values.config.mediaMaxAudioBytes | default "26214400" | quote }}
+  MEDIA_MAX_PROMPT_CHARS: {{ .Values.config.mediaMaxPromptChars | default 2000 | quote }}
+  {{- end }}

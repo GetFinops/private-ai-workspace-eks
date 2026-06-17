@@ -10,10 +10,17 @@
 
 ## Status
 
-Not started. Scaffolded as part of the Phase 2 kickoff. Requires explicit
-maintainer adoption per service (see the Decision Checklist in the Phase 2
-doc) and explicit per-model licensing review before any individual media
-service ships.
+**Shared harness delivered; first services adopted.** The control-plane media
+surface (`app/control_plane/media.py`: routing to isolated GPU backends, deny-by-
+default per-tenant allow-list, operator + per-tenant kill-switches, dedicated
+rate limiter, server-side size/content caps, per-tenant S3 artifact isolation,
+shape-only audit, `media_task_*` notifications) and a generic GPU media-service
+Helm chart (`deploy/helm/media-service`, vLLM-shape: ClusterIP, ingress-from-
+control-plane NetworkPolicy, GPU taint/nodeSelector, gated-model pattern) shipped
+as original code. **Whisper STT (MIT, ungated)** is the first adopted model
+(`NOTICE` "M14 Whisper STT"); **SDXL image-gen** is the next per-service
+increment. Each further model is a separate per-service adoption + license
+review (Phase 2 Decision Checklist).
 
 ## Objective
 

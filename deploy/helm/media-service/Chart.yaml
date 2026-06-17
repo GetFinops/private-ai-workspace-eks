@@ -1,0 +1,11 @@
+apiVersion: v2
+name: media-service
+description: >-
+  Generic isolated GPU media-service chart (M14). Deployed once per media model
+  family (e.g. release "whisper-stt", "sdxl-image"). Same boundary properties as
+  the M4 vLLM chart: ClusterIP, NetworkPolicy restricting ingress to the control
+  plane, GPU taint tolerations + inference-plane nodeSelector. Model weights are
+  pulled at runtime (never vendored into the image).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

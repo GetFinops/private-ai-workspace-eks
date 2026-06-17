@@ -1,0 +1,47 @@
+# deploy/values/dev/media-whisper.yaml
+# M14 Whisper speech-to-text media service (dev). Deployed as its own isolated
+# GPU release. Usage:
+#   helm upgrade --install whisper-stt deploy/helm/media-service \
+#     --namespace inference -f deploy/values/dev/media-whisper.yaml
+#
+# Whisper weights are MIT (ungated) → no HF token / externalSecrets needed.
+# The runtime image must expose the OpenAI-compatible /v1/audio/transcriptions
+# endpoint on the service port (see NOTICE "M14 Whisper STT").
+
+# Service name the control plane targets via MEDIA_SERVICES base_url:
+#   http://whisper-stt.inference.svc.cluster.local:8000
+fullnameOverride: whisper-stt
+
+replicaCount: 1
+
+image:
+  # OpenAI-compatible faster-whisper server (MIT). Pin a digest in production.
+  repository: fedirz/faster-whisper-server
+  tag: "latest-cuda"
+  pullPolicy: IfNotPresent
+
+# Smallest viable model for dev to bound GPU cost (issue #34 discipline).
+model:
+  id: "Systran/faster-whisper-small"
+
+extraEnv:
+  - name: WHISPER__MODEL
+    value: "Systran/faster-whisper-small"
+  - name: WHISPER__INFERENCE_DEVICE
+    value: "cuda"
+
+service:
+  type: ClusterIP
+  port: 8000
+
+probe:
+  path: /health
+  initialDelaySeconds: 60
+
+# Ungated model → no HF token.
+externalSecrets:
+  enabled: false
+
+networkPolicy:
+  enabled: true
+  controlPlaneNamespace: app
