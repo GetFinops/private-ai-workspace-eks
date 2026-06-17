@@ -18,6 +18,16 @@ spec:
   securityGroupSelectorTerms:
     - tags:
         {{- toYaml .Values.karpenter.nodePool.securityGroupSelectorTags | nindent 8 }}
+  # Root volume sized for the vLLM image (~40GB extracted) plus model weights
+  # (issue #34: the default volume hit DiskPressure → pod eviction with a 7B
+  # model). Bump rootVolumeSizeGi for larger models.
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: {{ .Values.karpenter.nodePool.rootVolumeSizeGi | default 200 }}Gi
+        volumeType: gp3
+        encrypted: true
+        deleteOnTermination: true
   tags:
     karpenter.sh/managed: "true"
     private-ai-workspace/plane: inference

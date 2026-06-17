@@ -26,6 +26,13 @@ model:
   tensorParallelSize: 1
   # Maximum concurrent requests in the continuous batching queue.
   maxNumSeqs: 128
+  # Optional stable alias to serve the model under (vLLM --served-model-name).
+  # Decouples the control-plane model id (e.g. "default") from the HF model id.
+  servedModelName: ""
+
+# Extra raw args appended to the vLLM server command, e.g.
+# ["--gpu-memory-utilization", "0.9"].
+extraArgs: []
 
 service:
   type: ClusterIP

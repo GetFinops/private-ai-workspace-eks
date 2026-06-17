@@ -33,6 +33,15 @@ spec:
             - {{ .Values.model.tensorParallelSize | quote }}
             - "--max-num-seqs"
             - {{ .Values.model.maxNumSeqs | quote }}
+            {{- if .Values.model.servedModelName }}
+            # Serve under a stable alias so the control plane's model id is
+            # decoupled from the Hugging Face model id (issue #34).
+            - "--served-model-name"
+            - {{ .Values.model.servedModelName | quote }}
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
             - "--port"
             - "8000"
           ports:

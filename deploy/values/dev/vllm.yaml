@@ -2,17 +2,24 @@
 # Development overrides for the vllm-inference Helm chart.
 # Usage: helm upgrade --install vllm deploy/helm/vllm -f deploy/values/dev/vllm.yaml
 
+# Service named so it resolves to the host the control plane expects
+# (INFERENCE_BASE_URL = http://vllm-inference.inference...:8000). Issue #34:
+# the default fullname (release "vllm") did NOT match.
+fullnameOverride: vllm-inference
+
 replicaCount: 1
 
 image:
   tag: "v0.9.0"
 
 model:
-  # Mistral-7B-Instruct-v0.3 (Apache-2.0).
-  # Gated on Hugging Face — accept the license at:
-  #   https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3
-  # then set the HF token secret in Secrets Manager before deploying.
-  id: "mistralai/Mistral-7B-Instruct-v0.3"
+  # Qwen2.5-1.5B-Instruct (Apache-2.0) — UNGATED, so no HF token is needed, and
+  # it fits a g5.xlarge (24GB) with room for the vLLM image on the default root
+  # volume (issue #34: Mistral-7B was gated + too big for the default disk).
+  id: "Qwen/Qwen2.5-1.5B-Instruct"
+  # Stable alias the control plane targets (AGENT_LOOP_MODEL / chat "model"),
+  # decoupled from the HF id.
+  servedModelName: "default"
   dtype: "float16"
   maxModelLen: 8192
   tensorParallelSize: 1
@@ -30,9 +37,11 @@ serviceAccount:
   irsaRoleArn: ""
 
 externalSecrets:
-  enabled: true
-  awsRegion: us-east-1
-  # Set from: terraform -chdir=infra/terraform output -raw hf_token_secret_name
+  # Disabled: the dev model is ungated, so no Hugging Face token is required.
+  # Re-enable (and set hfTokenSecretName + the HF token secret value) only if you
+  # switch dev to a gated model.
+  enabled: false
+  awsRegion: us-west-2
   hfTokenSecretName: ""
   refreshInterval: "12h"
 
