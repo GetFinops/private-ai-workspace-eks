@@ -1,0 +1,53 @@
+# deploy/values/dev/media-sdxl.yaml
+# M14 SDXL image-generation media service (dev). Deployed as its own isolated GPU
+# release. Usage:
+#   helm upgrade --install sdxl-image deploy/helm/media-service \
+#     --namespace inference -f deploy/values/dev/media-sdxl.yaml
+#
+# LICENSING (NOTICE "M14 SDXL image-gen"): SDXL weights are under the CreativeML
+# Open RAIL++-M license — NOT permissive; it carries use-restrictions that must
+# be reviewed and accepted before any deployment. The weights are publicly
+# downloadable (no HF token needed), so externalSecrets stays off.
+#
+# The runtime image MUST expose the OpenAI-compatible /v1/images/generations
+# endpoint on the service port and a /health probe. There is no single canonical
+# SDXL OpenAI-compatible image (unlike vLLM/Whisper) — supply a license-reviewed,
+# digest-pinned image here before deploying.
+
+# Service name the control plane targets via MEDIA_SERVICES base_url:
+#   http://sdxl-image.inference.svc.cluster.local:8000
+fullnameOverride: sdxl-image
+
+replicaCount: 1
+
+image:
+  # REQUIRED: a license-reviewed SDXL server exposing POST /v1/images/generations.
+  # Pin a digest in production. Left empty so a deploy fails loudly until set.
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+model:
+  id: "stabilityai/stable-diffusion-xl-base-1.0"
+
+extraEnv:
+  - name: MODEL_ID
+    value: "stabilityai/stable-diffusion-xl-base-1.0"
+
+service:
+  type: ClusterIP
+  port: 8000
+
+# SDXL needs ~16GB+ VRAM; g5.xlarge (A10G 24GB) fits a single replica. Image
+# generation is slow — generous probe delay.
+probe:
+  path: /health
+  initialDelaySeconds: 120
+
+# OpenRAIL weights are publicly downloadable → no HF token.
+externalSecrets:
+  enabled: false
+
+networkPolicy:
+  enabled: true
+  controlPlaneNamespace: app

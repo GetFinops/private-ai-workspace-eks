@@ -57,8 +57,8 @@ config:
   # M14 media: Whisper STT allow-listed for tenant-a.test (bob NOT listed →
   # cross-tenant denial). Points at the isolated whisper-stt GPU release.
   mediaEnabled: true
-  mediaAllowlist: '{"tenant-a.test":["whisper"]}'
-  mediaServices: '{"whisper":{"kind":"stt","base_url":"http://whisper-stt.inference.svc.cluster.local:8000"}}'
+  mediaAllowlist: '{"tenant-a.test":["whisper","sdxl"]}'
+  mediaServices: '{"whisper":{"kind":"stt","base_url":"http://whisper-stt.inference.svc.cluster.local:8000"},"sdxl":{"kind":"image","base_url":"http://sdxl-image.inference.svc.cluster.local:8000"}}'
 
 # M13 dev-only synthetic loopback fixture (fake in-cluster calendar provider).
 integrationsFixture:
