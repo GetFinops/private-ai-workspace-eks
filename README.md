@@ -201,6 +201,7 @@ python3 -m app.control_plane
 - Planning bundle and architecture: `docs/README.md`
 - Delivery roadmap: `docs/10-delivery-roadmap.md`
 - Gap analysis: `docs/11-gap-analysis.md`
+- **Pre-production gap plan (UI + functional surface, before M7b/M8):** `docs/13-pre-production-gap-plan.md`
 - Phase 2 feature adoption track (proposed): `docs/12-phase-2-feature-adoption.md`
 - Per-milestone build instructions: `docs/milestones/`
 - **Building an integration module (M13 standard):** `docs/m13-followups/01-integration-module-guide.md`

@@ -38,30 +38,32 @@ The analysis reviewed:
 
 ## Current State Summary
 
-The repository has completed project bootstrap and a partial control-plane
-skeleton.
+> Updated after Phase 2. The platform baseline (M0–M6) plus M7a, and the full
+> Phase-2 feature track (M9–M14), are **complete and dev-validated**. The
+> remaining roadmap is M7b (full staging hardening) → M8 (production release).
+> The original "control-plane skeleton" framing of this document is obsolete and
+> has been replaced below.
 
-### Built
+### Built (M0–M14, dev-validated)
 
-- **Governance**: `LICENSE`, `NOTICE`, `CONTRIBUTING.md`, `SECURITY.md`,
-  `CODE_OF_CONDUCT.md`, `CODEOWNERS`, issue and pull-request templates, and a
-  CI workflow that verifies structure and runs tests.
-- **Documentation**: the full planning bundle and the internal inference
-  contract.
-- **Control-plane skeleton** (`app/control_plane/`):
-  - environment-driven configuration model
-  - a standard-library HTTP surface exposing `/healthz`, `/readyz`, and
-    `/v1/inference/status`
-  - authentication and session domain primitives (types only)
-  - a vLLM endpoint-routing and URL-normalization layer
-  - a standard-library inference client able to call an OpenAI-compatible
-    backend
-- **Infrastructure baseline** (`infra/terraform/`): VPC, EKS, ECR, RDS, and S3
-  modules wired through a root module.
-- **Deployment scaffolding** (`deploy/helm/`): charts for the control plane,
-  a vLLM service, and an observability stack.
-- **Tests**: a standard-library test suite covering configuration, routes,
-  auth and session primitives, the inference contract, and roadmap artifacts.
+- **Governance + docs**: full planning bundle, governance files, CI (structure +
+  `unittest`), provenance in `NOTICE`.
+- **Control plane** (`app/control_plane/`): real OIDC token verification +
+  per-tenant/per-user isolation; externalized PostgreSQL session/notification/
+  retrieval/memory stores; an OpenAI-compatible chat path to an internal vLLM
+  plane with degraded-mode handling; `/metrics`. Endpoints across ~12 capability
+  areas (chat, notifications, retrieval/RAG, memory, agent tools, agent loop,
+  deep-research, MCP, integrations, media) — see
+  [`13-pre-production-gap-plan.md`](13-pre-production-gap-plan.md) §1 for the
+  endpoint table.
+- **Feature surfaces**: M10 retrieval + per-user memory on pgvector; M11 sandboxed
+  agent tools + agent loop + deep-research; M12 sandboxed MCP; M13 integration
+  harness + Google Calendar (live-validated against the real API); M14 media
+  harness + Whisper STT (GPU-validated) + SDXL image-gen.
+- **Infrastructure**: VPC/EKS/ECR/RDS/S3, IRSA, Cognito, NetworkPolicy
+  enforcement (egress lockdown), GPU provisioning (Karpenter + managed warm-pool).
+- **Web UI** (M9): vanilla-JS SPA (OIDC PKCE) surfacing **chat + notifications**.
+- **Tests**: full stdlib `unittest` suite (560+).
 
 ### Provenance posture
 
@@ -72,25 +74,24 @@ AWS sample. The repository is intentionally a new project rather than a fork.
 
 ## Gap Table
 
-The MVP scope calls for a chat and model-orchestration core, authentication and
-admin controls, externalized persistence, and vLLM integration. Measured
-against that scope:
+The platform and feature backends are built. The remaining gaps are now about
+**user reachability and chat-product polish**, not missing capability. The full
+analysis + tiered plan is in
+[`13-pre-production-gap-plan.md`](13-pre-production-gap-plan.md); summary:
 
-| Area | Planned | Current state | Gap |
-| --- | --- | --- | --- |
-| Chat / orchestration | chat and model-routing core | endpoint URL building only | no chat endpoint; the inference client is not wired into the HTTP surface |
-| Authentication | authentication and admin controls | identity and settings types only | no token verification, no login flow, no request-level enforcement |
-| Sessions | externalized session state | in-memory session dataclass | no session store or persistence backend |
-| Database | managed PostgreSQL | configuration variable only | no models, migrations, or database driver; readiness only checks variable presence |
-| Object storage | S3 for artifacts | configuration variable only | no storage client or upload flows |
-| Secrets | managed secret retrieval | provider name string only | no secret-manager integration |
-| Observability | metrics, logs, traces | observability chart scaffold | no application metrics endpoint, instrumentation, or tracing |
-| HTTP serving | horizontally scalable API | standard-library server, read-only routes | no write handling or production-grade serving stack |
+| Area | Built backend | Gap |
+| --- | --- | --- |
+| **UI feature exposure** | retrieval, memory, agents, deep-research, MCP, integrations, media all have working endpoints | the M9 UI surfaces only chat + notifications — ~89% of capability is not user-reachable (the dominant gap) |
+| Conversation persistence | stateless chat path | no server-side thread store; history is `sessionStorage`-only, lost on tab close |
+| Streaming | request/response chat | no token streaming (SSE); long completions block |
+| Rich rendering | plain-text chat bubbles | no markdown/code rendering |
+| File upload (RAG) | text-only document indexing | no per-tenant file-upload → extract → index path |
+| Model selection | internal vLLM routing | models hardcoded in UI Helm values; no `/v1/models` listing |
+| Real-time + delivery | 30s notification polling | no SSE/webhook push |
+| Upstream parity (optional) | — | web search (external-service only, no AGPL bundling), TTS (M14 follow-on) |
 
-Milestones beyond the control-plane skeleton (EKS deployment, state
-externalization, inference-plane MVP, observability baseline, elastic GPU
-scaling, staging hardening, and production release) are scaffolded in
-infrastructure and deployment but not yet exercised end to end.
+These gaps are sequenced against M7b → M8 in
+[`13-pre-production-gap-plan.md`](13-pre-production-gap-plan.md) §5.
 
 ## Reuse Posture: Adapt Selectively, Do Not Fork
 
@@ -136,14 +137,17 @@ in `NOTICE`.
 
 ## Recommended Next Focus
 
-The highest-value near-term work is completing the control-plane core:
+The control-plane core is done. The highest-value pre-production work is closing
+the **UI/UX gap** so the release surface is coherent and M7b hardens what users
+actually touch (full plan in
+[`13-pre-production-gap-plan.md`](13-pre-production-gap-plan.md)):
 
-1. wire the existing inference client into an authenticated request path
-2. add real authentication verification and request-level enforcement
-3. introduce a managed-database-backed persistence and session layer
-
-These are the items that move the project from a skeleton to a usable control
-plane, and they unblock the deployment and inference milestones that follow.
+1. surface the four product areas (retrieval/RAG + upload, memory, agents +
+   deep-research, media) in the web UI;
+2. add server-side conversation persistence, streaming chat (SSE), and safe
+   markdown rendering;
+3. then run M7b over the combined platform + exposed feature surface, and ship
+   M8.
 
 ## Escalation Notes
 
