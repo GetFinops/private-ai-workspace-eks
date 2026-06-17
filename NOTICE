@@ -739,3 +739,20 @@ Per-model records:
   production use). No copyleft/AGPL in the default dependency set. Exposes
   /v1/audio/transcriptions. Live GPU validation uses the smallest model to bound
   cost; the routing/limits/isolation are unit-covered (tests/test_media.py).
+
+  M14 SDXL image-gen (second model). Decision: ADOPTED, conditional on per-deploy
+  license acceptance. Model = Stable Diffusion XL base 1.0
+  (stabilityai/stable-diffusion-xl-base-1.0). License = CreativeML Open RAIL++-M —
+  NOT permissive: it carries use-restrictions (the RAIL "Attachment A" prohibited
+  uses) that must be reviewed and accepted before any deployment; this is the
+  media-licensing risk flagged in docs/12-phase-2-feature-adoption.md. Weights are
+  publicly downloadable (no HF token). The serving runtime (e.g. diffusers,
+  Apache-2.0) and the concrete server image are NOT pinned here — there is no
+  canonical OpenAI-compatible SDXL image, so deploy/values/dev/media-sdxl.yaml
+  leaves image.repository empty: a license-reviewed, digest-pinned image exposing
+  /v1/images/generations must be supplied before deploying, and re-reviewed for
+  its dependency licensing (no AGPL in the default set). The control-plane
+  generate path (per-tenant S3 isolation, size/content caps, deny-by-default) is
+  unit-covered (tests/test_media.py); live GPU validation of SDXL is deferred (the
+  dev media validation uses the smaller Whisper model per the M14 cost
+  discipline).
