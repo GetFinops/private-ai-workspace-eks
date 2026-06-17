@@ -17,6 +17,7 @@ for the project bootstrap.
 - [Delivery roadmap](10-delivery-roadmap.md)
 - [Gap analysis](11-gap-analysis.md)
 - [Phase 2 feature adoption track (M9+, proposed)](12-phase-2-feature-adoption.md)
+- [Pre-production gap plan (UI + functional surface)](13-pre-production-gap-plan.md)
 
 ## Milestone Instructions
 
