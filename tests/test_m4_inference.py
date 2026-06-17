@@ -248,13 +248,20 @@ class TestVLLMChartArtifacts(unittest.TestCase):
         self.assertIn("eks.amazonaws.com/role-arn", text)
         self.assertIn(".Values.serviceAccount.irsaRoleArn", text)
 
-    def test_dev_values_model_is_mistral(self) -> None:
+    def test_dev_values_model_is_ungated(self) -> None:
+        # Dev defaults to an ungated Apache-2.0 model so no HF token is needed,
+        # served under a stable alias, with the Service named to match
+        # INFERENCE_BASE_URL (issue #34).
         dev_values = (ROOT / "deploy/values/dev/vllm.yaml").read_text()
-        self.assertIn("mistralai/Mistral-7B-Instruct-v0.3", dev_values)
+        self.assertIn("Qwen/Qwen2.5-1.5B-Instruct", dev_values)
+        self.assertIn('servedModelName: "default"', dev_values)
+        self.assertIn("fullnameOverride: vllm-inference", dev_values)
 
-    def test_dev_values_external_secrets_enabled(self) -> None:
+    def test_dev_values_external_secrets_disabled(self) -> None:
+        # Ungated model → the externalSecrets block is disabled (no HF token).
         dev_values = (ROOT / "deploy/values/dev/vllm.yaml").read_text()
-        self.assertIn("enabled: true", dev_values)
+        block = dev_values.split("externalSecrets:", 1)[1].split("\nnetworkPolicy:", 1)[0]
+        self.assertIn("enabled: false", block)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
