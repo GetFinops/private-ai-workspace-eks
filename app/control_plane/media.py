@@ -166,6 +166,23 @@ class MediaExecutor:
     def available(self, tenant_id: str, allowlist: dict) -> list[str]:
         return sorted(n for n in self._services if is_allowed(allowlist, tenant_id, n))
 
+    def artifact_url(self, artifact_id: str, *, tenant_id: str, user_id: str, expires_in: int = 300) -> str | None:
+        """Presigned GET URL for a caller-owned generated artifact, or None.
+
+        The S3 key is reconstructed from the verified token's tenant+user, so a
+        caller can only ever address their own artifacts (the id lives under
+        their prefix).
+        """
+        if self._storage is None:
+            return None
+        key = f"media/{tenant_id}/{user_id}/{artifact_id}.bin"
+        try:
+            return self._storage.generate_presigned_url(
+                key=key, expires_in=expires_in, operation="get_object"
+            )
+        except Exception:  # noqa: BLE001
+            return None
+
     def _post(self, url: str, *, data: bytes, content_type: str) -> "tuple[int, bytes, str]":
         req = _urlrequest.Request(
             url, data=data, headers={"Content-Type": content_type}, method="POST"
@@ -272,6 +289,28 @@ def build_media_list_response(
     if err is not None:
         return err
     return HTTPStatus.OK, {"services": executor.available(tenant_id, allowlist)}
+
+
+_SAFE_ARTIFACT_ID = __import__("re").compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def build_media_artifact_response(*, authorization, artifact_id, token_verifier, executor):
+    """GET /v1/media/artifacts/{id} — presigned URL for a caller-owned artifact.
+
+    Auth-only (no kill-switch): a user can always retrieve their own past
+    artifacts. Per-tenant/user isolation is by S3-key construction.
+    """
+    claims, err = _verify_and_extract(authorization, token_verifier)
+    if err is not None:
+        return err
+    tenant_id = _extract_tenant_id(claims)
+    user_id = claims.subject
+    if not artifact_id or not _SAFE_ARTIFACT_ID.match(artifact_id):
+        return HTTPStatus.BAD_REQUEST, {"error": "bad_request"}
+    url = executor.artifact_url(artifact_id, tenant_id=tenant_id, user_id=user_id)
+    if url is None:
+        return HTTPStatus.NOT_FOUND, {"error": "not_found"}
+    return HTTPStatus.OK, {"url": url, "expires_in": 300}
 
 
 def build_media_transcribe_response(

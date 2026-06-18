@@ -109,6 +109,7 @@ from app.control_plane.integrations import (
 from app.control_plane.integration_secrets import make_secrets_manager_resolver
 from app.control_plane.media import (
     MediaExecutor,
+    build_media_artifact_response,
     build_media_generate_response,
     build_media_list_response,
     build_media_transcribe_response,
@@ -171,6 +172,7 @@ _INTEGRATIONS_LIST_PATH = "/v1/integrations/list"
 _MEDIA_LIST_PATH = "/v1/media/list"
 _MEDIA_TRANSCRIBE_PATH = "/v1/media/transcribe"
 _MEDIA_GENERATE_PATH = "/v1/media/generate"
+_MEDIA_ARTIFACTS_PREFIX = "/v1/media/artifacts/"
 _CONVERSATIONS_PATH = "/v1/conversations"
 _METRICS_PATH = "/metrics"
 _MAX_REQUEST_BODY = 1 * 1024 * 1024  # 1 MiB
@@ -587,6 +589,18 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     conversation_id=cid,
                     token_verifier=self.__class__.token_verifier,
                     store=self.__class__.conversation_store,
+                )
+                self._instrument("GET", lambda s=status, p=payload: Response(s, p))
+                return
+        # GET /v1/media/artifacts/{id} — presigned URL for a caller-owned artifact.
+        if path.startswith(_MEDIA_ARTIFACTS_PREFIX):
+            aid = path[len(_MEDIA_ARTIFACTS_PREFIX):]
+            if aid and "/" not in aid:
+                status, payload = build_media_artifact_response(
+                    authorization=self.headers.get("Authorization"),
+                    artifact_id=aid,
+                    token_verifier=self.__class__.token_verifier,
+                    executor=self.__class__.media_executor,
                 )
                 self._instrument("GET", lambda s=status, p=payload: Response(s, p))
                 return
