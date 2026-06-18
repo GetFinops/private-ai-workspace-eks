@@ -251,6 +251,52 @@ class TestGenerate(unittest.TestCase):
         self.assertEqual(status, HTTPStatus.BAD_REQUEST)
 
 
+class _PresignStorage:
+    def __init__(self, exists=True):
+        self.exists = exists
+        self.last_key = None
+
+    def generate_presigned_url(self, *, key, expires_in=300, operation="get_object"):
+        self.last_key = key
+        if not self.exists:
+            raise Exception("not found")
+        return f"https://s3.example/{key}?sig=abc"
+
+
+class TestArtifactFetch(unittest.TestCase):
+    def test_presigned_url_for_owned_artifact(self):
+        from app.control_plane.media import build_media_artifact_response
+        storage = _PresignStorage()
+        ex = MediaExecutor(storage_client=storage)
+        status, payload = build_media_artifact_response(
+            authorization="Bearer valid", artifact_id="abc-123", token_verifier=_ALICE, executor=ex)
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn("s3.example", payload["url"])
+        # Key is scoped to the caller's tenant + user.
+        self.assertEqual(storage.last_key, "media/tenant-a.test/user-x/abc-123.bin")
+
+    def test_missing_artifact_404(self):
+        from app.control_plane.media import build_media_artifact_response
+        ex = MediaExecutor(storage_client=_PresignStorage(exists=False))
+        status, _ = build_media_artifact_response(
+            authorization="Bearer valid", artifact_id="abc-123", token_verifier=_ALICE, executor=ex)
+        self.assertEqual(status, HTTPStatus.NOT_FOUND)
+
+    def test_bad_artifact_id_rejected(self):
+        from app.control_plane.media import build_media_artifact_response
+        ex = MediaExecutor(storage_client=_PresignStorage())
+        status, _ = build_media_artifact_response(
+            authorization="Bearer valid", artifact_id="../etc/passwd", token_verifier=_ALICE, executor=ex)
+        self.assertEqual(status, HTTPStatus.BAD_REQUEST)
+
+    def test_anonymous_unauthorized(self):
+        from app.control_plane.media import build_media_artifact_response
+        ex = MediaExecutor(storage_client=_PresignStorage())
+        status, _ = build_media_artifact_response(
+            authorization=None, artifact_id="abc-123", token_verifier=_ALICE, executor=ex)
+        self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
+
+
 class TestAuditContentSafety(unittest.TestCase):
     def test_prompt_not_in_audit(self):
         with self.assertLogs("app.control_plane.agent_tools", level="INFO") as cm:
