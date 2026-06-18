@@ -115,6 +115,15 @@ from app.control_plane.media import (
     parse_media_allowlist,
     parse_media_services,
 )
+from app.control_plane.conversations import (
+    ConversationStore,
+    InMemoryConversationStore,
+    build_conversation_append_response,
+    build_conversation_create_response,
+    build_conversation_delete_response,
+    build_conversation_get_response,
+    build_conversations_list_response,
+)
 from app.control_plane.embeddings import (
     DeterministicEmbeddingClient,
     EmbeddingClient,
@@ -160,6 +169,7 @@ _INTEGRATIONS_LIST_PATH = "/v1/integrations/list"
 _MEDIA_LIST_PATH = "/v1/media/list"
 _MEDIA_TRANSCRIBE_PATH = "/v1/media/transcribe"
 _MEDIA_GENERATE_PATH = "/v1/media/generate"
+_CONVERSATIONS_PATH = "/v1/conversations"
 _METRICS_PATH = "/metrics"
 _MAX_REQUEST_BODY = 1 * 1024 * 1024  # 1 MiB
 
@@ -446,6 +456,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     notification_store: NotificationStore = InMemoryNotificationStore()  # type: ignore[assignment]
     retrieval_store: RetrievalStore = InMemoryRetrievalStore()  # type: ignore[assignment]
     memory_store: MemoryStore = InMemoryMemoryStore()  # type: ignore[assignment]
+    conversation_store: ConversationStore = InMemoryConversationStore()  # type: ignore[assignment]
     embedding_client: EmbeddingClient = DeterministicEmbeddingClient()
     # Agent tool framework (M11). Disabled by default (kill-switch off); the
     # allow-list is empty (deny by default) until configured.
@@ -558,6 +569,25 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
             )
             self._instrument("GET", lambda s=status, p=payload: Response(s, p))
             return
+        if path == _CONVERSATIONS_PATH:
+            status, payload = build_conversations_list_response(
+                authorization=self.headers.get("Authorization"),
+                token_verifier=self.__class__.token_verifier,
+                store=self.__class__.conversation_store,
+            )
+            self._instrument("GET", lambda s=status, p=payload: Response(s, p))
+            return
+        if path.startswith(_CONVERSATIONS_PATH + "/"):
+            cid = path[len(_CONVERSATIONS_PATH) + 1:]
+            if cid and "/" not in cid:
+                status, payload = build_conversation_get_response(
+                    authorization=self.headers.get("Authorization"),
+                    conversation_id=cid,
+                    token_verifier=self.__class__.token_verifier,
+                    store=self.__class__.conversation_store,
+                )
+                self._instrument("GET", lambda s=status, p=payload: Response(s, p))
+                return
         self._instrument("GET", lambda: build_response(self.path, self.__class__.config))
 
     def do_POST(self) -> None:  # noqa: N802
@@ -774,6 +804,28 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                 )
                 return Response(status, payload)
 
+            if path == _CONVERSATIONS_PATH:
+                status, payload = build_conversation_create_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    store=self.__class__.conversation_store,
+                )
+                return Response(status, payload)
+
+            # POST /v1/conversations/{id}/messages — append a message.
+            if path.startswith(_CONVERSATIONS_PATH + "/") and path.endswith("/messages"):
+                cid = path[len(_CONVERSATIONS_PATH) + 1: -len("/messages")]
+                if cid and "/" not in cid:
+                    status, payload = build_conversation_append_response(
+                        authorization=self.headers.get("Authorization"),
+                        conversation_id=cid,
+                        body=body,
+                        token_verifier=self.__class__.token_verifier,
+                        store=self.__class__.conversation_store,
+                    )
+                    return Response(status, payload)
+
             # POST /v1/notifications/{id}/read
             if path.startswith(_NOTIFICATIONS_PATH + "/") and path.endswith("/read"):
                 # Extract the notification ID from between the prefix and "/read"
@@ -805,6 +857,18 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                         memory_id=memory_id,
                         token_verifier=self.__class__.token_verifier,
                         store=self.__class__.memory_store,
+                    )
+                    return Response(status, payload)
+            # DELETE /v1/conversations/{id}
+            cprefix = _CONVERSATIONS_PATH + "/"
+            if path.startswith(cprefix):
+                cid = path[len(cprefix):]
+                if cid and "/" not in cid:
+                    status, payload = build_conversation_delete_response(
+                        authorization=self.headers.get("Authorization"),
+                        conversation_id=cid,
+                        token_verifier=self.__class__.token_verifier,
+                        store=self.__class__.conversation_store,
                     )
                     return Response(status, payload)
             return Response(HTTPStatus.NOT_FOUND, {"error": "not_found", "path": self.path})
@@ -954,6 +1018,31 @@ def _build_integration_secret_resolver(config: ControlPlaneConfig):
         config.integrations_secret_env or config.environment,
         ttl_seconds=config.integrations_secret_ttl_s,
     )
+
+
+def _build_conversation_store(config: ControlPlaneConfig) -> ConversationStore:
+    """Return a Postgres-backed conversation store when DATABASE_URL is set."""
+    if not config.database_url:
+        return InMemoryConversationStore()
+    try:
+        from app.db.connection import open_pool
+        from app.control_plane.conversations import PostgresConversationStore
+
+        pool = open_pool(config.database_url)
+        logger.info("Using PostgreSQL conversation store.")
+        return PostgresConversationStore(pool)
+    except Exception as exc:
+        exc_type = type(exc).__name__
+        if config.environment != "development":
+            raise RuntimeError(
+                f"Failed to initialize PostgreSQL conversation store ({exc_type}); "
+                f"refusing to fall back in environment={config.environment!r}."
+            ) from None
+        logger.error(
+            "Failed to initialize PostgreSQL conversation store (%s) — "
+            "falling back to in-memory (development only).", exc_type,
+        )
+        return InMemoryConversationStore()
 
 
 def _build_tenant_integration_state(config: ControlPlaneConfig) -> TenantIntegrationState:
@@ -1124,6 +1213,7 @@ def run_server(
     ControlPlaneHandler.memory_store = (  # type: ignore[assignment]
         memory_store or _build_memory_store(resolved_config)
     )
+    ControlPlaneHandler.conversation_store = _build_conversation_store(resolved_config)  # type: ignore[assignment]
     ControlPlaneHandler.embedding_client = (
         embedding_client or _build_embedding_client(resolved_config)
     )

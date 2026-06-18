@@ -104,3 +104,32 @@ CREATE TABLE IF NOT EXISTS integration_tenant_state (
     PRIMARY KEY (tenant_id, integration)
 );
 
+-- Migration 0006: server-side conversation persistence (pre-production Tier A)
+-- Chat threads + messages scoped to one (tenant_id, user_id). Message content is
+-- the user's own data, returned only to its owner (same handling as memories);
+-- telemetry never carries it (M5). ON DELETE CASCADE removes a thread's messages.
+CREATE TABLE IF NOT EXISTS conversations (
+    id          UUID        PRIMARY KEY,
+    tenant_id   TEXT        NOT NULL,
+    user_id     TEXT        NOT NULL,
+    title       TEXT        NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL,
+    updated_at  TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversations_user
+    ON conversations (tenant_id, user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS conversation_messages (
+    id              UUID        PRIMARY KEY,
+    conversation_id UUID        NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
+    tenant_id       TEXT        NOT NULL,
+    user_id         TEXT        NOT NULL,
+    role            TEXT        NOT NULL,
+    content         TEXT        NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_messages
+    ON conversation_messages (conversation_id, created_at);
+
