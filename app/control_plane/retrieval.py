@@ -422,6 +422,78 @@ def build_index_document_response(
     }
 
 
+# Text-based content types we can index directly. Binary formats (PDF, docx)
+# need an extractor; PyMuPDF is governance-EXCLUDED (AGPL) — a non-AGPL extractor
+# would be a separate adoption decision, so binary uploads are rejected here.
+_TEXT_UPLOAD_TYPES = frozenset({
+    "text/plain", "text/markdown", "text/x-markdown", "text/csv",
+    "application/json", "application/xml", "text/xml",
+})
+
+
+def build_retrieval_upload_response(
+    *,
+    authorization: str | None,
+    filename: str | None,
+    content_type: str | None,
+    body: bytes,
+    token_verifier: TokenVerifier | None,
+    store: RetrievalStore,
+    embedding_client: EmbeddingClient,
+    storage_client=None,
+    max_upload_bytes: int = 10 * 1024 * 1024,
+    notification_store: NotificationStore | None = None,
+) -> tuple[int, dict]:
+    """Handle POST /v1/retrieval/upload?filename=<name> — raw file body.
+
+    Stores the original per-tenant in S3, extracts text (text-based types only),
+    and indexes it via the same path as /v1/retrieval/documents. The tenant is
+    derived from the verified token, never the client.
+    """
+    claims, err = _verify_and_extract(authorization, token_verifier)
+    if err is not None:
+        return err
+    if not filename or not isinstance(filename, str):
+        return HTTPStatus.BAD_REQUEST, {"error": "bad_request", "detail": "'filename' query param is required."}
+    if not body:
+        return HTTPStatus.BAD_REQUEST, {"error": "bad_request", "detail": "file body is required."}
+    if len(body) > max_upload_bytes:
+        return HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "file_too_large"}
+    ctype = (content_type or "").split(";", 1)[0].strip().lower()
+    if ctype and ctype not in _TEXT_UPLOAD_TYPES and not ctype.startswith("text/"):
+        return HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {
+            "error": "unsupported_media_type",
+            "detail": "Only text-based files can be indexed (binary/PDF extraction is not enabled).",
+        }
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "not_utf8_text"}
+
+    tenant_id = _extract_tenant_id(claims)  # type: ignore[arg-type]
+    user_id = claims.subject  # type: ignore[union-attr]
+
+    # Store the original artifact per-tenant (best-effort; indexing is the goal).
+    stored_key = None
+    if storage_client is not None:
+        safe_name = filename.replace("/", "_")[:200]
+        stored_key = f"uploads/{tenant_id}/{user_id}/{uuid.uuid4()}/{safe_name}"
+        try:
+            storage_client.put_object(key=stored_key, body=body, content_type=ctype or "text/plain")
+        except Exception:  # noqa: BLE001 - storage failure must not block indexing
+            stored_key = None
+
+    # Reuse the existing indexing path (chunk → embed → store → notify).
+    index_body = json.dumps({"title": filename[:_MAX_TITLE_LEN], "content": text}).encode("utf-8")
+    status, payload = build_index_document_response(
+        authorization=authorization, body=index_body, token_verifier=token_verifier,
+        store=store, embedding_client=embedding_client, notification_store=notification_store,
+    )
+    if status == HTTPStatus.CREATED and isinstance(payload, dict):
+        payload["upload_key"] = stored_key
+    return status, payload
+
+
 def build_retrieval_query_response(
     *,
     authorization: str | None,
