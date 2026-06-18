@@ -26,7 +26,6 @@
 
   var STORAGE_KEY_TOKEN  = 'pai_access_token';
   var STORAGE_KEY_EMAIL  = 'pai_user_email';
-  var STORAGE_KEY_CONVS  = 'pai_conversations';
   var NOTIF_POLL_MS      = 30_000;   // poll for new notifications every 30 s
   var MAX_HISTORY        = 40;       // max messages to keep per conversation
   var DEFAULT_MODEL      = '';       // populated from /config.json
@@ -114,18 +113,18 @@
     setTimeout(function () { els.errorBanner.classList.remove('visible'); }, 6000);
   }
 
-  // ─── Persistence ─────────────────────────────────────────────────────────
+  // ─── Persistence (server-backed; threads survive tab close / device switch) ──
 
-  function saveConversations() {
+  async function loadConversations() {
     try {
-      sessionStorage.setItem(STORAGE_KEY_CONVS, JSON.stringify(state.conversations));
-    } catch (_) {}
-  }
-
-  function loadConversations() {
-    try {
-      var raw = sessionStorage.getItem(STORAGE_KEY_CONVS);
-      if (raw) state.conversations = JSON.parse(raw);
+      var resp = await apiFetch('/v1/conversations');
+      if (resp.status === 401) { redirectToLogin('Session expired. Please sign in again.'); return; }
+      if (!resp.ok) { state.conversations = []; return; }
+      var data = await resp.json();
+      // Summaries only (no messages until a conversation is opened).
+      state.conversations = (data.conversations || []).map(function (c) {
+        return { id: c.id, title: c.title, messages: null };
+      });
     } catch (_) {
       state.conversations = [];
     }
@@ -344,7 +343,7 @@
     }
 
     // 5. Render UI.
-    loadConversations();
+    await loadConversations();
     renderSidebar();
     renderModelSelect();
     renderUserEmail();
@@ -379,19 +378,35 @@
 
   // ─── Conversation management ──────────────────────────────────────────────
 
-  function newConversation() {
+  async function newConversation() {
     var conv = { id: genId(), title: 'New conversation', messages: [] };
+    try {
+      var resp = await apiFetch('/v1/conversations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      });
+      if (resp.ok) { var c = await resp.json(); conv.id = c.id; conv.title = c.title; }
+    } catch (_) { /* fall back to a local-only conversation */ }
     state.conversations.unshift(conv);
-    saveConversations();
-    activateConversation(conv.id);
+    state.activeConvId = conv.id;
     renderSidebar();
+    renderMessages();
+    els.chatInput.focus();
     return conv;
   }
 
-  function activateConversation(id) {
+  async function activateConversation(id) {
     state.activeConvId = id;
-    renderMessages();
     renderSidebar();
+    var conv = activeConv();
+    // Lazy-load messages the first time a thread is opened.
+    if (conv && conv.messages === null) {
+      try {
+        var resp = await apiFetch('/v1/conversations/' + encodeURIComponent(id));
+        if (resp.status === 401) { redirectToLogin('Session expired. Please sign in again.'); return; }
+        conv.messages = resp.ok ? ((await resp.json()).messages || []) : [];
+      } catch (_) { conv.messages = []; }
+    }
+    renderMessages();
     els.chatInput.focus();
   }
 
@@ -399,19 +414,35 @@
     return state.conversations.find(function (c) { return c.id === state.activeConvId; }) || null;
   }
 
+  async function deleteConversation(id) {
+    try { await apiFetch('/v1/conversations/' + encodeURIComponent(id), { method: 'DELETE' }); } catch (_) {}
+    state.conversations = state.conversations.filter(function (c) { return c.id !== id; });
+    if (state.activeConvId === id) {
+      if (state.conversations.length > 0) { activateConversation(state.conversations[0].id); }
+      else { newConversation(); }
+    } else {
+      renderSidebar();
+    }
+  }
+
   function appendMessage(role, content) {
     var conv = activeConv();
     if (!conv) return;
+    if (conv.messages === null) conv.messages = [];
     conv.messages.push({ role: role, content: content });
     if (conv.messages.length > MAX_HISTORY) {
       conv.messages = conv.messages.slice(-MAX_HISTORY);
     }
-    // Update conversation title from the first user message.
+    // Update title locally from the first user message (server seeds it too).
     if (role === 'user' && conv.title === 'New conversation') {
       conv.title = content.slice(0, 50) + (content.length > 50 ? '…' : '');
       renderSidebar();
     }
-    saveConversations();
+    // Persist the message server-side (best-effort; never blocks the UI).
+    apiFetch('/v1/conversations/' + encodeURIComponent(conv.id) + '/messages', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: role, content: content }),
+    }).catch(function () {});
     renderMessages();
   }
 
@@ -447,6 +478,17 @@
       title.className = 'conv-item-title';
       setText(title, conv.title);
       item.appendChild(title);
+      var del = document.createElement('button');
+      del.className = 'conv-item-delete';
+      del.type = 'button';
+      del.setAttribute('aria-label', 'Delete conversation');
+      del.title = 'Delete conversation';
+      setText(del, '×');
+      del.addEventListener('click', function (e) {
+        e.stopPropagation();
+        deleteConversation(conv.id);
+      });
+      item.appendChild(del);
       item.addEventListener('click', function () { activateConversation(conv.id); });
       item.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' || e.key === ' ') activateConversation(conv.id);
@@ -611,7 +653,9 @@
     var input = els.chatInput.value.trim();
     if (!input || state.sending) return;
 
-    var conv = activeConv() || newConversation();
+    var conv = activeConv();
+    if (!conv) conv = await newConversation();
+    if (!conv.messages) conv.messages = [];
 
     appendMessage('user', input);
     els.chatInput.value = '';
