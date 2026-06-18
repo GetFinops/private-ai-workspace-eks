@@ -4,6 +4,14 @@
 > [`12-phase-2-feature-adoption.md`](12-phase-2-feature-adoption.md), this
 > analyses gaps at the **component/category level** — it does not publish a
 > file-by-file upstream porting list or restate upstream vulnerability details.
+>
+> **Verified 2026-06-18 against the upstream repo.** Two corrections came out of
+> that check: (1) **licensing** — upstream relicensed MIT → **AGPL-3.0-or-later**
+> on 2026-06-09, so upstream-inspired features must be built **clean-room**, not
+> adapted from source (see `NOTICE` / `12-phase-2-feature-adoption.md`); and
+> (2) the **feature surface** below was expanded — upstream also ships Compare,
+> Notes/Tasks, a Documents *editor*, Cookbook/model-management, mail + contacts,
+> an image editor/gallery, and TTS; its Deep Research is **web**-based.
 
 ## Purpose
 
@@ -65,19 +73,38 @@ Baseline expectations for an AI-workspace UI that the M9 SPA does not yet meet:
 
 ## 3. Upstream-described features not yet built
 
-Category-level, from the upstream review and the Phase-2 doc:
+Confirmed against the upstream `routes/` surface (2026-06-18). **All of these
+must be built clean-room** — upstream is now AGPL-3.0, so its source cannot be
+adapted into this MIT project.
 
-- **Web search.** Upstream bundles a search engine (SearXNG) — **excluded as a
-  vendored AGPL component** (`12-phase-2-feature-adoption.md`). It is, however,
-  legitimately addable as an **external-service integration via the M13 pattern**
-  (call it over the network through the hardened URL guard; do not vendor it).
-- **Text-to-speech.** M14 shipped STT + image generation; TTS is a natural M14
-  follow-on media service (its own per-model license review).
-- **File/document upload** for RAG ingestion. Retrieval indexing accepts text
-  only today; a per-tenant, size-capped upload path (S3 + extract→index) is
-  needed for the UI RAG flow.
+- **Web search.** Upstream uses SearXNG (AGPL) as the default metasearch
+  backend. **Do not vendor.** Legitimately addable as an **external-service
+  integration via the M13 pattern** (call a search API over the network through
+  the hardened URL guard; a separately-run SearXNG, or a non-AGPL provider).
+- **Deep research is web-based upstream.** Our M11 deep-research runs *only* over
+  the tenant's own retrieval corpus; upstream's does multi-step **web** research
+  with source reading. Closing this depends on the web-search item above.
+- **Text-to-speech.** Upstream has TTS (`routes/tts_routes.py`). We shipped STT +
+  image in M14; TTS is a natural M14 follow-on media service.
+- **Model management ("Cookbook").** Hardware-aware model recommendations,
+  downloads, and serving. We have no model-management surface (the UI even
+  hardcodes the model list) — bigger than the "model listing" gap in §1.
+- **Compare.** Blind side-by-side model A/B testing + synthesis. Not present here
+  at all.
+- **Notes / Tasks** (incl. scheduled agent tasks) and a **Documents *editor***
+  (writing-first, AI edits/suggestions — richer than RAG ingestion). Not present.
+- **Mail + contacts.** M13 covers calendar (Google Calendar); upstream also has
+  mail and contacts (CalDAV/CardDAV). Each is its own M13 per-integration
+  adoption + credential review.
+- **Image editor / gallery** (vs. just generation) and **2FA** (Extras).
+- **File/document upload** for RAG — shipped in Tier A (#58); PDF via client-side
+  pdf.js is the remaining follow-up.
 - **Real-time notifications.** Currently 30s polling; SSE/websocket push is the
   upstream-class experience.
+
+These are **Tier B / future-milestone** candidates, individually adoption-gated;
+none gate the M8 release. They are listed for completeness now that the upstream
+surface is verified.
 
 ## 4. Explicitly excluded — must NOT be reintroduced
 
