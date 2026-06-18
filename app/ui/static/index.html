@@ -76,6 +76,7 @@
           </svg>
           <span id="notif-badge" aria-live="polite"></span>
         </button>
+        <button id="tools-btn" type="button" aria-label="Tools" aria-haspopup="true" aria-expanded="false">Tools</button>
         <button id="signout-btn" type="button">Sign out</button>
       </div>
     </header>
@@ -113,6 +114,69 @@
     </div>
     <div id="notif-list" role="list">
       <p id="notif-empty">No unread notifications</p>
+    </div>
+  </aside>
+
+  <!-- Tools drawer: surfaces the backend feature areas (RAG, memory, agent, media) -->
+  <aside id="tools-drawer" role="complementary" aria-label="Tools panel">
+    <div id="tools-drawer-header">
+      <span>Tools</span>
+      <button id="tools-close-btn" type="button" aria-label="Close tools">&times;</button>
+    </div>
+    <div id="tools-body">
+
+      <section class="tool-section" aria-labelledby="t-docs-h">
+        <h3 id="t-docs-h">Documents</h3>
+        <p class="tool-hint">Upload a document, then ask questions grounded in it.</p>
+        <input type="file" id="doc-file" accept=".txt,.md,.markdown,.csv,.json,.pdf,text/*" aria-label="Document to upload" />
+        <button class="tool-btn" id="doc-upload-btn" type="button">Upload &amp; index</button>
+        <div id="doc-upload-status" class="tool-status" role="status"></div>
+        <div class="tool-row">
+          <input type="text" id="doc-query" placeholder="Search your documents…" aria-label="Document search query" />
+          <button class="tool-btn" id="doc-query-btn" type="button">Search</button>
+        </div>
+        <div id="doc-results" class="tool-results" role="list"></div>
+      </section>
+
+      <section class="tool-section" aria-labelledby="t-mem-h">
+        <h3 id="t-mem-h">Memory</h3>
+        <p class="tool-hint">Things you ask the assistant to remember about you.</p>
+        <textarea id="mem-text" rows="2" placeholder="Remember that…" aria-label="Memory text"></textarea>
+        <label class="tool-check"><input type="checkbox" id="mem-consent" /> I consent to storing this</label>
+        <button class="tool-btn" id="mem-save-btn" type="button">Save memory</button>
+        <div id="mem-status" class="tool-status" role="status"></div>
+        <button class="tool-btn tool-btn-ghost" id="mem-refresh-btn" type="button">Refresh list</button>
+        <div id="mem-results" class="tool-results" role="list"></div>
+      </section>
+
+      <section class="tool-section" aria-labelledby="t-agent-h">
+        <h3 id="t-agent-h">Agent</h3>
+        <p class="tool-hint">Give the agent a task, or run deep research over your documents.</p>
+        <textarea id="agent-task" rows="2" placeholder="e.g. Summarise my uploaded notes" aria-label="Agent task"></textarea>
+        <div class="tool-row">
+          <button class="tool-btn" id="agent-run-btn" type="button">Run agent</button>
+          <button class="tool-btn" id="agent-research-btn" type="button">Deep research</button>
+        </div>
+        <div id="agent-status" class="tool-status" role="status"></div>
+        <div id="agent-result" class="tool-results"></div>
+      </section>
+
+      <section class="tool-section" aria-labelledby="t-media-h">
+        <h3 id="t-media-h">Media</h3>
+        <p class="tool-hint">Transcribe audio or generate an image.</p>
+        <select id="media-stt-service" aria-label="Transcription service"></select>
+        <input type="file" id="media-audio" accept="audio/*" aria-label="Audio to transcribe" />
+        <button class="tool-btn" id="media-transcribe-btn" type="button">Transcribe</button>
+        <div id="media-transcript" class="tool-results"></div>
+        <div class="tool-row">
+          <select id="media-img-service" aria-label="Image service"></select>
+          <input type="text" id="media-prompt" placeholder="Image prompt…" aria-label="Image prompt" />
+          <button class="tool-btn" id="media-generate-btn" type="button">Generate</button>
+        </div>
+        <div id="media-status" class="tool-status" role="status"></div>
+        <div id="media-image" class="tool-results"></div>
+      </section>
+
     </div>
   </aside>
 

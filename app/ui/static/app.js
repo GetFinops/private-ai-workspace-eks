@@ -44,6 +44,7 @@
     notifOpen:      false,
     notifications:  [],   // notification objects from the API
     notifPollTimer: null,
+    toolsLoaded:    false,
   };
 
   // ─── DOM refs ─────────────────────────────────────────────────────────────
@@ -69,6 +70,36 @@
     messageList:   $('message-list'),
     chatInput:     $('chat-input'),
     sendBtn:       $('send-btn'),
+    // Tools drawer (RAG, memory, agent, media).
+    toolsBtn:      $('tools-btn'),
+    toolsDrawer:   $('tools-drawer'),
+    toolsCloseBtn: $('tools-close-btn'),
+    docFile:       $('doc-file'),
+    docUploadBtn:  $('doc-upload-btn'),
+    docUploadStatus: $('doc-upload-status'),
+    docQuery:      $('doc-query'),
+    docQueryBtn:   $('doc-query-btn'),
+    docResults:    $('doc-results'),
+    memText:       $('mem-text'),
+    memConsent:    $('mem-consent'),
+    memSaveBtn:    $('mem-save-btn'),
+    memStatus:     $('mem-status'),
+    memRefreshBtn: $('mem-refresh-btn'),
+    memResults:    $('mem-results'),
+    agentTask:     $('agent-task'),
+    agentRunBtn:   $('agent-run-btn'),
+    agentResearchBtn: $('agent-research-btn'),
+    agentStatus:   $('agent-status'),
+    agentResult:   $('agent-result'),
+    mediaSttService: $('media-stt-service'),
+    mediaAudio:    $('media-audio'),
+    mediaTranscribeBtn: $('media-transcribe-btn'),
+    mediaTranscript: $('media-transcript'),
+    mediaImgService: $('media-img-service'),
+    mediaPrompt:   $('media-prompt'),
+    mediaGenerateBtn: $('media-generate-btn'),
+    mediaStatus:   $('media-status'),
+    mediaImage:    $('media-image'),
   };
 
   // ─── Utilities ───────────────────────────────────────────────────────────
@@ -908,6 +939,225 @@
     els.notifBtn.setAttribute('aria-expanded', 'false');
   }
 
+  // ─── Tools drawer: RAG, memory, agent, media ──────────────────────────────
+
+  function openTools() {
+    els.toolsDrawer.classList.add('open');
+    els.toolsBtn.setAttribute('aria-expanded', 'true');
+    if (!state.toolsLoaded) { state.toolsLoaded = true; loadMediaServices(); refreshMemory(); }
+  }
+  function closeTools() {
+    els.toolsDrawer.classList.remove('open');
+    els.toolsBtn.setAttribute('aria-expanded', 'false');
+  }
+  function setStatus(el, msg, isErr) {
+    setText(el, msg || '');
+    el.classList.toggle('err', !!isErr);
+  }
+  async function toolJson(path, opts) {
+    var resp = await apiFetch(path, opts);
+    if (resp.status === 401) { redirectToLogin('Session expired. Please sign in again.'); throw new Error('401'); }
+    var data = await resp.json().catch(function () { return {}; });
+    return { ok: resp.ok, status: resp.status, data: data };
+  }
+
+  // Documents (RAG)
+  async function uploadDocument() {
+    var f = els.docFile.files && els.docFile.files[0];
+    if (!f) { setStatus(els.docUploadStatus, 'Choose a file first.', true); return; }
+    var isPdf = /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
+    setStatus(els.docUploadStatus, 'Uploading…');
+    try {
+      var filename = f.name, ctype = f.type || 'text/plain', bodyData = f;
+      if (isPdf) {
+        if (!window.pdfjsLib) {
+          setStatus(els.docUploadStatus, 'PDF support is coming — upload a .txt or .md file for now.', true);
+          return;
+        }
+        bodyData = await extractPdfText(f);          // client-side text extraction
+        filename = f.name.replace(/\.pdf$/i, '.txt');
+        ctype = 'text/plain';
+      }
+      var resp = await apiFetch('/v1/retrieval/upload?filename=' + encodeURIComponent(filename), {
+        method: 'POST', headers: { 'Content-Type': ctype }, body: bodyData,
+      });
+      if (resp.status === 401) { redirectToLogin('Session expired.'); return; }
+      var d = await resp.json().catch(function () { return {}; });
+      setStatus(els.docUploadStatus, resp.ok
+        ? ('Indexed “' + (d.title || filename) + '” (' + (d.chunk_count || 0) + ' chunks).')
+        : (d.detail || d.error || ('Upload failed (' + resp.status + ')')), !resp.ok);
+      if (resp.ok) els.docFile.value = '';
+    } catch (e) { setStatus(els.docUploadStatus, 'Error: ' + (e.message || 'unknown'), true); }
+  }
+  async function queryDocuments() {
+    var q = els.docQuery.value.trim();
+    if (!q) return;
+    clearChildren(els.docResults);
+    try {
+      var r = await toolJson('/v1/retrieval/query', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q, top_k: 5 }),
+      });
+      var results = (r.data && r.data.results) || [];
+      if (!r.ok) { appendResultLine(els.docResults, r.data.detail || 'Query failed', true); return; }
+      if (results.length === 0) { appendResultLine(els.docResults, 'No matches.'); return; }
+      results.forEach(function (res) {
+        var item = document.createElement('div');
+        item.className = 'tool-result-item';
+        var t = document.createElement('div'); t.className = 'tool-result-title';
+        setText(t, res.title || res.document_id || 'document');
+        var c = document.createElement('div'); c.className = 'tool-result-snippet';
+        setText(c, res.content || res.chunk || '');
+        item.appendChild(t); item.appendChild(c);
+        els.docResults.appendChild(item);
+      });
+    } catch (e) { /* 401 handled */ }
+  }
+
+  // Memory
+  async function saveMemory() {
+    var text = els.memText.value.trim();
+    if (!text) { setStatus(els.memStatus, 'Enter something to remember.', true); return; }
+    if (!els.memConsent.checked) { setStatus(els.memStatus, 'Please tick consent to store.', true); return; }
+    try {
+      var r = await toolJson('/v1/memory', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: text, consent: true }),
+      });
+      setStatus(els.memStatus, r.ok ? 'Saved.' : (r.data.detail || 'Save failed'), !r.ok);
+      if (r.ok) { els.memText.value = ''; els.memConsent.checked = false; refreshMemory(); }
+    } catch (e) {}
+  }
+  async function refreshMemory() {
+    clearChildren(els.memResults);
+    try {
+      var r = await toolJson('/v1/memory');
+      var memories = (r.data && r.data.memories) || [];
+      if (memories.length === 0) { appendResultLine(els.memResults, 'No memories yet.'); return; }
+      memories.forEach(function (m) {
+        var item = document.createElement('div');
+        item.className = 'tool-result-item';
+        var c = document.createElement('div'); c.className = 'tool-result-snippet';
+        setText(c, m.content || '');
+        var del = document.createElement('button');
+        del.className = 'tool-btn-ghost'; del.type = 'button'; setText(del, 'Delete');
+        del.addEventListener('click', function () { deleteMemory(m.id, item); });
+        item.appendChild(c); item.appendChild(del);
+        els.memResults.appendChild(item);
+      });
+    } catch (e) {}
+  }
+  async function deleteMemory(id, itemEl) {
+    try {
+      var resp = await apiFetch('/v1/memory/' + encodeURIComponent(id), { method: 'DELETE' });
+      if (resp.ok && itemEl) itemEl.remove();
+    } catch (e) {}
+  }
+
+  // Agent
+  async function runAgentTask(path, key) {
+    var task = els.agentTask.value.trim();
+    if (!task) return;
+    setStatus(els.agentStatus, 'Working… (this can take a while)');
+    clearChildren(els.agentResult);
+    var payload = {}; payload[key] = task;
+    try {
+      var r = await toolJson(path, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      });
+      if (!r.ok) { setStatus(els.agentStatus, r.data.detail || r.data.error || ('Failed (' + r.status + ')'), true); return; }
+      setStatus(els.agentStatus, '');
+      var answer = r.data.answer || r.data.result || r.data.final || JSON.stringify(r.data);
+      renderMarkdownInto(els.agentResult, String(answer));
+    } catch (e) {}
+  }
+
+  // Media
+  async function loadMediaServices() {
+    try {
+      var r = await toolJson('/v1/media/list', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      var services = (r.data && r.data.services) || [];
+      [els.mediaSttService, els.mediaImgService].forEach(function (sel) {
+        clearChildren(sel);
+        services.forEach(function (s) {
+          var o = document.createElement('option'); o.value = s; setText(o, s); sel.appendChild(o);
+        });
+      });
+    } catch (e) {}
+  }
+  async function transcribeAudio() {
+    var f = els.mediaAudio.files && els.mediaAudio.files[0];
+    if (!f) { setStatus(els.mediaStatus, 'Choose an audio file.', true); return; }
+    var service = els.mediaSttService.value;
+    if (!service) { setStatus(els.mediaStatus, 'No transcription service available.', true); return; }
+    clearChildren(els.mediaTranscript);
+    setStatus(els.mediaStatus, 'Transcribing…');
+    try {
+      var resp = await apiFetch('/v1/media/transcribe?service=' + encodeURIComponent(service), {
+        method: 'POST', headers: { 'Content-Type': f.type || 'audio/wav' }, body: f,
+      });
+      if (resp.status === 401) { redirectToLogin('Session expired.'); return; }
+      var d = await resp.json().catch(function () { return {}; });
+      setStatus(els.mediaStatus, '');
+      if (resp.ok) { appendResultLine(els.mediaTranscript, (d.result && d.result.text) || '(empty)'); }
+      else { setStatus(els.mediaStatus, d.detail || d.error || 'Transcription failed', true); }
+    } catch (e) { setStatus(els.mediaStatus, 'Error: ' + (e.message || 'unknown'), true); }
+  }
+  async function generateImage() {
+    var prompt = els.mediaPrompt.value.trim();
+    var service = els.mediaImgService.value;
+    if (!prompt) { setStatus(els.mediaStatus, 'Enter an image prompt.', true); return; }
+    if (!service) { setStatus(els.mediaStatus, 'No image service available.', true); return; }
+    clearChildren(els.mediaImage);
+    setStatus(els.mediaStatus, 'Generating…');
+    try {
+      var r = await toolJson('/v1/media/generate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ service: service, prompt: prompt }),
+      });
+      if (!r.ok) { setStatus(els.mediaStatus, r.data.detail || r.data.error || 'Generation failed', true); return; }
+      var artifactId = r.data.result && r.data.result.artifact_id;
+      if (!artifactId) { setStatus(els.mediaStatus, 'No artifact returned.', true); return; }
+      // Fetch the bytes through the authed same-origin proxy and render as a
+      // data: URL — <img src> can't carry the bearer header, and CSP forbids
+      // blob:, but allows data:.
+      var cResp = await apiFetch('/v1/media/artifacts/' + encodeURIComponent(artifactId) + '/content');
+      if (!cResp.ok) { setStatus(els.mediaStatus, 'Image fetch failed.', true); return; }
+      var blob = await cResp.blob();
+      var reader = new FileReader();
+      reader.onload = function () {
+        var img = document.createElement('img');
+        img.className = 'tool-image';
+        img.alt = 'Generated image';
+        img.src = reader.result;     // data: URL
+        clearChildren(els.mediaImage);
+        els.mediaImage.appendChild(img);
+        setStatus(els.mediaStatus, '');
+      };
+      reader.readAsDataURL(blob);
+    } catch (e) { setStatus(els.mediaStatus, 'Error: ' + (e.message || 'unknown'), true); }
+  }
+
+  function appendResultLine(container, text, isErr) {
+    var p = document.createElement('div');
+    p.className = 'tool-result-item' + (isErr ? ' err' : '');
+    setText(p, text);
+    container.appendChild(p);
+  }
+
+  // PDF text extraction (client-side, when pdf.js is vendored — see follow-up).
+  async function extractPdfText(file) {
+    var buf = await file.arrayBuffer();
+    var pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    var out = [];
+    for (var i = 1; i <= pdf.numPages; i++) {
+      var page = await pdf.getPage(i);
+      var content = await page.getTextContent();
+      out.push(content.items.map(function (it) { return it.str; }).join(' '));
+    }
+    return out.join('\n\n');
+  }
+
   // ─── Event listeners ─────────────────────────────────────────────────────
 
   function attachListeners() {
@@ -915,6 +1165,21 @@
     els.newChatBtn.addEventListener('click', function () {
       newConversation();
     });
+
+    // Tools drawer
+    els.toolsBtn.addEventListener('click', function () {
+      if (els.toolsDrawer.classList.contains('open')) closeTools(); else openTools();
+    });
+    els.toolsCloseBtn.addEventListener('click', closeTools);
+    els.docUploadBtn.addEventListener('click', uploadDocument);
+    els.docQueryBtn.addEventListener('click', queryDocuments);
+    els.docQuery.addEventListener('keydown', function (e) { if (e.key === 'Enter') queryDocuments(); });
+    els.memSaveBtn.addEventListener('click', saveMemory);
+    els.memRefreshBtn.addEventListener('click', refreshMemory);
+    els.agentRunBtn.addEventListener('click', function () { runAgentTask('/v1/agent/runs', 'task'); });
+    els.agentResearchBtn.addEventListener('click', function () { runAgentTask('/v1/agent/research', 'question'); });
+    els.mediaTranscribeBtn.addEventListener('click', transcribeAudio);
+    els.mediaGenerateBtn.addEventListener('click', generateImage);
 
     // Send message
     els.sendBtn.addEventListener('click', sendMessage);

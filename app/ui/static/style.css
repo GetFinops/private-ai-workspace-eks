@@ -696,3 +696,43 @@ pre, code { font-family: var(--font-mono); }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* ── Tools drawer (RAG, memory, agent, media) ─────────────────────────────── */
+#tools-drawer {
+  width: 360px; flex-shrink: 0; display: flex; flex-direction: column;
+  background: var(--panel); border-left: 1px solid var(--border);
+  z-index: var(--z-notif); transform: translateX(100%);
+  transition: transform var(--t-base); position: absolute; right: 0; top: 0; bottom: 0;
+}
+#tools-drawer.open { transform: translateX(0); position: relative; }
+#tools-drawer-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid var(--border); font-weight: 600;
+}
+#tools-close-btn { border: none; background: transparent; color: var(--fg); cursor: pointer; font-size: 1.4em; line-height: 1; }
+#tools-body { overflow-y: auto; padding: 8px 16px 24px; }
+.tool-section { padding: 14px 0; border-bottom: 1px solid var(--border); }
+.tool-section h3 { margin: 0 0 4px; font-size: 0.95rem; }
+.tool-hint { margin: 0 0 8px; font-size: 0.8rem; color: var(--muted); }
+.tool-section input[type="text"], .tool-section textarea, .tool-section select, .tool-section input[type="file"] {
+  width: 100%; box-sizing: border-box; margin: 4px 0; padding: 7px 9px;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; font: inherit;
+}
+.tool-row { display: flex; gap: 6px; align-items: center; }
+.tool-row > input[type="text"], .tool-row > select { flex: 1; }
+.tool-btn {
+  margin: 4px 0; padding: 7px 12px; border: none; border-radius: 6px; cursor: pointer;
+  background: var(--brand-color, #4f6bed); color: #fff; font: inherit;
+}
+.tool-btn:hover { filter: brightness(1.08); }
+.tool-btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+.tool-check { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--muted); margin: 4px 0; }
+.tool-status { font-size: 0.8rem; color: var(--muted); min-height: 1em; margin: 4px 0; }
+.tool-status.err { color: #e06c6c; }
+.tool-results { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.tool-result-item { padding: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-size: 0.82rem; }
+.tool-result-item.err { color: #e06c6c; }
+.tool-result-title { font-weight: 600; margin-bottom: 3px; }
+.tool-result-snippet { color: var(--muted); white-space: pre-wrap; word-break: break-word; }
+.tool-image { max-width: 100%; border-radius: 8px; border: 1px solid var(--border); }
+@media (max-width: 640px) { #tools-drawer { width: 100%; } }
