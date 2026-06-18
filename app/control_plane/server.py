@@ -109,6 +109,7 @@ from app.control_plane.integrations import (
 from app.control_plane.integration_secrets import make_secrets_manager_resolver
 from app.control_plane.media import (
     MediaExecutor,
+    build_media_artifact_content,
     build_media_artifact_response,
     build_media_generate_response,
     build_media_list_response,
@@ -622,6 +623,19 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     store=self.__class__.conversation_store,
                 )
                 self._instrument("GET", lambda s=status, p=payload: Response(s, p))
+                return
+        # GET /v1/media/artifacts/{id}/content — same-origin artifact bytes (CSP).
+        if path.startswith(_MEDIA_ARTIFACTS_PREFIX) and path.endswith("/content"):
+            aid = path[len(_MEDIA_ARTIFACTS_PREFIX): -len("/content")]
+            if aid and "/" not in aid:
+                status, ctype, raw = build_media_artifact_content(
+                    authorization=self.headers.get("Authorization"),
+                    artifact_id=aid,
+                    token_verifier=self.__class__.token_verifier,
+                    executor=self.__class__.media_executor,
+                )
+                self._instrument("GET", lambda s=status, c=ctype, r=raw: Response(
+                    s, {}, headers={"Content-Type": c}, raw_body=r))
                 return
         # GET /v1/media/artifacts/{id} — presigned URL for a caller-owned artifact.
         if path.startswith(_MEDIA_ARTIFACTS_PREFIX):

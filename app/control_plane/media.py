@@ -183,6 +183,17 @@ class MediaExecutor:
         except Exception:  # noqa: BLE001
             return None
 
+    def artifact_bytes(self, artifact_id: str, *, tenant_id: str, user_id: str) -> "tuple[bytes, str] | None":
+        """(bytes, content_type) for a caller-owned artifact, or None. Same key
+        construction as artifact_url — isolation by the verified token."""
+        if self._storage is None:
+            return None
+        key = f"media/{tenant_id}/{user_id}/{artifact_id}.bin"
+        try:
+            return self._storage.get_object_with_type(key=key)
+        except Exception:  # noqa: BLE001
+            return None
+
     def _post(self, url: str, *, data: bytes, content_type: str) -> "tuple[int, bytes, str]":
         req = _urlrequest.Request(
             url, data=data, headers={"Content-Type": content_type}, method="POST"
@@ -311,6 +322,28 @@ def build_media_artifact_response(*, authorization, artifact_id, token_verifier,
     if url is None:
         return HTTPStatus.NOT_FOUND, {"error": "not_found"}
     return HTTPStatus.OK, {"url": url, "expires_in": 300}
+
+
+def build_media_artifact_content(*, authorization, artifact_id, token_verifier, executor):
+    """GET /v1/media/artifacts/{id}/content — stream the artifact bytes.
+
+    Same-origin delivery so generated images render under CSP `img-src 'self'`
+    (an S3 presigned URL would be cross-origin and CSP-blocked). Returns
+    (status, content_type, body) — the server writes raw bytes, not JSON.
+    """
+    claims, err = _verify_and_extract(authorization, token_verifier)
+    if err is not None:
+        status, payload = err
+        return status, "application/json", json.dumps(payload).encode("utf-8")
+    tenant_id = _extract_tenant_id(claims)
+    user_id = claims.subject
+    if not artifact_id or not _SAFE_ARTIFACT_ID.match(artifact_id):
+        return HTTPStatus.BAD_REQUEST, "application/json", b'{"error":"bad_request"}'
+    got = executor.artifact_bytes(artifact_id, tenant_id=tenant_id, user_id=user_id)
+    if got is None:
+        return HTTPStatus.NOT_FOUND, "application/json", b'{"error":"not_found"}'
+    body, ctype = got
+    return HTTPStatus.OK, ctype or "application/octet-stream", body
 
 
 def build_media_transcribe_response(

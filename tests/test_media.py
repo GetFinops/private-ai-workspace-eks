@@ -297,6 +297,52 @@ class TestArtifactFetch(unittest.TestCase):
         self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
 
 
+class _ContentStorage:
+    def __init__(self, data=None):
+        self._data = data  # (bytes, content_type) or None
+
+    def get_object_with_type(self, *, key):
+        self.last_key = key
+        if self._data is None:
+            raise Exception("not found")
+        return self._data
+
+
+class TestArtifactContent(unittest.TestCase):
+    def test_streams_bytes_with_content_type(self):
+        from app.control_plane.media import build_media_artifact_content
+        storage = _ContentStorage((b"PNGDATA", "image/png"))
+        ex = MediaExecutor(storage_client=storage)
+        status, ctype, body = build_media_artifact_content(
+            authorization="Bearer valid", artifact_id="abc-1", token_verifier=_ALICE, executor=ex)
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(ctype, "image/png")
+        self.assertEqual(body, b"PNGDATA")
+        self.assertEqual(storage.last_key, "media/tenant-a.test/user-x/abc-1.bin")
+
+    def test_missing_404(self):
+        from app.control_plane.media import build_media_artifact_content
+        ex = MediaExecutor(storage_client=_ContentStorage(None))
+        status, ctype, body = build_media_artifact_content(
+            authorization="Bearer valid", artifact_id="abc-1", token_verifier=_ALICE, executor=ex)
+        self.assertEqual(status, HTTPStatus.NOT_FOUND)
+
+    def test_bad_id_400(self):
+        from app.control_plane.media import build_media_artifact_content
+        ex = MediaExecutor(storage_client=_ContentStorage((b"x", "image/png")))
+        status, _, _ = build_media_artifact_content(
+            authorization="Bearer valid", artifact_id="../x", token_verifier=_ALICE, executor=ex)
+        self.assertEqual(status, HTTPStatus.BAD_REQUEST)
+
+    def test_anonymous_401(self):
+        from app.control_plane.media import build_media_artifact_content
+        ex = MediaExecutor(storage_client=_ContentStorage((b"x", "image/png")))
+        status, ctype, _ = build_media_artifact_content(
+            authorization=None, artifact_id="abc-1", token_verifier=_ALICE, executor=ex)
+        self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
+        self.assertEqual(ctype, "application/json")
+
+
 class TestAuditContentSafety(unittest.TestCase):
     def test_prompt_not_in_audit(self):
         with self.assertLogs("app.control_plane.agent_tools", level="INFO") as cm:

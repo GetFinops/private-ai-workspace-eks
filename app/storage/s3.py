@@ -104,6 +104,17 @@ class S3StorageClient:
         except Exception as exc:
             raise StorageError(f"Failed to download s3://{self._bucket}/{key}: {exc}") from exc
 
+    def get_object_with_type(self, *, key: str) -> "tuple[bytes, str]":
+        """Download bytes + the stored Content-Type from ``s3://<bucket>/<key>``.
+
+        Raises ``StorageError`` on failure (including a missing key).
+        """
+        try:
+            response = self._get_client().get_object(Bucket=self._bucket, Key=key)  # type: ignore[union-attr]
+            return response["Body"].read(), response.get("ContentType", "application/octet-stream")
+        except Exception as exc:
+            raise StorageError(f"Failed to download s3://{self._bucket}/{key}: {exc}") from exc
+
     def delete_object(self, *, key: str) -> None:
         """Delete ``s3://<bucket>/<key>``.
 
