@@ -156,6 +156,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _CHAT_PATH = "/v1/chat/completions"
+_CHAT_STREAM_PATH = "/v1/chat/stream"
 _NOTIFICATIONS_PATH = "/v1/notifications"
 _RETRIEVAL_DOCUMENTS_PATH = "/v1/retrieval/documents"
 _RETRIEVAL_UPLOAD_PATH = "/v1/retrieval/upload"
@@ -445,6 +446,36 @@ def build_chat_response(
         )
 
 
+def prepare_chat_stream(
+    *, authorization, body, config, token_verifier,
+):
+    """Validate a streaming chat request before any stream bytes are written.
+
+    Returns (error_response, None) for the auth / config / parse failures (so the
+    handler can send a normal JSON response), or (None, ChatCompletionRequest) to
+    proceed with the SSE stream. Pure → unit-testable like build_chat_response.
+    """
+    raw_token = _extract_bearer_token(authorization)
+    if raw_token is None:
+        AUTH_FAILURES_TOTAL.labels(reason="missing_token").inc()
+        return Response(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized", "detail": "Bearer token required."}), None
+    if token_verifier is None:
+        return Response(HTTPStatus.SERVICE_UNAVAILABLE, {
+            "error": "auth_not_configured", "status": "degraded"}), None
+    try:
+        token_verifier.verify(raw_token)
+    except TokenVerificationError:
+        AUTH_FAILURES_TOTAL.labels(reason="invalid_token").inc()
+        return Response(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized", "detail": "Invalid or expired token."}), None
+    if not config.inference_base_url:
+        return Response(HTTPStatus.SERVICE_UNAVAILABLE, {
+            "error": "inference_not_configured", "status": "degraded"}), None
+    chat_request, parse_error = _parse_chat_request(body)
+    if parse_error:
+        return Response(HTTPStatus.BAD_REQUEST, {"error": "bad_request", "detail": parse_error}), None
+    return None, chat_request
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # HTTP handler — thin; delegates to the pure-function builders above
 # ──────────────────────────────────────────────────────────────────────────────
@@ -607,6 +638,12 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
         self._instrument("GET", lambda: build_response(self.path, self.__class__.config))
 
     def do_POST(self) -> None:  # noqa: N802
+        # Streaming chat writes Server-Sent Events directly and bypasses the
+        # Response/_instrument machinery (which assumes a single buffered body).
+        if self.path.split("?", 1)[0] == _CHAT_STREAM_PATH:
+            self._handle_chat_stream()
+            return
+
         def _post() -> Response:
             path = self.path.split("?", 1)[0]
             content_length = int(self.headers.get("Content-Length", 0) or 0)
@@ -878,6 +915,53 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
 
             return Response(HTTPStatus.NOT_FOUND, {"error": "not_found", "path": self.path})
         self._instrument("POST", _post)
+
+    def _handle_chat_stream(self) -> None:
+        """POST /v1/chat/stream — proxy vLLM's OpenAI SSE stream to the client."""
+        cl = int(self.headers.get("Content-Length", 0) or 0)
+        if cl > _MAX_REQUEST_BODY:
+            self._write_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "request_too_large"})
+            return
+        body = self.rfile.read(cl) if cl > 0 else b""
+        err, chat_request = prepare_chat_stream(
+            authorization=self.headers.get("Authorization"),
+            body=body,
+            config=self.__class__.config,
+            token_verifier=self.__class__.token_verifier,
+        )
+        if err is not None:
+            self._write_json(err.status_code, err.payload, err.headers)
+            return
+        client = VLLMInferenceClient(base_url=self.__class__.config.inference_base_url)
+        try:
+            resp = client.open_chat_stream(chat_request)  # type: ignore[arg-type]
+        except InferenceUnavailableError:
+            INFERENCE_REQUESTS_TOTAL.labels(status="unavailable").inc()
+            self._write_json(HTTPStatus.SERVICE_UNAVAILABLE,
+                             {"error": "inference_unavailable", "status": "degraded", "retry_after": 30},
+                             {"Retry-After": "30"})
+            return
+        except (TimeoutError, InferenceRoutingError):
+            self._write_json(HTTPStatus.GATEWAY_TIMEOUT, {"error": "inference_timeout", "status": "degraded"})
+            return
+        # Relay the SSE stream verbatim.
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        INFERENCE_REQUESTS_TOTAL.labels(status="success").inc()
+        try:
+            for line in resp:
+                self.wfile.write(line)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            try:
+                resp.close()
+            except Exception:  # pragma: no cover
+                pass
 
     def do_DELETE(self) -> None:  # noqa: N802
         def _delete() -> Response:

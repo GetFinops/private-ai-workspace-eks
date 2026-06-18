@@ -173,3 +173,32 @@ class VLLMInferenceClient:
             f"Inference request to {url} failed after {_MAX_RETRIES + 1} "
             f"attempt(s): {last_exc}"
         ) from last_exc
+
+    def open_chat_stream(self, request: ChatCompletionRequest):
+        """Open a streaming chat completion; return a file-like SSE response.
+
+        vLLM emits OpenAI-format Server-Sent Events ("data: {...}\\n\\n" …
+        "data: [DONE]"). The caller relays those lines verbatim to the client.
+        Raises InferenceUnavailableError on connect/HTTP error (so the caller can
+        return a clean 503 BEFORE writing any stream bytes); TimeoutError on
+        timeout. Not retried — a partial stream cannot be safely replayed.
+        """
+        url = self.chat_completions_url
+        payload = dict(request.as_vllm_payload())
+        payload["stream"] = True
+        payload_bytes = json.dumps(payload).encode("utf-8")
+        headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
+        try:
+            from app.control_plane.tracing import inject_trace_headers
+            inject_trace_headers(headers)
+        except Exception:  # pragma: no cover
+            pass
+        req = urllib.request.Request(url, data=payload_bytes, method="POST", headers=headers)
+        try:
+            return urllib.request.urlopen(req, timeout=self.timeout_seconds)
+        except urllib.error.HTTPError as exc:
+            raise InferenceUnavailableError(
+                f"Inference returned HTTP {exc.code} for {url}", status_code=exc.code
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise InferenceUnavailableError(f"Inference stream to {url} failed: {exc}") from exc
