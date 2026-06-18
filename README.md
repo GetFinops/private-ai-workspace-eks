@@ -4,6 +4,19 @@
 multi-user AI workspace designed for private organizational deployment on
 AWS EKS.
 
+> [!IMPORTANT]
+> **Licensing & attribution.** This is an independently maintained,
+> **MIT-licensed** project. It is **not** the official Odysseus project and is
+> **not** endorsed by the Odysseus maintainers or AWS. Some control-plane and UI
+> patterns were *adapted* from the **MIT-licensed Odysseus v1.0 snapshot**
+> (`pewdiepie-archdaemon/odysseus`, commit `e5c99a5`, 2026-05-31). Upstream
+> Odysseus **relicensed to AGPL-3.0-or-later on 2026-06-09**; those MIT-snapshot
+> adaptations predate the relicense and remain usable under MIT, but **no further
+> code may be adapted from the current (AGPL) upstream** — any new feature
+> inspired by Odysseus must be built clean-room (independent implementation, not
+> adapted from its source). Full provenance and the preserved upstream notices
+> are in [`NOTICE`](NOTICE).
+
 ## Positioning
 
 This project is intended for:
@@ -36,7 +49,7 @@ Per-milestone build instructions live in `docs/milestones/`.
 | M5 | Observability baseline (metrics, logs, traces) | Complete |
 | M6 | Elastic GPU scaling (Karpenter + HPA + degrade-only fallback) | Complete |
 | M7a | Platform hardening (minimum pass on M6 surface) | Paper review + sweeps complete; operator drills pending ([report](docs/m7a-report.md)) |
-| M9 | Product surface: vanilla JS SPA (Odysseus design system, OIDC PKCE), notifications service, nginx chart | Complete (dev) |
+| M9 | Product surface: vanilla JS SPA (Odysseus-derived design tokens, OIDC PKCE), notifications service, nginx chart | Complete (dev) |
 | M10 | Retrieval + per-user memory on pgvector | Complete (dev) |
 | M11 | Agent + tool framework (sandbox, agent loop, Job sandbox, deep-research) | Complete (dev) |
 | M12 | MCP integration layer (sandboxed, per-tenant, deny-by-default) | Complete (dev) |
@@ -220,5 +233,22 @@ See `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, and `NOTICE`.
 
 ## Licensing
 
-The repository is released under the MIT License. Attribution expectations for
-upstream-inspired work are documented in `NOTICE`.
+The repository is released under the [MIT License](LICENSE). Attribution
+expectations for upstream-inspired work — and the full provenance record — are
+documented in [`NOTICE`](NOTICE).
+
+Upstream provenance summary (see [`NOTICE`](NOTICE) → "Source 2" for the
+authoritative detail):
+
+- The Odysseus-derived control-plane and UI patterns were adapted from the
+  **MIT-licensed Odysseus v1.0 snapshot** (commit `e5c99a5`, 2026-05-31). MIT
+  permissions on a released snapshot are irrevocable, so those adaptations remain
+  usable by this MIT project.
+- Upstream Odysseus **relicensed to AGPL-3.0-or-later on 2026-06-09**. This
+  project contains **no AGPL-licensed code** and adapts nothing from the
+  post-relicense upstream. The prior "selective adaptation from upstream" posture
+  no longer applies: new work must be **clean-room**. This boundary is owned by
+  maintainer/legal review.
+- The "Odysseus" name is used only nominatively, for attribution and comparison.
+  No Odysseus logo, wordmark, or other brand asset is used, and nothing here
+  implies endorsement by or affiliation with the Odysseus project or AWS.
