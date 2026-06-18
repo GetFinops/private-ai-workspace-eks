@@ -122,14 +122,27 @@ High-risk subsystems flagged for special scrutiny:
 
 ### Top-level position
 
-The upstream project is MIT-licensed, which permits copy, modification, and
-redistribution provided notices are preserved. This project stays permissive
-(MIT) and records adapted code in `NOTICE`. That part is settled.
+> **CORRECTION (verified 2026-06-18 against the upstream repo):** the
+> long-standing assumption that "the upstream is MIT, so the top level is
+> settled" is **no longer true**. Upstream Odysseus was MIT only through its
+> v1.0 release (2026-05-31); it **relicensed to AGPL-3.0-or-later on
+> 2026-06-09**. This project's *existing* adaptations were taken from the
+> MIT-era snapshot (before the relicense) and remain usable under MIT — see
+> `NOTICE` "Source 2". But the top level is now AGPL, so:
+>
+> - The project still stays permissive (MIT) **only because** it stops adapting
+>   from upstream. The "selective adaptation continues" principle below is
+>   superseded for any code post-dating the relicense.
+> - **No new code may be adapted from current Odysseus.** Phase 2 (and Tier A /
+>   the pre-production gap work) must implement upstream-inspired features
+>   **clean-room** — from public behaviour/docs, not from AGPL source.
+> - The component-level copyleft risks below (PyMuPDF, SearXNG) still stand and
+>   are now a subset of a fully-AGPL upstream.
 
-The risk is **not** the top level. It is that the upstream project bundles or
-optionally depends on components under different and sometimes copyleft licenses.
-Adopting a feature means inheriting that feature's dependency licensing, not just
-the MIT top level.
+The risk is therefore both at the top level (now AGPL — do not adapt source) and
+in specific bundled/optional copyleft components (below). Adopting a feature
+means inheriting that feature's dependency licensing AND respecting the clean-room
+boundary for anything derived from current upstream.
 
 ### Components under non-MIT or copyleft-sensitive licensing
 

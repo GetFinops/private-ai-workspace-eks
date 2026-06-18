@@ -4,7 +4,12 @@ This repository is an independently maintained project under GetFinops.
 
 It is inspired by prior review and planning work related to:
 
-- Odysseus, licensed under MIT
+- Odysseus — MIT at the time this project adapted from it (the v1.0 release,
+  2026-05-31). Upstream RELICENSED to AGPL-3.0-or-later on 2026-06-09. This
+  project's existing adaptations were taken from the MIT-licensed snapshot
+  (before the relicense) and remain available to us under MIT; NO further code
+  may be adapted from the current (AGPL) upstream into this MIT project. See
+  "Source 2" below.
 - aws-samples/sample-genai-on-eks-starter-kit, licensed under MIT-0
 
 This repository is not the official Odysseus project and is not endorsed by
@@ -64,9 +69,22 @@ Source 2: pewdiepie-archdaemon/odysseus
 ────────────────────────────────────
 
 Repository: https://github.com/pewdiepie-archdaemon/odysseus
-License: MIT
+License at time of adaptation: MIT (the "Odysseus v1.0" release tag, commit
+e5c99a5, 2026-05-31, "Copyright (c) 2025 Odysseus Contributors").
 
-Copyright (c) pewdiepie-archdaemon and the Odysseus contributors.
+  *** IMPORTANT — upstream relicense ***
+  On 2026-06-09 (commit c5230e8) Odysseus relicensed to AGPL-3.0-or-later. The
+  adaptations recorded here were ALL taken before that date (verified against
+  this repo's git history: the inference/routing patterns on 2026-06-04 and the
+  UI/CSS on 2026-06-06), while upstream was MIT. MIT permissions on a released
+  snapshot are irrevocable, so these specific adaptations remain usable by this
+  project under MIT. HOWEVER: the current upstream is AGPL-3.0; the project's
+  "selective adaptation from upstream" posture (AGENTS.md / docs/12) NO LONGER
+  APPLIES going forward — any new feature inspired by current Odysseus must be
+  built CLEAN-ROOM (independent implementation from public docs/behaviour), not
+  adapted from its source. Maintainer/legal review owns this boundary.
+
+Copyright (c) 2025 Odysseus Contributors (MIT, v1.0 snapshot).
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

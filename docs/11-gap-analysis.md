@@ -95,6 +95,15 @@ These gaps are sequenced against M7b → M8 in
 
 ## Reuse Posture: Adapt Selectively, Do Not Fork
 
+> **CORRECTION (verified 2026-06-18):** "selective reuse / adapt narrow patterns"
+> applied while upstream was MIT (its v1.0, 2026-05-31). Upstream **relicensed to
+> AGPL-3.0-or-later on 2026-06-09.** This project's existing adaptations predate
+> that and remain MIT (see `NOTICE`), but **no further code may be adapted from
+> upstream** — new upstream-inspired features must be **clean-room**. The
+> "what to adapt" guidance below is retained as historical rationale for the
+> already-adapted code only; it is not a license to pull in current AGPL source.
+> See `12-phase-2-feature-adoption.md` → "Top-level position".
+
 The planning bundle already decided on a new repository with selective reuse
 rather than a wholesale fork, and that decision still holds. The rationale:
 
