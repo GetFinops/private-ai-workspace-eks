@@ -32,6 +32,8 @@ class ControlPlaneConfig:
     # deployment). When unset, the deterministic dev embedding is used.
     embedding_base_url: str | None = None
     embedding_model: str = "embedding"
+    # RAG file upload (Tier A). Max bytes for POST /v1/retrieval/upload.
+    retrieval_max_upload_bytes: int = 10 * 1024 * 1024
     # Agent tool framework (M11). Disabled by default (operator kill-switch).
     # AGENT_TOOLS_ALLOWLIST is JSON: {"<tenant>": ["tool", ...]} — deny by default.
     agent_tools_enabled: bool = False
@@ -130,6 +132,7 @@ class ControlPlaneConfig:
             inference_base_url=_clean(values.get("INFERENCE_BASE_URL")),
             embedding_base_url=_clean(values.get("EMBEDDING_BASE_URL")),
             embedding_model=values.get("EMBEDDING_MODEL", "embedding"),
+            retrieval_max_upload_bytes=int(values.get("RETRIEVAL_MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)) or str(10 * 1024 * 1024)),
             agent_tools_enabled=values.get("AGENT_TOOLS_ENABLED", "false").lower() == "true",
             agent_tools_allowlist=_clean(values.get("AGENT_TOOLS_ALLOWLIST")),
             agent_tools_rate_per_minute=int(values.get("AGENT_TOOLS_RATE_PER_MINUTE", "30") or "30"),

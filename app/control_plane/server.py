@@ -141,6 +141,7 @@ from app.control_plane.retrieval import (
     InMemoryRetrievalStore,
     RetrievalStore,
     build_index_document_response,
+    build_retrieval_upload_response,
     build_retrieval_query_response,
 )
 from app.control_plane.routing import InferenceRoutingError, InferenceUnavailableError
@@ -156,6 +157,7 @@ logger = logging.getLogger(__name__)
 _CHAT_PATH = "/v1/chat/completions"
 _NOTIFICATIONS_PATH = "/v1/notifications"
 _RETRIEVAL_DOCUMENTS_PATH = "/v1/retrieval/documents"
+_RETRIEVAL_UPLOAD_PATH = "/v1/retrieval/upload"
 _RETRIEVAL_QUERY_PATH = "/v1/retrieval/query"
 _MEMORY_PATH = "/v1/memory"
 _MEMORY_RECALL_PATH = "/v1/memory/recall"
@@ -594,13 +596,14 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
         def _post() -> Response:
             path = self.path.split("?", 1)[0]
             content_length = int(self.headers.get("Content-Length", 0) or 0)
-            # Media transcription uploads audio, which needs a higher cap than the
-            # default 1 MiB JSON-request limit.
-            max_body = (
-                self.__class__.media_max_audio_bytes
-                if path == _MEDIA_TRANSCRIBE_PATH
-                else _MAX_REQUEST_BODY
-            )
+            # Media transcription (audio) and RAG file upload need a higher cap
+            # than the default 1 MiB JSON-request limit.
+            if path == _MEDIA_TRANSCRIBE_PATH:
+                max_body = self.__class__.media_max_audio_bytes
+            elif path == _RETRIEVAL_UPLOAD_PATH:
+                max_body = self.__class__.config.retrieval_max_upload_bytes
+            else:
+                max_body = _MAX_REQUEST_BODY
             if content_length > max_body:
                 return Response(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "request_too_large"})
             body = self.rfile.read(content_length) if content_length > 0 else b""
@@ -629,6 +632,24 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     token_verifier=self.__class__.token_verifier,
                     store=self.__class__.retrieval_store,
                     embedding_client=self.__class__.embedding_client,
+                    notification_store=self.__class__.notification_store,
+                )
+                return Response(status, payload)
+
+            if path == _RETRIEVAL_UPLOAD_PATH:
+                from urllib.parse import parse_qs, urlsplit
+
+                filename = parse_qs(urlsplit(self.path).query).get("filename", [None])[0]
+                status, payload = build_retrieval_upload_response(
+                    authorization=self.headers.get("Authorization"),
+                    filename=filename,
+                    content_type=self.headers.get("Content-Type"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    store=self.__class__.retrieval_store,
+                    embedding_client=self.__class__.embedding_client,
+                    storage_client=self.__class__.storage_client,
+                    max_upload_bytes=self.__class__.config.retrieval_max_upload_bytes,
                     notification_store=self.__class__.notification_store,
                 )
                 return Response(status, payload)
