@@ -493,41 +493,116 @@
 
     var bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
-    // Safe: content is set as text, never as innerHTML.
-    setText(bubble, content);
+    // User text stays literal; assistant text is rendered as (safe) markdown.
+    // Both paths build DOM via createElement/textContent — never innerHTML.
+    if (role === 'user') {
+      setText(bubble, content);
+    } else {
+      renderMarkdownInto(bubble, content);
+    }
 
     wrap.appendChild(avatar);
     wrap.appendChild(bubble);
     return wrap;
   }
 
-  function appendTypingIndicator() {
-    var id = 'typing-' + genId();
-    var wrap = document.createElement('div');
-    wrap.className = 'msg assistant msg-typing';
-    wrap.id = id;
+  // ─── Safe markdown rendering (no innerHTML, CSP-clean) ─────────────────────
+  // A small, dependency-free renderer. Everything is built with
+  // document.createElement + textContent, so model output can never inject HTML.
 
+  function renderMarkdownInto(el, text) {
+    clearChildren(el);
+    var segments = String(text == null ? '' : text).split('```');
+    segments.forEach(function (seg, i) {
+      if (i % 2 === 1) {
+        // Fenced code block. An optional language hint on the first line is dropped.
+        var body = seg;
+        var nl = seg.indexOf('\n');
+        if (nl !== -1) {
+          var first = seg.slice(0, nl);
+          if (/^[A-Za-z0-9_+-]*$/.test(first.trim())) body = seg.slice(nl + 1);
+        }
+        var pre = document.createElement('pre');
+        var code = document.createElement('code');
+        setText(code, body.replace(/\n$/, ''));
+        pre.appendChild(code);
+        el.appendChild(pre);
+      } else if (seg) {
+        renderTextBlocks(el, seg);
+      }
+    });
+  }
+
+  function renderTextBlocks(el, text) {
+    // Paragraphs separated by blank lines; consecutive "- "/"* " lines → a list.
+    text.split(/\n{2,}/).forEach(function (block) {
+      block = block.replace(/^\n+|\n+$/g, '');
+      if (!block) return;
+      var lines = block.split('\n');
+      var isList = lines.every(function (l) { return /^\s*[-*]\s+/.test(l) || !l.trim(); });
+      if (isList && lines.some(function (l) { return /^\s*[-*]\s+/.test(l); })) {
+        var ul = document.createElement('ul');
+        lines.forEach(function (l) {
+          var m = l.match(/^\s*[-*]\s+(.*)$/);
+          if (!m) return;
+          var li = document.createElement('li');
+          renderInline(li, m[1]);
+          ul.appendChild(li);
+        });
+        el.appendChild(ul);
+      } else {
+        var p = document.createElement('p');
+        lines.forEach(function (l, idx) {
+          if (idx > 0) p.appendChild(document.createElement('br'));
+          renderInline(p, l);
+        });
+        el.appendChild(p);
+      }
+    });
+  }
+
+  // Inline: `code`, **bold**, *italic*, [text](http-url). Tokenised left-to-right;
+  // anything unmatched is emitted as a literal text node.
+  function renderInline(parent, text) {
+    var re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(\[[^\]]+\]\((https?:\/\/[^\s)]+)\))/;
+    var rest = text;
+    var guard = 0;
+    while (rest && guard++ < 5000) {
+      var m = re.exec(rest);
+      if (!m) { parent.appendChild(document.createTextNode(rest)); break; }
+      if (m.index > 0) parent.appendChild(document.createTextNode(rest.slice(0, m.index)));
+      var tok = m[0];
+      if (tok[0] === '`') {
+        var c = document.createElement('code'); setText(c, tok.slice(1, -1)); parent.appendChild(c);
+      } else if (tok.slice(0, 2) === '**') {
+        var b = document.createElement('strong'); setText(b, tok.slice(2, -2)); parent.appendChild(b);
+      } else if (tok[0] === '*') {
+        var em = document.createElement('em'); setText(em, tok.slice(1, -1)); parent.appendChild(em);
+      } else {
+        // [label](url) — url already constrained to http(s) by the regex.
+        var lm = tok.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
+        var a = document.createElement('a');
+        a.href = lm[2];
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        setText(a, lm[1]);
+        parent.appendChild(a);
+      }
+      rest = rest.slice(m.index + tok.length);
+    }
+  }
+
+  function buildStreamingAssistantEl() {
+    var wrap = document.createElement('div');
+    wrap.className = 'msg assistant';
     var avatar = document.createElement('div');
     avatar.className = 'msg-avatar';
     setText(avatar, 'AI');
-
     var bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
-    var dots = document.createElement('span');
-    dots.className = 'typing-dots';
-    for (var i = 0; i < 3; i++) dots.appendChild(document.createElement('span'));
-    bubble.appendChild(dots);
-
     wrap.appendChild(avatar);
     wrap.appendChild(bubble);
-    els.messageList.appendChild(wrap);
-    els.messageList.scrollTop = els.messageList.scrollHeight;
-    return id;
-  }
-
-  function removeTypingIndicator(id) {
-    var el = document.getElementById(id);
-    if (el) el.remove();
+    return { wrap: wrap, bubble: bubble };
   }
 
   // ─── Chat ─────────────────────────────────────────────────────────────────
@@ -543,7 +618,11 @@
     els.chatInput.style.height = '';
     setSendingState(true);
 
-    var typingId = appendTypingIndicator();
+    // A live assistant bubble that fills in as tokens stream from /v1/chat/stream.
+    var stream = buildStreamingAssistantEl();
+    els.messageList.appendChild(stream.wrap);
+    els.messageList.scrollTop = els.messageList.scrollHeight;
+    var acc = '';
 
     try {
       var body = JSON.stringify({
@@ -554,20 +633,20 @@
         temperature: 0.2,
       });
 
-      var resp = await apiFetch('/v1/chat/completions', {
+      var resp = await apiFetch('/v1/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: body,
       });
 
-      removeTypingIndicator(typingId);
-
       if (resp.status === 401) {
+        stream.wrap.remove();
         redirectToLogin('Session expired. Please sign in again.');
         return;
       }
 
-      if (!resp.ok) {
+      if (!resp.ok || !resp.body) {
+        stream.wrap.remove();
         var errData = await resp.json().catch(function () { return {}; });
         var retryAfter = resp.headers.get('Retry-After');
         var msg = errData.detail || ('API error ' + resp.status);
@@ -577,17 +656,38 @@
         return;
       }
 
-      var data = await resp.json();
+      // Read the Server-Sent Events stream and accumulate delta tokens.
+      var reader = resp.body.getReader();
+      var decoder = new TextDecoder();
+      var buf = '';
+      while (true) {
+        var chunk = await reader.read();
+        if (chunk.done) break;
+        buf += decoder.decode(chunk.value, { stream: true });
+        var lines = buf.split('\n');
+        buf = lines.pop();   // keep the trailing partial line
+        lines.forEach(function (line) {
+          line = line.trim();
+          if (line.indexOf('data:') !== 0) return;
+          var payload = line.slice(5).trim();
+          if (!payload || payload === '[DONE]') return;
+          try {
+            var j = JSON.parse(payload);
+            var delta = ((j.choices || [])[0] || {}).delta || {};
+            if (delta.content) {
+              acc += delta.content;
+              setText(stream.bubble, acc);     // plain text while streaming
+              els.messageList.scrollTop = els.messageList.scrollHeight;
+            }
+          } catch (_) { /* ignore keep-alives / malformed lines */ }
+        });
+      }
 
-      // OpenAI-compatible response shape.
-      var choice = (data.choices || [])[0];
-      var assistantText = (choice && choice.message && choice.message.content) || '';
-      if (!assistantText && data.content) assistantText = data.content;
-      if (!assistantText) assistantText = '[No response]';
-
-      appendMessage('assistant', assistantText);
+      // Replace the live bubble with the persisted, markdown-rendered message.
+      stream.wrap.remove();
+      appendMessage('assistant', acc || '[No response]');
     } catch (e) {
-      removeTypingIndicator(typingId);
+      stream.wrap.remove();
       showError('Network error: ' + (e.message || 'unknown'));
     } finally {
       setSendingState(false);
