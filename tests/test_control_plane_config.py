@@ -15,6 +15,22 @@ class ControlPlaneConfigTests(TestCase):
         self.assertIsNone(config.object_storage_bucket)
         self.assertFalse(config.is_ready())
 
+    def test_feature_kill_switches_default_on(self) -> None:
+        config = ControlPlaneConfig.from_env({})
+        self.assertTrue(config.compare_enabled)
+        self.assertTrue(config.documents_enabled)
+        self.assertEqual(config.chat_stream_max_seconds, 300.0)
+
+    def test_feature_kill_switches_env_override(self) -> None:
+        config = ControlPlaneConfig.from_env({
+            "COMPARE_ENABLED": "false",
+            "DOCUMENTS_ENABLED": "false",
+            "CHAT_STREAM_MAX_SECONDS": "45",
+        })
+        self.assertFalse(config.compare_enabled)
+        self.assertFalse(config.documents_enabled)
+        self.assertEqual(config.chat_stream_max_seconds, 45.0)
+
     def test_integrations_disabled_by_default(self) -> None:
         config = ControlPlaneConfig.from_env({})
         # M13 kill-switch: deny by default — integrations off and no allow-list.

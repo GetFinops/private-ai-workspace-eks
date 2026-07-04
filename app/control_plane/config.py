@@ -105,6 +105,13 @@ class ControlPlaneConfig:
     # No search engine is bundled: this points at an external JSON search API
     # reached through the hardened outbound guard (never SearXNG/AGPL vendored).
     web_search: str | None = None
+    # Kill-switches for the inference-amplifying chat features (default on; an
+    # operator can disable them without a redeploy). M7b backpressure hardening.
+    compare_enabled: bool = True
+    documents_enabled: bool = True
+    # Upper bound on a single SSE chat-stream connection's lifetime (seconds), so
+    # a client cannot hold a relay socket + thread indefinitely (M7b backpressure).
+    chat_stream_max_seconds: float = 300.0
     # Agent loop (M11 follow-up). Shares the agent_tools kill-switch and
     # allow-list; additionally requires inference to be configured (cold → 503).
     # Budgets are server-enforced and never client/model settable.
@@ -172,6 +179,9 @@ class ControlPlaneConfig:
             media_allowlist=_clean(values.get("MEDIA_ALLOWLIST")),
             media_services=_clean(values.get("MEDIA_SERVICES")),
             web_search=_clean(values.get("WEB_SEARCH")),
+            compare_enabled=values.get("COMPARE_ENABLED", "true").lower() == "true",
+            documents_enabled=values.get("DOCUMENTS_ENABLED", "true").lower() == "true",
+            chat_stream_max_seconds=float(values.get("CHAT_STREAM_MAX_SECONDS", "300") or "300"),
             media_rate_per_minute=int(values.get("MEDIA_RATE_PER_MINUTE", "10") or "10"),
             media_max_concurrency=int(values.get("MEDIA_MAX_CONCURRENCY", "2") or "2"),
             media_max_audio_bytes=int(values.get("MEDIA_MAX_AUDIO_BYTES", str(25 * 1024 * 1024)) or str(25 * 1024 * 1024)),
