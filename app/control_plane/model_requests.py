@@ -38,10 +38,10 @@ from app.control_plane.token_verifier import TokenVerifier
 
 logger = logging.getLogger(__name__)
 
-# Lifecycle: a user creates a "requested" record; an operator moves it. Apply
-# (making the model actually servable) remains off the control plane.
+# Lifecycle: a permitted user creates a "requested" record; the out-of-band apply
+# pipeline (Phase 2/3, off the control plane) advances it. There is no in-app
+# approval step — permission to request IS the authorization (docs/14).
 _STATUSES = ("requested", "approved", "rejected", "applied", "failed")
-_OPERATOR_STATUSES = ("approved", "rejected", "applied", "failed")
 
 # HF repo ids are "<org>/<name>"; revisions are a branch/tag/commit token.
 _HF_REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -309,6 +309,12 @@ def build_model_request_create_response(
             "error": "model_install_disabled",
             "detail": "Self-serve model install is not enabled on this workspace.",
         }
+    # Permission check (replaces an operator approval step). Deny-by-default.
+    if not user_can_request_install(claims, config):
+        return HTTPStatus.FORBIDDEN, {
+            "error": "permission_denied",
+            "detail": "You don't have permission to request model installs.",
+        }
 
     tenant_id = _extract_tenant_id(claims)  # type: ignore[arg-type]
     user_id = claims.subject  # type: ignore[union-attr]
@@ -376,7 +382,13 @@ def build_model_request_create_response(
             rate_limiter.release()
 
 
+# ── Permissions ────────────────────────────────────────────────────────────────
+# See docs/14-user-permissions.md. There is no in-app approval step: a caller who
+# holds the "request model install" permission may record a request directly.
+
+
 def _is_admin(claims, config) -> bool:
+    """True when the caller is in the configured admin/operator group."""
     admin_group = (getattr(getattr(config, "auth", None), "admin_group", None) or "admin")
     try:
         return claims.has_group(admin_group)
@@ -384,11 +396,33 @@ def _is_admin(claims, config) -> bool:
         return False
 
 
+def user_can_request_install(claims, config) -> bool:
+    """Whether the caller may request a model install (deny-by-default).
+
+    Granted when ANY of: MODEL_INSTALL_ALLOW_ALL_USERS is set (dev — every
+    authenticated user is permitted), the caller is in MODEL_INSTALL_GROUP, or
+    the caller is an admin (AUTH_ADMIN_GROUP).
+    """
+    if getattr(config, "model_install_allow_all_users", False):
+        return True
+    group = getattr(config, "model_install_group", None)
+    try:
+        if group and claims.has_group(group):
+            return True
+    except Exception:
+        pass
+    return _is_admin(claims, config)
+
+
 def build_model_requests_list_response(
     *, authorization, token_verifier: TokenVerifier | None, store: ModelRequestStore,
     config, limit: int = 100,
 ):
-    """GET /v1/models/install-requests — own requests; admins see all."""
+    """GET /v1/models/install-requests — own requests; admins see all.
+
+    Returns ``can_request`` so the UI can enable/disable the request action per
+    the caller's permission without a separate call.
+    """
     claims, err = _verify_and_extract(authorization, token_verifier)
     if err is not None:
         return err
@@ -402,42 +436,11 @@ def build_model_requests_list_response(
             tenant_id=_extract_tenant_id(claims), user_id=claims.subject, limit=limit,  # type: ignore[arg-type]
         )
         payload = [it.to_api_dict() for it in items]
+    enabled = bool(getattr(config, "model_install_enabled", False))
     return HTTPStatus.OK, {
         "requests": payload,
         "count": len(payload),
         "is_admin": admin,
-        "enabled": bool(getattr(config, "model_install_enabled", False)),
+        "enabled": enabled,
+        "can_request": enabled and user_can_request_install(claims, config),
     }
-
-
-def build_model_request_update_response(
-    *, authorization, request_id, body, token_verifier: TokenVerifier | None,
-    store: ModelRequestStore, config, notification_store=None,
-):
-    """POST /v1/models/install-requests/{id} — operator status change (admin only)."""
-    claims, err = _verify_and_extract(authorization, token_verifier)
-    if err is not None:
-        return err
-    if not _is_admin(claims, config):
-        return HTTPStatus.FORBIDDEN, {"error": "forbidden", "detail": "Operator role required."}
-    try:
-        data = json.loads(body)
-    except (ValueError, json.JSONDecodeError):
-        return _bad("Body is not valid JSON.")
-    if not isinstance(data, dict):
-        return _bad("Body must be a JSON object.")
-    status = data.get("status")
-    if status not in _OPERATOR_STATUSES:
-        return _bad(f"'status' must be one of {list(_OPERATOR_STATUSES)}.")
-    error_class = data.get("error_class") or ""
-    if not isinstance(error_class, str) or len(error_class) > 100:
-        return _bad("'error_class' must be a short string.")
-
-    updated = store.update_status(request_id=request_id, status=status, error_class=error_class)
-    if updated is None:
-        return HTTPStatus.NOT_FOUND, {"error": "not_found"}
-    # Notify the request's owner that an operator acted on it.
-    _notify(notification_store, tenant_id=updated.tenant_id, user_id=updated.user_id,
-            event_class="model_install_updated", resource_id=updated.id)
-    logger.info("model_install_request updated id=%s status=%s", updated.id, updated.status)
-    return HTTPStatus.OK, updated.to_admin_dict()

@@ -109,6 +109,13 @@ class ControlPlaneConfig:
     model_install_enabled: bool = False
     model_install_allowlist: str | None = None
     model_install_max_open_per_tenant: int = 25
+    # Who may request a model install (a "permission"). A user has it when they
+    # are in MODEL_INSTALL_GROUP (an OIDC group/role claim), when they are an
+    # admin (AUTH_ADMIN_GROUP), or when MODEL_INSTALL_ALLOW_ALL_USERS is true
+    # (dev convenience — every authenticated user is permitted). Deny-by-default:
+    # if none apply, the request is refused even with the kill-switch on.
+    model_install_group: str | None = None
+    model_install_allow_all_users: bool = False
     # Web search for deep research (deny-by-default, off unless configured).
     # WEB_SEARCH is JSON {"provider","url","host","api_key","api_key_header","top_k"}.
     # No search engine is bundled: this points at an external JSON search API
@@ -200,6 +207,10 @@ class ControlPlaneConfig:
             model_install_max_open_per_tenant=int(
                 values.get("MODEL_INSTALL_MAX_OPEN_PER_TENANT", "25") or "25"
             ),
+            model_install_group=_clean(values.get("MODEL_INSTALL_GROUP")),
+            model_install_allow_all_users=values.get(
+                "MODEL_INSTALL_ALLOW_ALL_USERS", "false"
+            ).lower() == "true",
             auth=AuthSettings(
                 issuer_url=_clean(values.get("AUTH_ISSUER_URL")),
                 audience=_clean(values.get("AUTH_AUDIENCE")),

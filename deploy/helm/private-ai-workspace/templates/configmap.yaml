@@ -89,4 +89,10 @@ data:
   MODEL_INSTALL_ALLOWLIST: {{ .Values.config.modelInstallAllowlist | quote }}
   {{- end }}
   MODEL_INSTALL_MAX_OPEN_PER_TENANT: {{ .Values.config.modelInstallMaxOpenPerTenant | default 25 | quote }}
+  {{- if .Values.config.modelInstallAllowAllUsers }}
+  MODEL_INSTALL_ALLOW_ALL_USERS: "true"
+  {{- end }}
+  {{- if .Values.config.modelInstallGroup }}
+  MODEL_INSTALL_GROUP: {{ .Values.config.modelInstallGroup | quote }}
+  {{- end }}
   {{- end }}

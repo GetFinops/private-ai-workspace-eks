@@ -8,11 +8,16 @@ from app.control_plane import model_requests as mr
 from app.control_plane.token_verifier import TokenClaims
 
 
-def _config(enabled=True, allow="*", admin="admin", cap=25):
+def _config(enabled=True, allow="*", admin="admin", cap=25,
+            allow_all=True, group=None):
+    # allow_all defaults True so the non-permission tests exercise create paths;
+    # PermissionTests override it to exercise the permission gate itself.
     return types.SimpleNamespace(
         model_install_enabled=enabled,
         model_install_allowlist=allow,
         model_install_max_open_per_tenant=cap,
+        model_install_allow_all_users=allow_all,
+        model_install_group=group,
         auth=types.SimpleNamespace(admin_group=admin),
     )
 
@@ -167,61 +172,68 @@ class IsolationTests(TestCase):
         self.assertIn("requested_by", pl["requests"][0])
 
 
-class UpdateTests(TestCase):
-    def _seed(self):
-        store, notif = mr.InMemoryModelRequestStore(), _FakeNotif()
-        _st, pl = _create(store, _FakeTV("alice", "alice@t-a.test"),
-                          '{"hf_repo_id":"meta-llama/x"}', _config(), notif)
-        return store, pl["id"], notif
+class PermissionTests(TestCase):
+    """There is no in-app approval; the request action is gated by a permission."""
 
-    def test_non_admin_cannot_update(self):
-        store, rid, _ = self._seed()
-        st, pl = mr.build_model_request_update_response(
-            authorization="Bearer y", request_id=rid, body='{"status":"approved"}',
-            token_verifier=_FakeTV("bob", "bob@t-b.test"), store=store, config=_config(),
-        )
+    def test_no_permission_is_forbidden(self):
+        # allow_all False, no group, not admin → denied even with kill-switch on.
+        st, pl = _create(mr.InMemoryModelRequestStore(), _FakeTV("u", "u@t.test"),
+                         '{"hf_repo_id":"meta-llama/x"}', _config(allow_all=False))
         self.assertEqual(st, HTTPStatus.FORBIDDEN)
-        # unchanged
-        self.assertEqual(store.get(request_id=rid).status, "requested")
+        self.assertEqual(pl["error"], "permission_denied")
 
-    def test_admin_updates_and_notifies_owner(self):
-        store, rid, _ = self._seed()
-        notif = _FakeNotif()
-        st, pl = mr.build_model_request_update_response(
-            authorization="Bearer z", request_id=rid, body='{"status":"approved"}',
-            token_verifier=_FakeTV("ops", "ops@t-z.test", groups=["admin"]),
-            store=store, config=_config(), notification_store=notif,
-        )
-        self.assertEqual(st, HTTPStatus.OK)
-        self.assertEqual(pl["status"], "approved")
-        # Owner (alice / t-a.test) is notified — not the operator's tenant.
-        self.assertEqual(len(notif.events), 1)
-        self.assertEqual(notif.events[0].tenant_id, "t-a.test")
-        self.assertEqual(notif.events[0].user_id, "alice")
-        self.assertEqual(notif.events[0].event_class, "model_install_updated")
+    def test_allow_all_users_grants_permission(self):
+        st, _ = _create(mr.InMemoryModelRequestStore(), _FakeTV("u", "u@t.test"),
+                        '{"hf_repo_id":"meta-llama/x"}', _config(allow_all=True))
+        self.assertEqual(st, HTTPStatus.ACCEPTED)
 
-    def test_admin_update_bad_status_rejected(self):
-        store, rid, _ = self._seed()
-        st, _ = mr.build_model_request_update_response(
-            authorization="Bearer z", request_id=rid, body='{"status":"pwned"}',
-            token_verifier=_FakeTV("ops", "ops@t.test", groups=["admin"]),
-            store=store, config=_config(),
-        )
-        self.assertEqual(st, HTTPStatus.BAD_REQUEST)
+    def test_group_membership_grants_permission(self):
+        st, _ = _create(mr.InMemoryModelRequestStore(),
+                        _FakeTV("g", "g@t.test", groups=["model-managers"]),
+                        '{"hf_repo_id":"meta-llama/x"}',
+                        _config(allow_all=False, group="model-managers"))
+        self.assertEqual(st, HTTPStatus.ACCEPTED)
+
+    def test_admin_always_has_permission(self):
+        st, _ = _create(mr.InMemoryModelRequestStore(),
+                        _FakeTV("a", "a@t.test", groups=["admin"]),
+                        '{"hf_repo_id":"meta-llama/x"}', _config(allow_all=False))
+        self.assertEqual(st, HTTPStatus.ACCEPTED)
+
+    def test_list_reports_can_request_per_user(self):
+        store = mr.InMemoryModelRequestStore()
+        # Permitted user (allow_all) → can_request True.
+        _st, pl = _list(store, _FakeTV("u", "u@t.test"), _config(allow_all=True))
+        self.assertTrue(pl["can_request"])
+        # Unpermitted user → can_request False.
+        _st, pl = _list(store, _FakeTV("u", "u@t.test"), _config(allow_all=False))
+        self.assertFalse(pl["can_request"])
+        # Kill-switch off ⇒ can_request False even for a permitted user.
+        _st, pl = _list(store, _FakeTV("u", "u@t.test"), _config(enabled=False, allow_all=True))
+        self.assertFalse(pl["can_request"])
+
+    def test_no_approval_endpoint_exists(self):
+        self.assertFalse(hasattr(mr, "build_model_request_update_response"))
 
 
 class ConfigTests(TestCase):
-    def test_config_parses_kill_switch_and_allowlist(self):
+    def test_config_parses_kill_switch_allowlist_and_permission(self):
         from app.control_plane.config import ControlPlaneConfig
         c = ControlPlaneConfig.from_env({
             "MODEL_INSTALL_ENABLED": "true",
             "MODEL_INSTALL_ALLOWLIST": "meta-llama,mistralai",
+            "MODEL_INSTALL_ALLOW_ALL_USERS": "true",
+            "MODEL_INSTALL_GROUP": "model-managers",
         })
         self.assertTrue(c.model_install_enabled)
         self.assertEqual(c.model_install_allowlist, "meta-llama,mistralai")
+        self.assertTrue(c.model_install_allow_all_users)
+        self.assertEqual(c.model_install_group, "model-managers")
 
     def test_config_defaults_deny(self):
         from app.control_plane.config import ControlPlaneConfig
         c = ControlPlaneConfig.from_env({})
         self.assertFalse(c.model_install_enabled)
         self.assertIsNone(c.model_install_allowlist)
+        self.assertFalse(c.model_install_allow_all_users)
+        self.assertIsNone(c.model_install_group)

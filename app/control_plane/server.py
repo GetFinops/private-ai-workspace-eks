@@ -146,7 +146,6 @@ from app.control_plane.model_requests import (
     InMemoryModelRequestStore,
     ModelRequestStore,
     build_model_request_create_response,
-    build_model_request_update_response,
     build_model_requests_list_response,
 )
 from app.control_plane.conversations import (
@@ -1061,20 +1060,6 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     rate_limiter=self.__class__.model_install_rate_limiter,
                 )
                 return Response(status, payload)
-            # POST /v1/models/install-requests/{id} — operator status change (admin).
-            if path.startswith(_MODEL_REQUESTS_PATH + "/"):
-                req_id = path[len(_MODEL_REQUESTS_PATH) + 1:]
-                if req_id and "/" not in req_id:
-                    status, payload = build_model_request_update_response(
-                        authorization=self.headers.get("Authorization"),
-                        request_id=req_id,
-                        body=body,
-                        token_verifier=self.__class__.token_verifier,
-                        store=self.__class__.model_requests_store,
-                        config=self.__class__.config,
-                        notification_store=self.__class__.notification_store,
-                    )
-                    return Response(status, payload)
 
             if path == _MCP_LIST_PATH:
                 status, payload = build_mcp_list_response(

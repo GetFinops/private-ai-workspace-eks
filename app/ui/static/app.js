@@ -1513,7 +1513,8 @@
     clearChildren(els.modelRequestsList);
     try {
       var r = await toolJson('/v1/models/install-requests');
-      if (r.status === 404 || r.status === 501 || (r.data && r.data.enabled === false && !r.ok)) {
+      applyInstallPermission(r.data || {});
+      if (r.status === 404 || r.status === 501) {
         appendResultLine(els.modelRequestsList, 'Install requests are not enabled here yet.');
         return;
       }
@@ -1567,20 +1568,35 @@
     });
   }
 
-  // Deny-by-default: management actions stay disabled until the server reports
-  // the matching capability (which is gated behind the escalation-reviewed
-  // backend phases — see docs/m11-followups/04-model-management.md).
+  // Deny-by-default: management actions stay disabled until the server confirms
+  // the matching capability / permission. The Request-install button is gated
+  // PER-USER by can_request (from the authenticated list endpoint) — see
+  // applyInstallPermission — so disable it here until that resolves.
   function applyModelCapabilities(caps) {
     caps = caps || {};
-    var canRequest = !!(caps.install || caps.request_install);
-    if (els.modelInstallBtn) els.modelInstallBtn.disabled = !canRequest;
-    if (els.modelInstallNote) setText(els.modelInstallNote, canRequest
-      ? 'Requests are recorded for an operator to review; installs are applied via the deploy pipeline.'
-      : 'Self-serve model install is operator-gated and not enabled here yet (design Phase 1a). Downloading arbitrary models onto GPU nodes is an escalation-reviewed change applied via the deploy pipeline.');
+    if (els.modelInstallBtn) els.modelInstallBtn.disabled = true;
+    // HF token config stays escalation-gated (operator-managed secret store).
     if (els.hfTokenSaveBtn) els.hfTokenSaveBtn.disabled = !caps.token_config;
     if (els.hfTokenConfig) els.hfTokenConfig.disabled = !caps.token_config;
     if (els.hfTokenStatus) setText(els.hfTokenStatus, caps.token_config ? ''
       : 'The Hugging Face token is managed by your operator in the cluster secret store; the control plane never returns it.');
+  }
+
+  // Enable the Request-install action only if THIS user has permission to
+  // request installs (data.can_request from GET /v1/models/install-requests).
+  function applyInstallPermission(data) {
+    data = data || {};
+    var can = !!data.can_request;
+    if (els.modelInstallBtn) els.modelInstallBtn.disabled = !can;
+    if (els.modelHfRepo) els.modelHfRepo.disabled = !can;
+    if (els.modelHfRevision) els.modelHfRevision.disabled = !can;
+    if (els.modelInstallNote) {
+      setText(els.modelInstallNote, can
+        ? 'You have permission to request a model install. Requests are applied by an operator via the deploy pipeline.'
+        : (data.enabled
+            ? 'You do not have permission to request model installs on this workspace. Ask an operator for access.'
+            : 'Self-serve model install is not enabled on this workspace.'));
+    }
   }
 
   async function requestModelInstall() {
