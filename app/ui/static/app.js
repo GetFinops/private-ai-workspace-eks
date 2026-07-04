@@ -105,6 +105,13 @@
     mediaTtsText:  $('media-tts-text'),
     mediaSynthesizeBtn: $('media-synthesize-btn'),
     mediaAudioOut: $('media-audio-out'),
+    comparePrompt: $('compare-prompt'),
+    compareModelA: $('compare-model-a'),
+    compareModelB: $('compare-model-b'),
+    compareSynth:  $('compare-synth'),
+    compareBtn:    $('compare-btn'),
+    compareStatus: $('compare-status'),
+    compareResults: $('compare-results'),
     // Draft surfaces (escalation-gated: see index.html / docs/13 §7).
     integProvider:  $('integ-provider'),
     integRefreshBtn:$('integ-refresh-btn'),
@@ -396,6 +403,7 @@
     // 5. Render UI.
     await loadConversations();
     renderSidebar();
+    await loadModels();
     renderModelSelect();
     renderUserEmail();
     attachListeners();
@@ -505,10 +513,24 @@
     setText(els.userEmail, state.email || 'Signed in');
   }
 
+  // Dynamic model list from the control plane (single source of truth, served
+  // GPU-independently). Falls back silently to the config.json list on error.
+  async function loadModels() {
+    try {
+      var resp = await fetch('/v1/models');
+      if (!resp.ok) return;
+      var data = await resp.json();
+      if (data && Array.isArray(data.models) && data.models.length) {
+        state.models = data.models;
+        if (data.default) DEFAULT_MODEL = data.default;
+      }
+    } catch (_) {}
+  }
+
   function renderModelSelect() {
-    // Minimal: show a single option pulled from config (or static placeholder).
     clearChildren(els.modelSelect);
-    var models = (state.config && state.config.models) || [];
+    var models = (state.models && state.models.length ? state.models
+                  : (state.config && state.config.models)) || [];
     if (models.length === 0 && DEFAULT_MODEL) models = [DEFAULT_MODEL];
     if (models.length === 0) models = ['default'];
     models.forEach(function (m) {
@@ -1014,7 +1036,7 @@
   function openTools() {
     els.toolsDrawer.classList.add('open');
     els.toolsBtn.setAttribute('aria-expanded', 'true');
-    if (!state.toolsLoaded) { state.toolsLoaded = true; loadMediaServices(); refreshMemory(); loadIntegrations(); }
+    if (!state.toolsLoaded) { state.toolsLoaded = true; loadMediaServices(); refreshMemory(); loadIntegrations(); populateCompareModels(); }
   }
   function closeTools() {
     els.toolsDrawer.classList.remove('open');
@@ -1244,6 +1266,62 @@
     } catch (e) { setStatus(els.mediaStatus, 'Error: ' + (e.message || 'unknown'), true); }
   }
 
+  // Compare (blind A/B across two models + optional synthesis)
+  function populateCompareModels() {
+    var models = (state.models && state.models.length ? state.models : ['default']);
+    [els.compareModelA, els.compareModelB].forEach(function (sel, idx) {
+      clearChildren(sel);
+      models.forEach(function (m) {
+        var o = document.createElement('option'); o.value = m; setText(o, m); sel.appendChild(o);
+      });
+      if (idx === 1 && models.length > 1) sel.value = models[1];  // default B to 2nd model
+    });
+  }
+  async function runCompare() {
+    var prompt = els.comparePrompt.value.trim();
+    var a = els.compareModelA.value, b = els.compareModelB.value;
+    if (!prompt) { setStatus(els.compareStatus, 'Enter a prompt.', true); return; }
+    if (!a || !b) { setStatus(els.compareStatus, 'Pick two models.', true); return; }
+    clearChildren(els.compareResults);
+    setStatus(els.compareStatus, 'Comparing… (this can take a while)');
+    try {
+      var r = await toolJson('/v1/compare', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: prompt, models: [a, b], synthesize: els.compareSynth.checked }),
+      });
+      if (!r.ok) { setStatus(els.compareStatus, r.data.detail || r.data.error || 'Compare failed', true); return; }
+      setStatus(els.compareStatus, '');
+      renderCompareResults(r.data);
+    } catch (e) {}
+  }
+  function renderCompareResults(data) {
+    clearChildren(els.compareResults);
+    ((data && data.results) || []).forEach(function (res) {
+      var item = document.createElement('div');
+      item.className = 'tool-result-item';
+      var head = document.createElement('div'); head.className = 'tool-result-title';
+      setText(head, 'Answer ' + res.label);                 // blind — model hidden
+      var reveal = document.createElement('button');
+      reveal.className = 'tool-btn-ghost'; reveal.type = 'button'; setText(reveal, 'reveal model');
+      reveal.addEventListener('click', function () {
+        setText(head, 'Answer ' + res.label + ' · ' + res.model); reveal.remove();
+      });
+      var body = document.createElement('div'); body.className = 'tool-result-snippet';
+      if (res.error) { setText(body, '(' + res.error + ')'); }
+      else { renderMarkdownInto(body, String(res.content || '')); }
+      item.appendChild(head); item.appendChild(reveal); item.appendChild(body);
+      els.compareResults.appendChild(item);
+    });
+    if (data && data.synthesis) {
+      var syn = document.createElement('div'); syn.className = 'tool-result-item';
+      var t = document.createElement('div'); t.className = 'tool-result-title'; setText(t, 'Synthesis');
+      var c = document.createElement('div'); c.className = 'tool-result-snippet';
+      renderMarkdownInto(c, String(data.synthesis));
+      syn.appendChild(t); syn.appendChild(c);
+      els.compareResults.appendChild(syn);
+    }
+  }
+
   function appendResultLine(container, text, isErr) {
     var p = document.createElement('div');
     p.className = 'tool-result-item' + (isErr ? ' err' : '');
@@ -1397,6 +1475,7 @@
     els.mediaTranscribeBtn.addEventListener('click', transcribeAudio);
     els.mediaGenerateBtn.addEventListener('click', generateImage);
     els.mediaSynthesizeBtn.addEventListener('click', synthesizeSpeech);
+    els.compareBtn.addEventListener('click', runCompare);
     // Draft surfaces (escalation-gated).
     els.integRefreshBtn.addEventListener('click', loadIntegrations);
     els.integInvokeBtn.addEventListener('click', invokeIntegration);

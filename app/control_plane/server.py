@@ -3,6 +3,7 @@
 GET  /healthz                  — liveness probe (no external deps required)
 GET  /readyz                   — readiness probe (503 until dependencies configured)
 GET  /v1/inference/status      — inference configuration state
+GET  /v1/models                — selectable chat models (config-served, GPU-independent)
 GET  /metrics                  — Prometheus metrics (golden signals, M5)
 POST /v1/chat/completions      — authenticated chat path; delegates to inference plane
 POST /v1/retrieval/documents   — index a document into the caller's tenant (M10)
@@ -14,6 +15,7 @@ DELETE /v1/memory/{id}         — authoritative delete of a memory (M10)
 POST /v1/agent/tools/invoke    — sandboxed, allow-listed tool execution (M11)
 POST /v1/agent/runs            — LLM agent loop over allow-listed tools (M11)
 POST /v1/agent/research        — deep-research (plan→retrieve→synthesize) (M11)
+POST /v1/compare               — blind A/B of one prompt across N models + synthesis
 POST /v1/mcp/tools/list        — list an allow-listed MCP server's tools (M12)
 POST /v1/mcp/invoke            — invoke a tool on a sandboxed MCP server (M12)
 POST /v1/media/transcribe      — speech-to-text via an allow-listed backend (M14)
@@ -125,6 +127,7 @@ from app.control_plane.media import (
     parse_media_services,
 )
 from app.control_plane.web_search import WebSearchClient, parse_web_search_config
+from app.control_plane.compare import build_compare_response
 from app.control_plane.conversations import (
     ConversationStore,
     InMemoryConversationStore,
@@ -180,6 +183,7 @@ _MEMORY_RECALL_PATH = "/v1/memory/recall"
 _AGENT_TOOLS_INVOKE_PATH = "/v1/agent/tools/invoke"
 _AGENT_RUNS_PATH = "/v1/agent/runs"
 _AGENT_RESEARCH_PATH = "/v1/agent/research"
+_COMPARE_PATH = "/v1/compare"
 _MCP_INVOKE_PATH = "/v1/mcp/invoke"
 _MCP_LIST_PATH = "/v1/mcp/tools/list"
 _INTEGRATIONS_INVOKE_PATH = "/v1/integrations/invoke"
@@ -244,6 +248,15 @@ def build_response(path: str, config: ControlPlaneConfig) -> Response:
                 "backend": "vllm-openai-compatible",
                 "internal_only": True,
             },
+        )
+
+    if path == "/v1/models":
+        # Selectable chat models, from control-plane config (single source of
+        # truth). Non-sensitive config data, served GPU-independently.
+        models = config.model_list()
+        return Response(
+            HTTPStatus.OK,
+            {"models": models, "default": models[0]},
         )
 
     if path == _METRICS_PATH:
@@ -520,6 +533,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     agent_loop_inference_client: object | None = None
     deep_research_budgets: DeepResearchBudgets = DeepResearchBudgets()
     web_search_client = None  # set at startup from WEB_SEARCH; None = web mode off
+    compare_rate_limiter: RateLimiter = RateLimiter()
     # MCP integration (M12). Disabled by default; allow-list empty (deny by default).
     mcp_enabled: bool = False
     mcp_allowlist: dict = {}  # type: ignore[type-arg]
@@ -813,6 +827,18 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     rate_limiter=self.__class__.agent_tools_rate_limiter,
                     notification_store=self.__class__.notification_store,
                     web_search_client=self.__class__.web_search_client,
+                )
+                return Response(status, payload)
+
+            if path == _COMPARE_PATH:
+                status, payload = build_compare_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    enabled=True,
+                    inference_client=self.__class__.agent_loop_inference_client,
+                    rate_limiter=self.__class__.compare_rate_limiter,
+                    default_models=self.__class__.config.model_list(),
                 )
                 return Response(status, payload)
 
