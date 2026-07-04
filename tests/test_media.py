@@ -19,6 +19,7 @@ from app.control_plane.media import (
     MediaService,
     build_media_generate_response,
     build_media_list_response,
+    build_media_synthesize_response,
     build_media_transcribe_response,
     parse_media_allowlist,
     parse_media_services,
@@ -96,6 +97,14 @@ class TestParsing(unittest.TestCase):
         }))
         self.assertEqual(set(s), {"whisper"})
         self.assertEqual(s["whisper"].base_url, "http://x:8000")  # trailing / stripped
+
+    def test_tts_kind_parsed(self):
+        s = parse_media_services(json.dumps({
+            "piper": {"kind": "tts", "base_url": "http://p:8000", "model": "tts-1"},
+        }))
+        self.assertEqual(set(s), {"piper"})
+        self.assertEqual(s["piper"].kind, "tts")
+        self.assertEqual(s["piper"].model, "tts-1")
 
 
 class TestGatingAndList(unittest.TestCase):
@@ -249,6 +258,72 @@ class TestGenerate(unittest.TestCase):
     def test_missing_prompt(self):
         status, _ = _generate({"service": "sdxl"})
         self.assertEqual(status, HTTPStatus.BAD_REQUEST)
+
+
+_TTS_SERVICES = {
+    "piper": MediaService("piper", "tts", "http://piper-tts.inference.svc:8000", model="tts-1"),
+    "whisper": MediaService("whisper", "stt", "http://whisper-stt.inference.svc:8000"),
+}
+_TTS_ALLOW = parse_media_allowlist(json.dumps({"tenant-a.test": ["piper", "whisper"]}))
+
+
+def _tts_executor(opener, storage=None):
+    return MediaExecutor(services=dict(_TTS_SERVICES), opener=opener, storage_client=storage)
+
+
+def _synthesize(body, *, verifier=_ALICE, enabled=True, allowlist=_TTS_ALLOW, executor=None,
+                rl=None, state=None, store=None, max_text=2000):
+    return build_media_synthesize_response(
+        authorization="Bearer valid", body=json.dumps(body), token_verifier=verifier,
+        enabled=enabled, allowlist=allowlist,
+        executor=executor or _tts_executor(lambda *a, **k: _resp(200, b"MP3BYTES", "audio/mpeg"), _Storage()),
+        rate_limiter=rl or RateLimiter(), tenant_state=state or InMemoryTenantIntegrationState(),
+        max_text_chars=max_text, notification_store=store)
+
+
+class TestSynthesize(unittest.TestCase):
+    def test_success_stores_audio_artifact(self):
+        store = _Storage()
+        ex = _tts_executor(lambda *a, **k: _resp(200, b"MP3BYTES", "audio/mpeg"), store)
+        status, payload = _synthesize({"service": "piper", "text": "hello", "params": {}}, executor=ex)
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertTrue(payload["result"]["stored"])
+        key = payload["result"]["key"]
+        self.assertTrue(key.startswith("media/tenant-a.test/user-x/"))
+        self.assertEqual(store.objects[key][1], "audio/mpeg")  # audio content-type preserved
+
+    def test_text_too_long(self):
+        status, payload = _synthesize({"service": "piper", "text": "x" * 5000}, max_text=2000)
+        self.assertEqual(status, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+        self.assertEqual(payload["error"], "text_too_long")
+
+    def test_wrong_kind(self):
+        status, payload = _synthesize({"service": "whisper", "text": "hi"})
+        self.assertEqual(payload["error"], "wrong_service_kind")
+
+    def test_cross_tenant_denied(self):
+        status, payload = _synthesize({"service": "piper", "text": "hi"}, verifier=_BOB)
+        self.assertEqual(status, HTTPStatus.FORBIDDEN)
+
+    def test_missing_text(self):
+        status, _ = _synthesize({"service": "piper"})
+        self.assertEqual(status, HTTPStatus.BAD_REQUEST)
+
+    def test_request_sends_input_and_model_to_speech_endpoint(self):
+        captured = {}
+
+        def opener(req, timeout=None):
+            captured["url"] = req.full_url
+            captured["body"] = req.data
+            return _resp(200, b"MP3", "audio/mpeg")
+
+        ex = _tts_executor(opener, _Storage())
+        _synthesize({"service": "piper", "text": "hello world", "params": {"voice": "alloy"}}, executor=ex)
+        self.assertTrue(captured["url"].endswith("/v1/audio/speech"))
+        sent = json.loads(captured["body"])
+        self.assertEqual(sent["input"], "hello world")
+        self.assertEqual(sent["model"], "tts-1")
+        self.assertEqual(sent["voice"], "alloy")  # params merged through
 
 
 class _PresignStorage:

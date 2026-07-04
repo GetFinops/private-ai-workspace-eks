@@ -16,6 +16,9 @@ POST /v1/agent/runs            — LLM agent loop over allow-listed tools (M11)
 POST /v1/agent/research        — deep-research (plan→retrieve→synthesize) (M11)
 POST /v1/mcp/tools/list        — list an allow-listed MCP server's tools (M12)
 POST /v1/mcp/invoke            — invoke a tool on a sandboxed MCP server (M12)
+POST /v1/media/transcribe      — speech-to-text via an allow-listed backend (M14)
+POST /v1/media/generate        — image generation via an allow-listed backend (M14)
+POST /v1/media/synthesize      — text-to-speech via an allow-listed backend (M14)
 
 Authentication is enforced on the chat path:
   - Requests must carry an Authorization: Bearer <token> header.
@@ -73,9 +76,12 @@ from app.control_plane.metrics import (
 from app.control_plane.notifications import (
     InMemoryNotificationStore,
     NotificationStore,
+    _extract_tenant_id,
+    _verify_and_extract,
     build_notification_publish_response,
     build_notification_read_response,
     build_notifications_list_response,
+    stream_notification_frames,
 )
 from app.control_plane.agent_tools import (
     RateLimiter,
@@ -113,10 +119,12 @@ from app.control_plane.media import (
     build_media_artifact_response,
     build_media_generate_response,
     build_media_list_response,
+    build_media_synthesize_response,
     build_media_transcribe_response,
     parse_media_allowlist,
     parse_media_services,
 )
+from app.control_plane.web_search import WebSearchClient, parse_web_search_config
 from app.control_plane.conversations import (
     ConversationStore,
     InMemoryConversationStore,
@@ -159,6 +167,11 @@ logger = logging.getLogger(__name__)
 _CHAT_PATH = "/v1/chat/completions"
 _CHAT_STREAM_PATH = "/v1/chat/stream"
 _NOTIFICATIONS_PATH = "/v1/notifications"
+_NOTIFICATIONS_STREAM_PATH = "/v1/notifications/stream"
+# Real-time notification stream bound: max_ticks * interval ≈ connection lifetime
+# before the client is asked to reconnect (keeps connections from living forever).
+_NOTIF_STREAM_MAX_TICKS = 60
+_NOTIF_STREAM_INTERVAL = 5.0
 _RETRIEVAL_DOCUMENTS_PATH = "/v1/retrieval/documents"
 _RETRIEVAL_UPLOAD_PATH = "/v1/retrieval/upload"
 _RETRIEVAL_QUERY_PATH = "/v1/retrieval/query"
@@ -174,6 +187,7 @@ _INTEGRATIONS_LIST_PATH = "/v1/integrations/list"
 _MEDIA_LIST_PATH = "/v1/media/list"
 _MEDIA_TRANSCRIBE_PATH = "/v1/media/transcribe"
 _MEDIA_GENERATE_PATH = "/v1/media/generate"
+_MEDIA_SYNTHESIZE_PATH = "/v1/media/synthesize"
 _MEDIA_ARTIFACTS_PREFIX = "/v1/media/artifacts/"
 _CONVERSATIONS_PATH = "/v1/conversations"
 _METRICS_PATH = "/metrics"
@@ -505,6 +519,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     agent_loop_budgets: AgentLoopBudgets = AgentLoopBudgets()
     agent_loop_inference_client: object | None = None
     deep_research_budgets: DeepResearchBudgets = DeepResearchBudgets()
+    web_search_client = None  # set at startup from WEB_SEARCH; None = web mode off
     # MCP integration (M12). Disabled by default; allow-list empty (deny by default).
     mcp_enabled: bool = False
     mcp_allowlist: dict = {}  # type: ignore[type-arg]
@@ -586,6 +601,11 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]  # strip query string for routing
+        # Real-time notification stream writes SSE directly and bypasses the
+        # Response/_instrument machinery (like _handle_chat_stream).
+        if path == _NOTIFICATIONS_STREAM_PATH:
+            self._handle_notifications_stream()
+            return
         if path == _NOTIFICATIONS_PATH:
             params = self.path.split("?", 1)[1] if "?" in self.path else ""
             include_read = "include_read=true" in params
@@ -792,6 +812,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     budgets=self.__class__.deep_research_budgets,
                     rate_limiter=self.__class__.agent_tools_rate_limiter,
                     notification_store=self.__class__.notification_store,
+                    web_search_client=self.__class__.web_search_client,
                 )
                 return Response(status, payload)
 
@@ -890,6 +911,21 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                 )
                 return Response(status, payload)
 
+            if path == _MEDIA_SYNTHESIZE_PATH:
+                status, payload = build_media_synthesize_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    enabled=self.__class__.media_enabled,
+                    allowlist=self.__class__.media_allowlist,
+                    executor=self.__class__.media_executor,
+                    rate_limiter=self.__class__.media_rate_limiter,
+                    tenant_state=self.__class__.integrations_tenant_state,
+                    max_text_chars=self.__class__.media_max_prompt_chars,
+                    notification_store=self.__class__.notification_store,
+                )
+                return Response(status, payload)
+
             if path == _CONVERSATIONS_PATH:
                 status, payload = build_conversation_create_response(
                     authorization=self.headers.get("Authorization"),
@@ -976,6 +1012,42 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                 resp.close()
             except Exception:  # pragma: no cover
                 pass
+
+    def _handle_notifications_stream(self) -> None:
+        """GET /v1/notifications/stream — push unread notifications over SSE.
+
+        Auth is enforced once at stream open (same verifier as every route); the
+        connection is bounded and content-safe (frames carry shape only). Runs on
+        a per-connection thread (ThreadingHTTPServer), so a slow client can't
+        block others.
+        """
+        claims, err = _verify_and_extract(
+            self.headers.get("Authorization"), self.__class__.token_verifier
+        )
+        if err is not None:
+            status, payload = err
+            self._write_json(status, payload)
+            return
+        tenant_id = _extract_tenant_id(claims)
+        user_id = claims.subject
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        frames = stream_notification_frames(
+            self.__class__.notification_store,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            max_ticks=_NOTIF_STREAM_MAX_TICKS,
+            sleep=lambda: time.sleep(_NOTIF_STREAM_INTERVAL),
+        )
+        try:
+            for frame in frames:
+                self.wfile.write(frame)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def do_DELETE(self) -> None:  # noqa: N802
         def _delete() -> Response:
@@ -1434,6 +1506,15 @@ def run_server(
         max_tokens=resolved_config.agent_loop_max_tokens,
         model=resolved_config.agent_loop_model,
     )
+    # Web search for deep research: deny-by-default. Only when WEB_SEARCH is
+    # configured (a guarded external JSON search endpoint — never a bundled
+    # engine) does hybrid corpus+web research become available.
+    _web_cfg = parse_web_search_config(resolved_config.web_search)
+    ControlPlaneHandler.web_search_client = (
+        WebSearchClient(_web_cfg) if _web_cfg is not None else None
+    )
+    if _web_cfg is not None:
+        logger.info("Web research ENABLED via provider '%s'.", _web_cfg.provider)
     if resolved_config.agent_tools_enabled:
         logger.info(
             "Agent tools ENABLED; allow-listed tenants: %d; agent runs: %s.",

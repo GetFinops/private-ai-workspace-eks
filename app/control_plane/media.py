@@ -58,7 +58,7 @@ _EVENT_FAILED = "media_task_failed"
 
 @dataclass(frozen=True)
 class MediaService:
-    """A registered media backend. `kind` is "stt" or "image"."""
+    """A registered media backend. `kind` is "stt", "image", or "tts"."""
 
     name: str
     kind: str
@@ -109,7 +109,7 @@ def parse_media_services(raw: str | None) -> dict[str, MediaService]:
         kind = spec.get("kind")
         base_url = spec.get("base_url")
         model = spec.get("model")
-        if kind in ("stt", "image") and isinstance(base_url, str) and base_url:
+        if kind in ("stt", "image", "tts") and isinstance(base_url, str) and base_url:
             kwargs = {"name": str(name), "kind": kind, "base_url": base_url.rstrip("/")}
             if isinstance(model, str) and model:
                 kwargs["model"] = model
@@ -254,6 +254,39 @@ class MediaExecutor:
         if self._storage is not None:
             try:
                 self._storage.put_object(key=key, body=body, content_type=ctype or "application/octet-stream")
+                stored = True
+            except Exception:  # noqa: BLE001 - storage failure must not leak internals
+                return MediaOutcome("backend_error")
+        return MediaOutcome(
+            "success", status=status,
+            result={"artifact_id": artifact_id, "bytes": len(body), "stored": stored, "key": key},
+        )
+
+    def synthesize(self, service: str, text: str, params: dict, *, tenant_id: str, user_id: str) -> MediaOutcome:
+        """Text-to-speech: POST text to the backend's OpenAI /v1/audio/speech and
+        persist the returned audio as a per-tenant artifact (never the input text)."""
+        spec = self._services.get(service)
+        if spec is None:
+            return MediaOutcome("unknown_service")
+        if spec.kind != "tts":
+            return MediaOutcome("wrong_kind")
+        payload = json.dumps({"model": spec.model, "input": text, **(params or {})}).encode("utf-8")
+        try:
+            status, body, ctype = self._post(
+                f"{spec.base_url}/v1/audio/speech", data=payload, content_type="application/json"
+            )
+        except HTTPError as e:
+            return MediaOutcome("backend_error", status=e.code)
+        except (URLError, TimeoutError):
+            return MediaOutcome("backend_timeout")
+        except OSError:
+            return MediaOutcome("backend_error")
+        artifact_id = str(uuid.uuid4())
+        key = f"media/{tenant_id}/{user_id}/{artifact_id}.bin"
+        stored = False
+        if self._storage is not None:
+            try:
+                self._storage.put_object(key=key, body=body, content_type=ctype or "audio/mpeg")
                 stored = True
             except Exception:  # noqa: BLE001 - storage failure must not leak internals
                 return MediaOutcome("backend_error")
@@ -421,6 +454,53 @@ def build_media_generate_response(
     started = time.monotonic()
     try:
         outcome = executor.generate(service, prompt, params, tenant_id=tenant_id, user_id=user_id)
+    finally:
+        rate_limiter.release()
+    latency_ms = int((time.monotonic() - started) * 1000)
+    _audit(tenant=tenant_id, user=user_id, tool=label, arguments=args,
+           decision="allowed", result_class=outcome.result_class, latency_ms=latency_ms)
+    _maybe_notify(notification_store, tenant_id, user_id, service, outcome)
+    return _to_http(outcome)
+
+
+def build_media_synthesize_response(
+    *, authorization, body, token_verifier, enabled, allowlist, executor,
+    rate_limiter: RateLimiter, tenant_state: TenantIntegrationState,
+    max_text_chars: int = _DEFAULT_MAX_PROMPT_CHARS, notification_store: NotificationStore | None = None,
+) -> tuple[int, dict]:
+    """POST /v1/media/synthesize — body {"service", "text", "params"} → audio artifact."""
+    tenant_id, user_id, err = _gate(authorization, token_verifier, enabled)
+    if err is not None:
+        return err
+    try:
+        data = json.loads(body)
+    except (ValueError, json.JSONDecodeError):
+        return HTTPStatus.BAD_REQUEST, {"error": "bad_request"}
+    if not isinstance(data, dict):
+        return HTTPStatus.BAD_REQUEST, {"error": "bad_request"}
+    service = data.get("service")
+    text = data.get("text")
+    params = data.get("params", {})
+    if not isinstance(service, str) or not service:
+        return HTTPStatus.BAD_REQUEST, {"error": "bad_request", "detail": "'service' is required."}
+    if not isinstance(text, str) or not text:
+        return HTTPStatus.BAD_REQUEST, {"error": "bad_request", "detail": "'text' is required."}
+    if not isinstance(params, dict):
+        return HTTPStatus.BAD_REQUEST, {"error": "bad_request", "detail": "'params' must be an object."}
+    if len(text) > max_text_chars:
+        return HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "text_too_long"}
+    label = f"media:{service}/synthesize"
+    # Raw args for shape-only audit; _audit records key+type/size, never the text.
+    args = {"text": text, "params": params}
+    deny = _authorize(tenant_id, user_id, service, allowlist, tenant_state, label, args)
+    if deny is not None:
+        return deny
+    if not rate_limiter.try_acquire(tenant_id, now=int(time.time())):
+        _audit(tenant=tenant_id, user=user_id, tool=label, arguments=args, decision="rate_limited")
+        return HTTPStatus.TOO_MANY_REQUESTS, {"error": "rate_limited"}
+    started = time.monotonic()
+    try:
+        outcome = executor.synthesize(service, text, params, tenant_id=tenant_id, user_id=user_id)
     finally:
         rate_limiter.release()
     latency_ms = int((time.monotonic() - started) * 1000)

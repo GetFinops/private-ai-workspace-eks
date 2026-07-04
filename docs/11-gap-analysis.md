@@ -62,7 +62,13 @@ The analysis reviewed:
   harness + Whisper STT (GPU-validated) + SDXL image-gen.
 - **Infrastructure**: VPC/EKS/ECR/RDS/S3, IRSA, Cognito, NetworkPolicy
   enforcement (egress lockdown), GPU provisioning (Karpenter + managed warm-pool).
-- **Web UI** (M9): vanilla-JS SPA (OIDC PKCE) surfacing **chat + notifications**.
+- **Web UI** (M9 + Tier-A pre-production pass + partial-closure pass): vanilla-JS
+  SPA (OIDC PKCE) surfacing **chat (streaming) + notifications + Documents/RAG +
+  memory + agent (runs + deep-research, incl. hybrid web research) + media (STT +
+  image + TTS) + MCP + integrations (Google Calendar)**, with server-side
+  conversation persistence, safe markdown/code rendering, client-side PDF text
+  extraction, and **real-time SSE notification push**. Every ~12-capability
+  backend area now has a user-reachable surface.
 - **Tests**: full stdlib `unittest` suite (560+).
 
 ### Provenance posture
@@ -74,24 +80,34 @@ AWS sample. The repository is intentionally a new project rather than a fork.
 
 ## Gap Table
 
-The platform and feature backends are built. The remaining gaps are now about
-**user reachability and chat-product polish**, not missing capability. The full
-analysis + tiered plan is in
-[`13-pre-production-gap-plan.md`](13-pre-production-gap-plan.md); summary:
+The platform and feature backends are built. The **Tier-A pre-production pass**
+([`13-pre-production-gap-plan.md`](13-pre-production-gap-plan.md) §5) has since
+closed the dominant reachability gap: the four release areas (RAG, memory,
+agents, media) are now surfaced in the UI, conversation persistence + streaming +
+safe rendering shipped, and RAG file upload (incl. client-side PDF extraction) is
+live. Measured against the served surface, UI reachability moved from **~3 of ~26
+endpoints (~89% unreachable)** to **~16 of 26 (~38% backend-only)**. The remaining
+gaps are two un-surfaced capability areas plus chat-product polish:
 
-| Area | Built backend | Gap |
+| Area | Built backend | Status |
 | --- | --- | --- |
-| **UI feature exposure** | retrieval, memory, agents, deep-research, MCP, integrations, media all have working endpoints | the M9 UI surfaces only chat + notifications — ~89% of capability is not user-reachable (the dominant gap) |
-| Conversation persistence | stateless chat path | no server-side thread store; history is `sessionStorage`-only, lost on tab close |
-| Streaming | request/response chat | no token streaming (SSE); long completions block |
-| Rich rendering | plain-text chat bubbles | no markdown/code rendering |
-| File upload (RAG) | text-only document indexing | no per-tenant file-upload → extract → index path |
-| Model selection | internal vLLM routing | models hardcoded in UI Helm values; no `/v1/models` listing |
-| Real-time + delivery | 30s notification polling | no SSE/webhook push |
-| Upstream parity (optional) | — | web search (external-service only, no AGPL bundling), TTS (M14 follow-on) |
+| **UI feature exposure** | retrieval, memory, agents, deep-research, MCP, integrations, media all have working endpoints | 🟢 **closed** — RAG/memory/agent/media surfaced (Tier A #57–#64); **MCP** and **integrations (Google Calendar)** panels now surfaced too (escalation sign-off in `NOTICE`) |
+| Conversation persistence | stateless chat path | 🟢 **closed** — server-side RDS thread store (list/get/delete/messages), per-tenant/user scoped (#57) |
+| Streaming | request/response chat | 🟢 **closed** — SSE token streaming via `/v1/chat/stream` (#60) |
+| Rich rendering | plain-text chat bubbles | 🟢 **closed** — safe markdown/code renderer, no `innerHTML` (#61) |
+| File upload (RAG) | text-only document indexing | 🟢 **closed** — per-tenant upload→extract→index; PDF via vendored client-side pdf.js |
+| Real-time + delivery | 30s notification polling | 🟢 **closed** — `/v1/notifications/stream` SSE push (bounded, content-safe), polling kept as a backstop |
+| Agent / deep research | corpus-only research | 🟢 **closed** — optional hybrid **web** research via a guarded external-service search client (deny-by-default, no AGPL engine bundled) |
+| Media | STT + image | 🟢 **closed** — **TTS** added (`/v1/media/synthesize`, OpenAI speech shape); image editor/gallery still future |
+| Model selection | internal vLLM routing | 🟡 **open** — models hardcoded in UI Helm values; no `/v1/models` listing (Tier B) |
+| Upstream parity (optional) | — | 🟡 **open** — Compare, Cookbook/model-mgmt, Notes/Tasks, Documents editor, mail+contacts, 2FA |
 
-These gaps are sequenced against M7b → M8 in
-[`13-pre-production-gap-plan.md`](13-pre-production-gap-plan.md) §5.
+The remaining 🟡 items are sequenced against M7b → M8 in
+[`13-pre-production-gap-plan.md`](13-pre-production-gap-plan.md) §5 (Tier B /
+future); none gate the M8 release. The now-surfaced **MCP** and **integrations**
+panels, plus the SSE push and web-search egress, carry into M7b hardening
+(agent/tool prompt-injection + sandbox, streaming auth/backpressure) per that
+document's §7.
 
 ## Reuse Posture: Adapt Selectively, Do Not Fork
 

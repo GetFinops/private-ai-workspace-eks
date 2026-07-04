@@ -193,5 +193,51 @@ class TestNotificationsAndPolicy(unittest.TestCase):
             self.assertNotIn(secret, n.resource_id)
 
 
+class _FakeWebClient:
+    def __init__(self, results):
+        self._results = results
+        self.queries = []
+
+    def search(self, query):
+        self.queries.append(query)
+        return self._results
+
+
+class TestWebResearch(unittest.TestCase):
+    def _web_result(self, url="https://ex/pods", title="Docs", snippet="hpa scales pods"):
+        from app.control_plane.web_search import WebResult
+        return WebResult(title=title, url=url, snippet=snippet)
+
+    def test_web_results_added_as_cited_sources(self):
+        web = _FakeWebClient([self._web_result()])
+        out = run_deep_research(
+            question="how do pods autoscale?", tenant_id="tenant-a.test", user_id="u",
+            store=_StubStore(_DOCS), embedding_client=DeterministicEmbeddingClient(),
+            inference_client=_ScriptedInference([_PLAN, _SYNTH]), budgets=_BUDGETS,
+            use_web=True, web_search_client=web)
+        self.assertEqual(out.status, "completed")
+        self.assertIn("https://ex/pods", out.sources)  # web URL cited alongside corpus docs
+        self.assertTrue(web.queries)                    # the web client was actually queried
+
+    def test_web_flag_without_client_is_corpus_only(self):
+        out = run_deep_research(
+            question="q", tenant_id="tenant-a.test", user_id="u",
+            store=_StubStore(_DOCS), embedding_client=DeterministicEmbeddingClient(),
+            inference_client=_ScriptedInference([_PLAN, _SYNTH]), budgets=_BUDGETS,
+            use_web=True, web_search_client=None)
+        self.assertEqual(out.status, "completed")   # no client -> deny-by-default, still completes
+
+    def test_handler_web_flag_needs_configured_client(self):
+        # web:true in the body but no client configured -> corpus-only, no error.
+        status, _ = build_deep_research_response(
+            authorization="Bearer valid",
+            body=json.dumps({"question": "q", "web": True}).encode(),
+            token_verifier=_ALICE, enabled=True, allowlist=_ALLOW, store=_StubStore(_DOCS),
+            embedding_client=DeterministicEmbeddingClient(),
+            inference_client=_ScriptedInference([_PLAN, _SYNTH]), budgets=_BUDGETS,
+            rate_limiter=RateLimiter(), web_search_client=None)
+        self.assertEqual(status, 200)
+
+
 if __name__ == "__main__":
     unittest.main()

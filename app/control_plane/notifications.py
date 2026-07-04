@@ -368,6 +368,47 @@ def _verify_and_extract(
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+# ── Real-time push (Server-Sent Events) ──────────────────────────────────────
+
+_STREAM_DEFAULT_LIMIT = 50
+
+
+def format_notification_sse(event: NotificationEvent) -> bytes:
+    """One SSE `data:` frame for a notification — shape only, never content."""
+    return b"data: " + json.dumps(event.to_api_dict()).encode("utf-8") + b"\n\n"
+
+
+def stream_notification_frames(
+    store: NotificationStore,
+    *,
+    tenant_id: str,
+    user_id: str,
+    max_ticks: int,
+    sleep,
+    seen=None,
+    limit: int = _STREAM_DEFAULT_LIMIT,
+):
+    """Yield SSE byte frames of a user's unread notifications as they appear.
+
+    Server-side polling of the store, presented to the client as a single push
+    stream: the client holds one connection instead of polling every 30s. Each
+    tick emits any not-yet-seen unread events (dedup by id, oldest-first) then a
+    heartbeat comment so a dead peer is detected promptly. Bounded to `max_ticks`
+    iterations — the client reconnects when the stream closes. Content-safe: a
+    frame carries only id / event_class / resource_id / timestamps, never any
+    prompt, completion, or user content (same guarantee as the list endpoint).
+    """
+    emitted = set(seen or ())
+    for _ in range(max_ticks):
+        events = store.list_for_user(tenant_id=tenant_id, user_id=user_id, limit=limit)
+        for event in reversed(events):  # store is newest-first; emit chronologically
+            if event.id not in emitted:
+                emitted.add(event.id)
+                yield format_notification_sse(event)
+        yield b": ping\n\n"
+        sleep()
+
+
 def build_notifications_list_response(
     *,
     authorization: str | None,

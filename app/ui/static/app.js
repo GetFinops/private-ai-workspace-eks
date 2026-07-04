@@ -87,6 +87,7 @@
     memRefreshBtn: $('mem-refresh-btn'),
     memResults:    $('mem-results'),
     agentTask:     $('agent-task'),
+    agentWeb:      $('agent-web'),
     agentRunBtn:   $('agent-run-btn'),
     agentResearchBtn: $('agent-research-btn'),
     agentStatus:   $('agent-status'),
@@ -100,6 +101,25 @@
     mediaGenerateBtn: $('media-generate-btn'),
     mediaStatus:   $('media-status'),
     mediaImage:    $('media-image'),
+    mediaTtsService: $('media-tts-service'),
+    mediaTtsText:  $('media-tts-text'),
+    mediaSynthesizeBtn: $('media-synthesize-btn'),
+    mediaAudioOut: $('media-audio-out'),
+    // Draft surfaces (escalation-gated: see index.html / docs/13 §7).
+    integProvider:  $('integ-provider'),
+    integRefreshBtn:$('integ-refresh-btn'),
+    integOperation: $('integ-operation'),
+    integParams:    $('integ-params'),
+    integInvokeBtn: $('integ-invoke-btn'),
+    integStatus:    $('integ-status'),
+    integResult:    $('integ-result'),
+    mcpServer:      $('mcp-server'),
+    mcpListBtn:     $('mcp-list-btn'),
+    mcpTool:        $('mcp-tool'),
+    mcpArgs:        $('mcp-args'),
+    mcpInvokeBtn:   $('mcp-invoke-btn'),
+    mcpStatus:      $('mcp-status'),
+    mcpResult:      $('mcp-result'),
   };
 
   // ─── Utilities ───────────────────────────────────────────────────────────
@@ -387,9 +407,11 @@
       newConversation();
     }
 
-    // 6. Start notification polling.
+    // 6. Notifications: real-time SSE push, with a slow poll as a backstop for
+    //    the initial load and for when the stream is briefly unavailable.
     pollNotifications();
     state.notifPollTimer = setInterval(pollNotifications, NOTIF_POLL_MS);
+    runNotificationStream();
 
     // 7. Register service worker for offline support.
     if ('serviceWorker' in navigator) {
@@ -789,6 +811,54 @@
     } catch (_) {}
   }
 
+  function delay(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  // Merge a single pushed notification into state (dedup / update by id).
+  function mergeNotification(ev) {
+    if (!ev || !ev.id) return;
+    var found = false;
+    state.notifications = state.notifications.map(function (n) {
+      if (n.id === ev.id) { found = true; return ev; }
+      return n;
+    });
+    if (!found) state.notifications = [ev].concat(state.notifications);
+    updateNotifBadge();
+  }
+
+  // Consume one SSE connection of notification frames until it closes/errors.
+  async function streamNotificationsOnce() {
+    var resp = await apiFetch('/v1/notifications/stream');
+    if (!resp.ok || !resp.body) return;
+    var reader = resp.body.getReader();
+    var decoder = new TextDecoder();
+    var buf = '';
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      buf += decoder.decode(chunk.value, { stream: true });
+      var parts = buf.split('\n\n');
+      buf = parts.pop();                       // keep the incomplete tail
+      parts.forEach(function (frame) {
+        var lines = frame.split('\n');
+        for (var i = 0; i < lines.length; i++) {
+          if (lines[i].indexOf('data:') === 0) {
+            try { mergeNotification(JSON.parse(lines[i].slice(5).trim())); } catch (_) {}
+          }
+        }
+      });
+    }
+  }
+
+  // Hold one push stream open, reconnecting with a short backoff. Falls back to
+  // the interval poll (already running) whenever the stream is unavailable.
+  async function runNotificationStream() {
+    while (state.token) {
+      try { await streamNotificationsOnce(); } catch (_) {}
+      if (!state.token) break;
+      await delay(3000);                       // brief backoff before reconnect
+    }
+  }
+
   function updateNotifBadge() {
     var unread = visibleNotifications().filter(function (n) { return !n.read; });
     var count = unread.length;
@@ -944,7 +1014,7 @@
   function openTools() {
     els.toolsDrawer.classList.add('open');
     els.toolsBtn.setAttribute('aria-expanded', 'true');
-    if (!state.toolsLoaded) { state.toolsLoaded = true; loadMediaServices(); refreshMemory(); }
+    if (!state.toolsLoaded) { state.toolsLoaded = true; loadMediaServices(); refreshMemory(); loadIntegrations(); }
   }
   function closeTools() {
     els.toolsDrawer.classList.remove('open');
@@ -1055,12 +1125,13 @@
   }
 
   // Agent
-  async function runAgentTask(path, key) {
+  async function runAgentTask(path, key, extra) {
     var task = els.agentTask.value.trim();
     if (!task) return;
     setStatus(els.agentStatus, 'Working… (this can take a while)');
     clearChildren(els.agentResult);
     var payload = {}; payload[key] = task;
+    if (extra) { Object.keys(extra).forEach(function (k) { payload[k] = extra[k]; }); }
     try {
       var r = await toolJson(path, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
@@ -1077,7 +1148,7 @@
     try {
       var r = await toolJson('/v1/media/list', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       var services = (r.data && r.data.services) || [];
-      [els.mediaSttService, els.mediaImgService].forEach(function (sel) {
+      [els.mediaSttService, els.mediaImgService, els.mediaTtsService].forEach(function (sel) {
         clearChildren(sel);
         services.forEach(function (s) {
           var o = document.createElement('option'); o.value = s; setText(o, s); sel.appendChild(o);
@@ -1138,6 +1209,41 @@
     } catch (e) { setStatus(els.mediaStatus, 'Error: ' + (e.message || 'unknown'), true); }
   }
 
+  async function synthesizeSpeech() {
+    var text = els.mediaTtsText.value.trim();
+    var service = els.mediaTtsService.value;
+    if (!text) { setStatus(els.mediaStatus, 'Enter text to speak.', true); return; }
+    if (!service) { setStatus(els.mediaStatus, 'No speech service available.', true); return; }
+    clearChildren(els.mediaAudioOut);
+    setStatus(els.mediaStatus, 'Synthesising…');
+    try {
+      var r = await toolJson('/v1/media/synthesize', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ service: service, text: text }),
+      });
+      if (!r.ok) { setStatus(els.mediaStatus, r.data.detail || r.data.error || 'Synthesis failed', true); return; }
+      var artifactId = r.data.result && r.data.result.artifact_id;
+      if (!artifactId) { setStatus(els.mediaStatus, 'No audio returned.', true); return; }
+      // Same pattern as generated images: fetch bytes through the authed proxy,
+      // render as a data: URL. <audio src> can't carry the bearer header, and
+      // the data: URL is allowed by CSP `media-src 'self' data:`.
+      var cResp = await apiFetch('/v1/media/artifacts/' + encodeURIComponent(artifactId) + '/content');
+      if (!cResp.ok) { setStatus(els.mediaStatus, 'Audio fetch failed.', true); return; }
+      var blob = await cResp.blob();
+      var reader = new FileReader();
+      reader.onload = function () {
+        var audio = document.createElement('audio');
+        audio.controls = true;
+        audio.className = 'tool-audio';
+        audio.src = reader.result;     // data: URL
+        clearChildren(els.mediaAudioOut);
+        els.mediaAudioOut.appendChild(audio);
+        setStatus(els.mediaStatus, '');
+      };
+      reader.readAsDataURL(blob);
+    } catch (e) { setStatus(els.mediaStatus, 'Error: ' + (e.message || 'unknown'), true); }
+  }
+
   function appendResultLine(container, text, isErr) {
     var p = document.createElement('div');
     p.className = 'tool-result-item' + (isErr ? ' err' : '');
@@ -1145,10 +1251,118 @@
     container.appendChild(p);
   }
 
-  // PDF text extraction (client-side, when pdf.js is vendored — see follow-up).
+  // Render an arbitrary JSON value into a <pre> via textContent — never
+  // innerHTML, so structured tool/integration output can't inject markup.
+  function renderJsonInto(container, value) {
+    clearChildren(container);
+    var pre = document.createElement('pre');
+    pre.className = 'tool-json';
+    var text;
+    try { text = JSON.stringify(value, null, 2); } catch (e) { text = String(value); }
+    setText(pre, text === undefined ? '(no result)' : text);
+    container.appendChild(pre);
+  }
+
+  // ─── Integrations + MCP (escalation-reviewed; sign-off recorded in NOTICE) ──
+  // Backend enforces deny-by-default per-tenant authz, rate limits, and the
+  // AGENT_TOOLS_ENABLED / MCP_ENABLED / INTEGRATIONS_ENABLED kill-switches; the
+  // UI is a content-safe caller only (JSON rendered via <pre>, never innerHTML).
+
+  async function loadIntegrations() {
+    clearChildren(els.integProvider);
+    try {
+      var r = await toolJson('/v1/integrations/list', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      });
+      var provs = (r.ok && r.data && r.data.integrations) || [];
+      if (provs.length === 0) {
+        var none = document.createElement('option');
+        none.value = ''; setText(none, 'none available'); els.integProvider.appendChild(none);
+        return;
+      }
+      provs.forEach(function (p) {
+        var o = document.createElement('option'); o.value = p; setText(o, p);
+        els.integProvider.appendChild(o);
+      });
+    } catch (e) {}
+  }
+  function parseJsonField(raw, statusEl, label) {
+    if (!raw) return {};
+    try { return JSON.parse(raw); }
+    catch (e) { setStatus(statusEl, label + ' must be valid JSON.', true); return undefined; }
+  }
+  async function invokeIntegration() {
+    var integration = els.integProvider.value;
+    var operation = els.integOperation.value.trim();
+    if (!integration) { setStatus(els.integStatus, 'No integration selected.', true); return; }
+    if (!operation) { setStatus(els.integStatus, 'Enter an operation.', true); return; }
+    var params = parseJsonField(els.integParams.value.trim(), els.integStatus, 'Params');
+    if (params === undefined) return;
+    clearChildren(els.integResult);
+    setStatus(els.integStatus, 'Invoking…');
+    try {
+      var r = await toolJson('/v1/integrations/invoke', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ integration: integration, operation: operation, params: params }),
+      });
+      if (!r.ok) { setStatus(els.integStatus, r.data.detail || r.data.error || ('Failed (' + r.status + ')'), true); return; }
+      setStatus(els.integStatus, r.data.status ? ('status: ' + r.data.status) : '');
+      renderJsonInto(els.integResult, r.data.result);
+    } catch (e) {}
+  }
+
+  async function mcpListTools() {
+    var server = els.mcpServer.value.trim();
+    if (!server) { setStatus(els.mcpStatus, 'Enter a server name.', true); return; }
+    clearChildren(els.mcpTool);
+    setStatus(els.mcpStatus, 'Listing…');
+    try {
+      var r = await toolJson('/v1/mcp/tools/list', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ server: server }),
+      });
+      if (!r.ok) { setStatus(els.mcpStatus, r.data.detail || r.data.error || ('Failed (' + r.status + ')'), true); return; }
+      var tools = (r.data && r.data.tools) || [];
+      if (tools.length === 0) { setStatus(els.mcpStatus, 'No tools on this server.', true); return; }
+      tools.forEach(function (t) {
+        var o = document.createElement('option'); o.value = t.name || ''; setText(o, t.name || '(unnamed)');
+        els.mcpTool.appendChild(o);
+      });
+      setStatus(els.mcpStatus, tools.length + ' tool(s).');
+    } catch (e) {}
+  }
+  async function mcpInvoke() {
+    var server = els.mcpServer.value.trim();
+    var tool = els.mcpTool.value;
+    if (!server) { setStatus(els.mcpStatus, 'Enter a server name.', true); return; }
+    if (!tool) { setStatus(els.mcpStatus, 'List and select a tool first.', true); return; }
+    var args = parseJsonField(els.mcpArgs.value.trim(), els.mcpStatus, 'Arguments');
+    if (args === undefined) return;
+    clearChildren(els.mcpResult);
+    setStatus(els.mcpStatus, 'Invoking…');
+    try {
+      var r = await toolJson('/v1/mcp/invoke', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ server: server, tool: tool, arguments: args }),
+      });
+      if (!r.ok) { setStatus(els.mcpStatus, r.data.detail || r.data.error || ('Failed (' + r.status + ')'), true); return; }
+      setStatus(els.mcpStatus, '');
+      renderJsonInto(els.mcpResult, r.data.result);
+    } catch (e) {}
+  }
+
+  // PDF text extraction (client-side, via the vendored pdf.js at /static/vendor/).
+  // The worker is served same-origin so it stays within the strict CSP; eval is
+  // disabled because the CSP has no 'unsafe-eval'. Text extraction never renders
+  // glyphs, so no external cmap/standard-font fetch is needed.
+  var _pdfWorkerReady = false;
   async function extractPdfText(file) {
+    if (!_pdfWorkerReady) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = '/static/vendor/pdf.worker.min.js';
+      _pdfWorkerReady = true;
+    }
     var buf = await file.arrayBuffer();
-    var pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    var pdf = await window.pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise;
     var out = [];
     for (var i = 1; i <= pdf.numPages; i++) {
       var page = await pdf.getPage(i);
@@ -1177,9 +1391,17 @@
     els.memSaveBtn.addEventListener('click', saveMemory);
     els.memRefreshBtn.addEventListener('click', refreshMemory);
     els.agentRunBtn.addEventListener('click', function () { runAgentTask('/v1/agent/runs', 'task'); });
-    els.agentResearchBtn.addEventListener('click', function () { runAgentTask('/v1/agent/research', 'question'); });
+    els.agentResearchBtn.addEventListener('click', function () {
+      runAgentTask('/v1/agent/research', 'question', { web: els.agentWeb.checked });
+    });
     els.mediaTranscribeBtn.addEventListener('click', transcribeAudio);
     els.mediaGenerateBtn.addEventListener('click', generateImage);
+    els.mediaSynthesizeBtn.addEventListener('click', synthesizeSpeech);
+    // Draft surfaces (escalation-gated).
+    els.integRefreshBtn.addEventListener('click', loadIntegrations);
+    els.integInvokeBtn.addEventListener('click', invokeIntegration);
+    els.mcpListBtn.addEventListener('click', mcpListTools);
+    els.mcpInvokeBtn.addEventListener('click', mcpInvoke);
 
     // Send message
     els.sendBtn.addEventListener('click', sendMessage);

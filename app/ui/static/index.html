@@ -153,6 +153,7 @@
         <h3 id="t-agent-h">Agent</h3>
         <p class="tool-hint">Give the agent a task, or run deep research over your documents.</p>
         <textarea id="agent-task" rows="2" placeholder="e.g. Summarise my uploaded notes" aria-label="Agent task"></textarea>
+        <label class="tool-check"><input type="checkbox" id="agent-web" /> Search the web (deep research)</label>
         <div class="tool-row">
           <button class="tool-btn" id="agent-run-btn" type="button">Run agent</button>
           <button class="tool-btn" id="agent-research-btn" type="button">Deep research</button>
@@ -163,7 +164,7 @@
 
       <section class="tool-section" aria-labelledby="t-media-h">
         <h3 id="t-media-h">Media</h3>
-        <p class="tool-hint">Transcribe audio or generate an image.</p>
+        <p class="tool-hint">Transcribe audio, generate an image, or synthesize speech.</p>
         <select id="media-stt-service" aria-label="Transcription service"></select>
         <input type="file" id="media-audio" accept="audio/*" aria-label="Audio to transcribe" />
         <button class="tool-btn" id="media-transcribe-btn" type="button">Transcribe</button>
@@ -173,8 +174,49 @@
           <input type="text" id="media-prompt" placeholder="Image prompt…" aria-label="Image prompt" />
           <button class="tool-btn" id="media-generate-btn" type="button">Generate</button>
         </div>
+        <div class="tool-row">
+          <select id="media-tts-service" aria-label="Speech service"></select>
+          <input type="text" id="media-tts-text" placeholder="Text to speak…" aria-label="Text to synthesize" />
+          <button class="tool-btn" id="media-synthesize-btn" type="button">Speak</button>
+        </div>
         <div id="media-status" class="tool-status" role="status"></div>
         <div id="media-image" class="tool-results"></div>
+        <div id="media-audio-out" class="tool-results"></div>
+      </section>
+
+      <!-- MCP + Integrations: exposing tool/integration execution in a user-facing
+           UI was an escalation trigger (confused-deputy / prompt-injection,
+           docs/13 §7). Maintainer sign-off is recorded in NOTICE ("MCP +
+           integrations UI surfacing — escalation sign-off"); these panels are
+           callers only — backend authz (deny-by-default, per-tenant, kill-switch)
+           gates every call server-side. Residual exposure is owned as an M7b
+           hardening item. -->
+      <section class="tool-section" aria-labelledby="t-integ-h">
+        <h3 id="t-integ-h">Integrations</h3>
+        <p class="tool-hint">Call a connected external service (e.g. Google Calendar).</p>
+        <div class="tool-row">
+          <select id="integ-provider" aria-label="Integration provider"></select>
+          <button class="tool-btn tool-btn-ghost" id="integ-refresh-btn" type="button">Refresh</button>
+        </div>
+        <input type="text" id="integ-operation" placeholder="operation (e.g. list_events)" aria-label="Integration operation" />
+        <textarea id="integ-params" rows="2" placeholder='params JSON (e.g. {})' aria-label="Integration params (JSON)"></textarea>
+        <button class="tool-btn" id="integ-invoke-btn" type="button">Invoke</button>
+        <div id="integ-status" class="tool-status" role="status"></div>
+        <div id="integ-result" class="tool-results"></div>
+      </section>
+
+      <section class="tool-section" aria-labelledby="t-mcp-h">
+        <h3 id="t-mcp-h">MCP</h3>
+        <p class="tool-hint">List and invoke tools from a per-tenant MCP server.</p>
+        <div class="tool-row">
+          <input type="text" id="mcp-server" placeholder="server (e.g. stub)" aria-label="MCP server name" />
+          <button class="tool-btn tool-btn-ghost" id="mcp-list-btn" type="button">List tools</button>
+        </div>
+        <select id="mcp-tool" aria-label="MCP tool"></select>
+        <textarea id="mcp-args" rows="2" placeholder='arguments JSON (e.g. {})' aria-label="MCP tool arguments (JSON)"></textarea>
+        <button class="tool-btn" id="mcp-invoke-btn" type="button">Invoke</button>
+        <div id="mcp-status" class="tool-status" role="status"></div>
+        <div id="mcp-result" class="tool-results"></div>
       </section>
 
     </div>
@@ -182,6 +224,11 @@
 
 </div><!-- /#app-shell -->
 
+<!-- pdf.js (Mozilla, Apache-2.0) — client-side PDF text extraction for RAG upload.
+     Self-hosted UMD build (defines window.pdfjsLib); worker path is set in app.js.
+     Same-origin, so it stays within the strict CSP (default-src/script-src 'self').
+     Provenance recorded in NOTICE. -->
+<script src="/static/vendor/pdf.min.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>
