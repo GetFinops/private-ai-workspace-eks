@@ -1,3 +1,4 @@
+import json
 from http import HTTPStatus
 from unittest import TestCase
 
@@ -51,3 +52,18 @@ class ControlPlaneRouteTests(TestCase):
             "/v1/models", ControlPlaneConfig.from_env({"MODELS": "a, b ,a"})
         )
         self.assertEqual(response.payload["models"], ["a", "b"])  # csv + de-duped
+
+    def test_inference_status_discloses_only_shape_never_the_backend_url(self) -> None:
+        # M7b content-safety: /v1/inference/status is an unauthenticated ops GET.
+        # It must disclose only coarse shape (configured? backend kind) and NEVER
+        # the internal backend URL/host or any secret — a regression guard.
+        response = build_response(
+            "/v1/inference/status",
+            ControlPlaneConfig.from_env(
+                {"INFERENCE_BASE_URL": "http://vllm.secret-internal-host.svc:8123"}
+            ),
+        )
+        self.assertEqual(set(response.payload), {"status", "backend", "internal_only"})
+        blob = json.dumps(response.payload)
+        self.assertNotIn("secret-internal-host", blob)   # the internal host must not leak
+        self.assertNotIn("8123", blob)                   # nor the port
