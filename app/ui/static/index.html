@@ -138,6 +138,23 @@
         <div id="doc-results" class="tool-results" role="list"></div>
       </section>
 
+      <section class="tool-section" aria-labelledby="t-editor-h">
+        <h3 id="t-editor-h">Editor</h3>
+        <p class="tool-hint">Write a document, then ask AI to edit it. Private to you.</p>
+        <input type="text" id="doc-editor-title" placeholder="Document title…" aria-label="Document title" />
+        <textarea id="doc-editor-body" rows="6" placeholder="Start writing…" aria-label="Document body"></textarea>
+        <div class="tool-row">
+          <button class="tool-btn" id="doc-save-btn" type="button">Save</button>
+          <button class="tool-btn tool-btn-ghost" id="doc-new-btn" type="button">New</button>
+        </div>
+        <div class="tool-row">
+          <input type="text" id="doc-instruction" placeholder="AI: e.g. make it more concise…" aria-label="AI edit instruction" />
+          <button class="tool-btn" id="doc-ai-btn" type="button">AI edit</button>
+        </div>
+        <div id="doc-editor-status" class="tool-status" role="status"></div>
+        <div id="doc-editor-list" class="tool-results" role="list"></div>
+      </section>
+
       <section class="tool-section" aria-labelledby="t-mem-h">
         <h3 id="t-mem-h">Memory</h3>
         <p class="tool-hint">Things you ask the assistant to remember about you.</p>
@@ -147,6 +164,23 @@
         <div id="mem-status" class="tool-status" role="status"></div>
         <button class="tool-btn tool-btn-ghost" id="mem-refresh-btn" type="button">Refresh list</button>
         <div id="mem-results" class="tool-results" role="list"></div>
+      </section>
+
+      <section class="tool-section" aria-labelledby="t-notes-h">
+        <h3 id="t-notes-h">Notes &amp; Tasks</h3>
+        <p class="tool-hint">Jot a note or track a task. Private to you.</p>
+        <div class="tool-row">
+          <select id="note-kind" aria-label="Kind">
+            <option value="note">Note</option>
+            <option value="task">Task</option>
+          </select>
+          <input type="text" id="note-title" placeholder="Title…" aria-label="Note or task title" />
+        </div>
+        <textarea id="note-body" rows="2" placeholder="Details (optional)…" aria-label="Note details"></textarea>
+        <button class="tool-btn" id="note-add-btn" type="button">Add</button>
+        <div id="note-status" class="tool-status" role="status"></div>
+        <button class="tool-btn tool-btn-ghost" id="note-refresh-btn" type="button">Refresh list</button>
+        <div id="note-results" class="tool-results" role="list"></div>
       </section>
 
       <section class="tool-section" aria-labelledby="t-agent-h">

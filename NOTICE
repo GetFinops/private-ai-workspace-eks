@@ -851,3 +851,32 @@ textContent / a JSON <pre> (never innerHTML), carries the bearer token only over
 same-origin fetch, and logs no content. Residual prompt-injection exposure is the
 same as the API it fronts and is owned as an M7b hardening item (agent/tool
 prompt-injection + sandbox boundaries).
+
+────────────────────────────────────────────────────────────────────────────────
+Wave-2 product surface — Notes/Tasks, Documents editor, Compare, model listing
+────────────────────────────────────────────────────────────────────────────────
+
+Clean-room product features closing the remaining v1 UI gaps (docs/11 gap table).
+All ORIGINAL control-plane code; nothing vendored or adapted from upstream.
+
+- Notes & Tasks (app/control_plane/notes.py, notes table / migration 0007):
+  per-tenant/user records (kind in {note, task, doc}) with CRUD. Isolation is
+  enforced at the storage layer and re-checked every op by the verified token's
+  (tenant_id, user_id) — a caller can only read/update/delete their own items
+  (cross-user + cross-tenant covered by tests/test_notes.py). title/body are user
+  content: stored and returned only to the owner, never logged (M5 policy). Same
+  Postgres/in-memory dual-impl pattern as the M10 memory store.
+- Documents editor (app/control_plane/documents.py): documents persist as
+  kind="doc" notes (same isolation/policy). The only new capability is a STATELESS
+  AI-edit endpoint (POST /v1/documents/edit) — content + instruction → revised
+  text over the existing inference client. Gated like chat (auth, inference-
+  available, rate-limited); NO agent-tools allow-list; shape-only audit (never the
+  document or instruction).
+- Compare (app/control_plane/compare.py): one prompt across 2–N models + optional
+  synthesis, over the existing inference client. Same chat trust boundary.
+- Model listing (GET /v1/models): non-sensitive config data (model names), served
+  GPU-independently from control-plane config (MODELS), replacing the UI-baked
+  list. Single source of truth.
+
+These expand the M8 release surface; M7b hardens the larger set (per-tenant
+isolation of notes/documents under load is added to its isolation checklist).
