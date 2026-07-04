@@ -146,21 +146,6 @@
 
   // ─── Utilities ───────────────────────────────────────────────────────────
 
-  function randomBytes(n) {
-    return crypto.getRandomValues(new Uint8Array(n));
-  }
-
-  function base64url(buf) {
-    var bytes = new Uint8Array(buf);
-    var str = '';
-    bytes.forEach(function (b) { str += String.fromCharCode(b); });
-    return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-  }
-
-  function sha256(str) {
-    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-  }
-
   function genId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }

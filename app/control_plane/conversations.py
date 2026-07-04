@@ -24,7 +24,6 @@ from app.control_plane.notifications import (
     _now_utc,
     _verify_and_extract,
 )
-from app.control_plane.token_verifier import TokenVerifier
 
 logger = logging.getLogger(__name__)
 

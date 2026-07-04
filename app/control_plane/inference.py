@@ -25,7 +25,6 @@ from typing import Iterable, Literal, Protocol
 
 from app.control_plane.routing import (
     InferenceEndpoint,
-    InferenceRoutingError,
     InferenceUnavailableError,
 )
 
@@ -141,7 +140,7 @@ class VLLMInferenceClient:
             from app.control_plane.tracing import inject_trace_headers
             inject_trace_headers(outgoing_headers)
         except Exception:
-            pass
+            pass  # tracing is best-effort — proceed without trace headers
 
         last_exc: Exception | None = None
         for attempt in range(_MAX_RETRIES + 1):

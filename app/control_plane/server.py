@@ -171,7 +171,7 @@ from app.control_plane.retrieval import (
 )
 from app.control_plane.routing import InferenceRoutingError, InferenceUnavailableError
 from app.control_plane.session import InMemorySessionStore, SessionStore
-from app.storage.s3 import S3StorageClient, StorageError
+from app.storage.s3 import S3StorageClient
 from app.control_plane.token_verifier import TokenVerificationError, TokenVerifier
 
 if TYPE_CHECKING:
@@ -1127,7 +1127,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     if time.monotonic() > deadline:
                         break  # lifetime cap — client must reconnect
             except (BrokenPipeError, ConnectionResetError):
-                pass
+                pass  # client disconnected mid-stream — expected, nothing to do
             finally:
                 try:
                     resp.close()
@@ -1170,7 +1170,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                 self.wfile.write(frame)
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
-            pass
+            pass  # client disconnected from the notification stream — expected
 
     def do_DELETE(self) -> None:  # noqa: N802
         def _delete() -> Response:

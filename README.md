@@ -4,6 +4,20 @@
 multi-user AI workspace designed for private organizational deployment on
 AWS EKS.
 
+[![CI](https://github.com/GetFinops/private-ai-workspace-eks/actions/workflows/ci.yml/badge.svg)](https://github.com/GetFinops/private-ai-workspace-eks/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/GetFinops/private-ai-workspace-eks/actions/workflows/codeql.yml/badge.svg)](https://github.com/GetFinops/private-ai-workspace-eks/actions/workflows/codeql.yml)
+[![GitHub Advanced Security](https://img.shields.io/badge/GitHub_Advanced_Security-CodeQL_%2B_Dependabot-2088FF?logo=github&logoColor=white)](https://github.com/GetFinops/private-ai-workspace-eks/security)
+[![Dependabot](https://img.shields.io/badge/Dependabot-enabled-025E8C?logo=dependabot&logoColor=white)](.github/dependabot.yml)
+[![Security policy](https://img.shields.io/badge/security-policy-informational)](SECURITY.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
+
+> **Security.** This repository uses **GitHub Advanced Security** — [CodeQL
+> code scanning](https://github.com/GetFinops/private-ai-workspace-eks/security/code-scanning),
+> [Dependabot](.github/dependabot.yml) version + security updates, and secret
+> scanning — alongside branch protection with required review. Scanning results
+> live in the [Security tab](https://github.com/GetFinops/private-ai-workspace-eks/security);
+> report vulnerabilities per [`SECURITY.md`](SECURITY.md).
+
 > [!IMPORTANT]
 > **Licensing & attribution.** This is an independently maintained,
 > **MIT-licensed** project. It is **not** the official Odysseus project and is
