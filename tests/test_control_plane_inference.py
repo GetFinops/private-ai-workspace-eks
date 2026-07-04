@@ -105,3 +105,56 @@ class RoutingTests(TestCase):
             ep.models_url,
             "http://vllm.inference.svc:8000/v1/models",
         )
+
+
+class GpuHealthProbeTests(TestCase):
+    """The /v1/inference/status warm/cold probe (GPU cold-start UX support)."""
+
+    def test_health_url_is_built_from_server_root_not_v1(self) -> None:
+        from app.control_plane.routing import build_health_url
+
+        self.assertEqual(
+            build_health_url("http://vllm.inference.svc:8000/v1"),
+            "http://vllm.inference.svc:8000/health",
+        )
+        self.assertEqual(
+            build_health_url("http://vllm.inference.svc:8000"),
+            "http://vllm.inference.svc:8000/health",
+        )
+
+    def test_probe_unconfigured_when_base_url_empty(self) -> None:
+        from app.control_plane.inference import probe_inference_health
+
+        self.assertEqual(
+            probe_inference_health("", timeout=0.2)["gpu"], "unconfigured"
+        )
+
+    def test_probe_classifies_unreachable_endpoint_as_cold(self) -> None:
+        from app.control_plane.inference import probe_inference_health
+
+        # An unused localhost port → connection refused → GPU scaled to zero.
+        result = probe_inference_health("http://127.0.0.1:59997", timeout=0.5)
+        self.assertEqual(result["gpu"], "cold")
+
+    def test_probe_maps_health_status_via_mock(self) -> None:
+        from unittest.mock import patch
+        from app.control_plane import inference
+
+        class _Resp:
+            def __init__(self, status: int) -> None:
+                self.status = status
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        with patch.object(inference.urllib.request, "urlopen", return_value=_Resp(200)):
+            self.assertEqual(
+                inference.probe_inference_health("http://vllm:8000")["gpu"], "warm"
+            )
+        with patch.object(inference.urllib.request, "urlopen", return_value=_Resp(503)):
+            self.assertEqual(
+                inference.probe_inference_health("http://vllm:8000")["gpu"], "loading"
+            )

@@ -98,6 +98,20 @@ def build_models_url(base_url: str) -> str:
     return f"{base}/v1/models"
 
 
+def build_health_url(base_url: str) -> str:
+    """Return the vLLM liveness/health endpoint for a base URL.
+
+    vLLM serves ``/health`` at the server root (not under ``/v1``), returning
+    200 once the model is loaded.  We build it from the netloc only so it works
+    whether or not the configured base URL carries a ``/v1`` suffix.  Used by the
+    control plane's ``/v1/inference/status`` warm/cold probe so the UI can show
+    GPU state without a chat round-trip.
+    """
+    base = normalize_base_url(base_url)
+    parsed = urlparse(base)
+    return urlunparse((parsed.scheme, parsed.netloc, "/health", "", "", ""))
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Endpoint descriptor
 # ──────────────────────────────────────────────────────────────────────────────

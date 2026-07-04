@@ -1,6 +1,7 @@
 import json
 from http import HTTPStatus
 from unittest import TestCase
+from unittest.mock import patch
 
 from app.control_plane.config import ControlPlaneConfig
 from app.control_plane.server import build_response
@@ -67,3 +68,72 @@ class ControlPlaneRouteTests(TestCase):
         blob = json.dumps(response.payload)
         self.assertNotIn("secret-internal-host", blob)   # the internal host must not leak
         self.assertNotIn("8123", blob)                   # nor the port
+
+    def test_inference_status_probe_surfaces_gpu_state(self) -> None:
+        # ?probe=1 adds warm/cold/loading + the default model so the UI can show
+        # GPU readiness. The probe is mocked so the test stays hermetic/offline.
+        import app.control_plane.server as srv
+
+        srv._gpu_probe_cache.update({"ts": 0.0, "base": None, "result": None})
+        with patch(
+            "app.control_plane.server.probe_inference_health",
+            return_value={"gpu": "loading", "detail": "health returned 503"},
+        ) as mocked:
+            response = build_response(
+                "/v1/inference/status?probe=1",
+                ControlPlaneConfig.from_env(
+                    {
+                        "INFERENCE_BASE_URL": "http://vllm.secret-internal-host.svc:8123",
+                        "MODELS": "llama-3-8b,mistral-7b",
+                    }
+                ),
+            )
+        mocked.assert_called_once()
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertEqual(response.payload["status"], "configured")
+        self.assertEqual(response.payload["state"], "loading")
+        self.assertEqual(response.payload["model"], "llama-3-8b")
+        self.assertIn("detail", response.payload)
+        self.assertIn("updated_at", response.payload)
+        # Even on the probe path the internal host/port must never leak.
+        blob = json.dumps(response.payload)
+        self.assertNotIn("secret-internal-host", blob)
+        self.assertNotIn("8123", blob)
+
+    def test_inference_status_probe_when_unconfigured_reports_unconfigured(self) -> None:
+        response = build_response(
+            "/v1/inference/status?probe=1", ControlPlaneConfig.from_env({})
+        )
+        self.assertEqual(response.payload["status"], "not_configured")
+        self.assertEqual(response.payload["state"], "unconfigured")
+
+    def test_models_endpoint_exposes_items_and_denies_capabilities_by_default(self) -> None:
+        # The Models screen contract: items[] + a deny-by-default capabilities{}
+        # block, while models/default stay for chat back-compat.
+        response = build_response(
+            "/v1/models",
+            ControlPlaneConfig.from_env({"MODELS": "llama-3-8b,mistral-7b"}),
+        )
+        payload = response.payload
+        # Back-compat contract preserved.
+        self.assertEqual(payload["models"], ["llama-3-8b", "mistral-7b"])
+        self.assertEqual(payload["default"], "llama-3-8b")
+        # Additive items[].
+        self.assertEqual([i["id"] for i in payload["items"]], ["llama-3-8b", "mistral-7b"])
+        self.assertTrue(payload["items"][0]["served"])
+        self.assertFalse(payload["items"][1]["served"])
+        # Every management capability is denied by default (server-computed).
+        self.assertTrue(all(v is False for v in payload["capabilities"].values()))
+
+    def test_inference_status_default_path_stays_cheap_and_shape_only(self) -> None:
+        # Without ?probe=1 the endpoint must NOT probe and must keep the exact
+        # minimal shape (regression guard for the content-safety contract).
+        with patch("app.control_plane.server.probe_inference_health") as mocked:
+            response = build_response(
+                "/v1/inference/status",
+                ControlPlaneConfig.from_env(
+                    {"INFERENCE_BASE_URL": "http://vllm.inference.svc:8000"}
+                ),
+            )
+        mocked.assert_not_called()
+        self.assertEqual(set(response.payload), {"status", "backend", "internal_only"})

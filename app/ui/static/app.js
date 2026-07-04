@@ -44,8 +44,12 @@
     notifOpen:      false,
     notifications:  [],   // notification objects from the API
     notifPollTimer: null,
-    toolsLoaded:    false,
     mode:           'chat',   // composer send mode: 'chat' | 'agent'
+    screen:         'chat',   // active router screen
+    navOpts:        null,     // pending nav presets (note kind / research)
+    gpuState:       null,     // last known inference state: warm|loading|cold|…
+    gpuPollTimer:   null,     // GPU status poll interval
+    warming:        false,    // a warm-up / cold-start retry is in flight
   };
 
   // ─── DOM refs ─────────────────────────────────────────────────────────────
@@ -79,10 +83,13 @@
     composerTools: $('composer-tools'),
     modeChat:      $('mode-chat'),
     modeAgent:     $('mode-agent'),
-    // Tools drawer (RAG, memory, agent, media).
-    toolsBtn:      $('tools-btn'),
-    toolsDrawer:   $('tools-drawer'),
-    toolsCloseBtn: $('tools-close-btn'),
+    settingsBtn:   $('settings-btn'),
+    screenHost:    $('screen-host'),
+    // GPU cold-start banner (chat screen).
+    gpuBanner:     $('gpu-banner'),
+    gpuBannerText: $('gpu-banner-text'),
+    gpuWarmupBtn:  $('gpu-warmup-btn'),
+    // Feature screens (RAG, memory, agent, media, …) — each a full-screen view.
     docFile:       $('doc-file'),
     docUploadBtn:  $('doc-upload-btn'),
     docUploadStatus: $('doc-upload-status'),
@@ -151,6 +158,30 @@
     mcpInvokeBtn:   $('mcp-invoke-btn'),
     mcpStatus:      $('mcp-status'),
     mcpResult:      $('mcp-result'),
+    // Models screen.
+    modelsList:      $('models-list'),
+    modelsRefreshBtn:$('models-refresh-btn'),
+    modelsGpu:       $('models-gpu'),
+    modelsGpuText:   $('models-gpu-text'),
+    modelsWarmupBtn: $('models-warmup-btn'),
+    modelHfRepo:     $('model-hf-repo'),
+    modelHfToken:    $('model-hf-token'),
+    modelHfTrust:    $('model-hf-trust'),
+    modelInstallBtn: $('model-install-btn'),
+    modelInstallStatus: $('model-install-status'),
+    modelInstallNote:$('model-install-note'),
+    hfTokenConfig:   $('hf-token-config'),
+    hfTokenSaveBtn:  $('hf-token-save-btn'),
+    hfTokenStatus:   $('hf-token-status'),
+    // Settings screen.
+    settingsThemeDark:  $('settings-theme-dark'),
+    settingsThemeLight: $('settings-theme-light'),
+    settingsDefaultModel: $('settings-default-model'),
+    settingsInference:  $('settings-inference'),
+    settingsEmail:      $('settings-email'),
+    settingsTenant:     $('settings-tenant'),
+    settingsSignoutBtn: $('settings-signout-btn'),
+    settingsResetDismissed: $('settings-reset-dismissed'),
   };
 
   // ─── Utilities ───────────────────────────────────────────────────────────
@@ -434,13 +465,20 @@
       newConversation();
     }
 
-    // 6. Notifications: real-time SSE push, with a slow poll as a backstop for
+    // 6. Show the initial screen from the URL hash (defaults to chat).
+    onHashChange();
+
+    // 7. GPU cold-start: probe inference state and keep the banner live.
+    refreshGpuStatus();
+    scheduleGpuPoll();
+
+    // 8. Notifications: real-time SSE push, with a slow poll as a backstop for
     //    the initial load and for when the stream is briefly unavailable.
     pollNotifications();
     state.notifPollTimer = setInterval(pollNotifications, NOTIF_POLL_MS);
     runNotificationStream();
 
-    // 7. Register service worker for offline support.
+    // 9. Register service worker for offline support.
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/static/sw.js').catch(function () {});
     }
@@ -558,6 +596,9 @@
       setText(opt, m);
       els.modelSelect.appendChild(opt);
     });
+    // Honour the saved default-model preference (Settings screen) when present.
+    var pref = getDefaultModelPref();
+    if (pref && models.indexOf(pref) !== -1) els.modelSelect.value = pref;
     state.selectedModel = els.modelSelect.value;
   }
 
@@ -642,16 +683,16 @@
     var chips = document.createElement('div');
     chips.className = 'hero-chips';
     [
-      { label: 'Upload a document', feature: 'feat-docs' },
-      { label: 'Run an agent',      feature: 'feat-agent' },
-      { label: 'Compare models',    feature: 'feat-compare' },
-      { label: 'Save a note',       feature: 'feat-notes' },
+      { label: 'Upload a document', feature: 'documents' },
+      { label: 'Run an agent',      feature: 'agent' },
+      { label: 'Compare models',    feature: 'compare' },
+      { label: 'Save a note',       feature: 'notes' },
     ].forEach(function (c) {
       var chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'hero-chip';
       setText(chip, c.label);
-      chip.addEventListener('click', function () { openFeature(c.feature, {}, null); });
+      chip.addEventListener('click', function () { navigate(c.feature); });
       chips.appendChild(chip);
     });
     empty.appendChild(chips);
@@ -660,6 +701,9 @@
 
   function updateTopbarTitle() {
     if (!els.topbarTitle) return;
+    // Only the chat screen shows the conversation title; other screens keep
+    // their own title (set by the router).
+    if (currentScreen() !== 'chat') return;
     var c = activeConv();
     setText(els.topbarTitle, (c && c.title) || 'New chat');
   }
@@ -820,24 +864,53 @@
         temperature: 0.2,
       });
 
-      var resp = await apiFetch('/v1/chat/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: body,
-      });
+      // Cold-start aware send: a scale-to-zero GPU returns 503 + Retry-After
+      // while a node provisions. Show a warming state in the bubble and retry.
+      var resp = null;
+      var attempt = 0;
+      var MAX_COLD_RETRIES = 6;   // ~ a couple of minutes of warm-up
+      while (true) {
+        resp = await apiFetch('/v1/chat/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: body,
+        });
 
-      if (resp.status === 401) {
-        stream.wrap.remove();
-        redirectToLogin('Session expired. Please sign in again.');
-        return;
+        if (resp.status === 401) {
+          state.warming = false;
+          stream.wrap.remove();
+          redirectToLogin('Session expired. Please sign in again.');
+          return;
+        }
+
+        if (resp.status === 503 && attempt < MAX_COLD_RETRIES) {
+          attempt++;
+          var ra = parseInt(resp.headers.get('Retry-After') || '', 10);
+          if (!(ra > 0)) ra = Math.min(30, 5 * attempt);
+          state.warming = true;
+          applyGpuState({ state: 'loading' });
+          scheduleGpuPoll();
+          els.messageList.scrollTop = els.messageList.scrollHeight;
+          await coldRetryCountdown(stream.bubble, ra);
+          continue;
+        }
+        break;   // 200 (stream), or a non-retryable / retries-exhausted status
       }
+
+      state.warming = false;
+      refreshGpuStatus();
 
       if (!resp.ok || !resp.body) {
         stream.wrap.remove();
         var errData = await resp.json().catch(function () { return {}; });
         var retryAfter = resp.headers.get('Retry-After');
-        var msg = errData.detail || ('API error ' + resp.status);
-        if (retryAfter) msg += ' (retry after ' + retryAfter + ' s)';
+        var msg;
+        if (resp.status === 503) {
+          msg = 'The GPU is still warming up (cold start). Please try again in a moment.';
+        } else {
+          msg = errData.detail || ('API error ' + resp.status);
+          if (retryAfter) msg += ' (retry after ' + retryAfter + ' s)';
+        }
         showError(msg);
         setSendingState(false);
         return;
@@ -885,6 +958,16 @@
     state.sending = sending;
     els.sendBtn.disabled = sending;
     els.chatInput.disabled = sending;
+  }
+
+  // Live "warming up… retrying in Ns" countdown shown in the pending bubble
+  // while a cold GPU provisions between send retries.
+  async function coldRetryCountdown(bubbleEl, seconds) {
+    for (var s = seconds; s > 0; s--) {
+      setText(bubbleEl, 'GPU is warming up (cold start)… retrying in ' + s + 's. First use can take ~2 minutes.');
+      await delay(1000);
+    }
+    setText(bubbleEl, 'Retrying…');
   }
 
   // Run the composer input as an agent task (Agent mode). Shows a placeholder
@@ -1126,60 +1209,114 @@
     els.notifBtn.setAttribute('aria-expanded', 'false');
   }
 
-  // ─── Tools drawer: RAG, memory, agent, media ──────────────────────────────
+  // ─── Screen router (hash-based; each feature is a full-screen view) ─────────
 
-  function openTools() {
-    els.toolsDrawer.classList.add('open');
-    els.toolsBtn.setAttribute('aria-expanded', 'true');
-    if (!state.toolsLoaded) { state.toolsLoaded = true; loadMediaServices(); refreshMemory(); loadIntegrations(); populateCompareModels(); refreshNotes(); refreshDocs(); }
+  var SCREENS = {
+    chat:         { title: 'Chat' },
+    documents:    { title: 'Documents' },
+    editor:       { title: 'Editor' },
+    memory:       { title: 'Memory' },
+    notes:        { title: 'Notes & Tasks' },
+    agent:        { title: 'Agent' },
+    compare:      { title: 'Compare' },
+    media:        { title: 'Media' },
+    integrations: { title: 'Calendar & integrations' },
+    mcp:          { title: 'Tools (MCP)' },
+    models:       { title: 'Models' },
+    settings:     { title: 'Settings' },
+  };
+
+  // First-visit loaders per screen (run once). Keep the network work lazy so the
+  // chat home screen stays instant.
+  var screenLoaders = {
+    documents:    function () { refreshDocs(); },
+    editor:       function () { refreshDocs(); },
+    memory:       function () { refreshMemory(); },
+    notes:        function () { refreshNotes(); },
+    compare:      function () { populateCompareModels(); },
+    media:        function () { loadMediaServices(); },
+    integrations: function () { loadIntegrations(); },
+    models:       function () { loadModelsScreen(); },
+    settings:     function () { loadSettingsScreen(); },
+  };
+  var loadedScreens = {};
+
+  function currentScreen() { return state.screen || 'chat'; }
+
+  // Navigate by setting the hash; onHashChange does the actual show. `opts` may
+  // carry presets (note kind, deep-research toggle) applied after the screen shows.
+  function navigate(name, opts) {
+    if (!SCREENS[name]) name = 'chat';
+    state.navOpts = opts || null;
+    var target = '#/' + name;
+    if (window.location.hash === target) { onHashChange(); }  // re-apply presets
+    else { window.location.hash = target; }
   }
-  function closeTools() {
-    els.toolsDrawer.classList.remove('open');
-    els.toolsBtn.setAttribute('aria-expanded', 'false');
-    setActiveNav(null);
+
+  function onHashChange() {
+    var name = (window.location.hash || '').replace(/^#\/?/, '') || 'chat';
+    if (!SCREENS[name]) name = 'chat';
+    showScreen(name, state.navOpts);
+    state.navOpts = null;
   }
 
-  // ─── Feature rail: launch a panel by its section id ────────────────────────
-
-  // Open the Tools drawer and reveal a specific feature panel. `opts` may carry
-  // pre-actions (e.g. preselect the note kind, tick the deep-research box).
-  function openFeature(sectionId, opts, navBtn) {
+  function showScreen(name, opts) {
+    state.screen = name;
+    // Toggle screen sections.
+    var screens = els.screenHost ? els.screenHost.querySelectorAll('.screen') : [];
+    for (var i = 0; i < screens.length; i++) {
+      screens[i].classList.toggle('active', screens[i].getAttribute('data-screen') === name);
+    }
+    // Highlight the matching rail item(s).
+    if (els.featureNav) {
+      var items = els.featureNav.querySelectorAll('.nav-item');
+      for (var j = 0; j < items.length; j++) {
+        items[j].classList.toggle('active', items[j].getAttribute('data-screen') === name);
+      }
+    }
+    if (els.settingsBtn) els.settingsBtn.classList.toggle('active', name === 'settings');
+    // Topbar title.
+    if (els.topbarTitle) {
+      setText(els.topbarTitle, name === 'chat' ? activeConvTitle() : (SCREENS[name].title || name));
+    }
+    // Presets from the nav item (Notes vs Tasks; Agent vs Research).
     opts = opts || {};
-    openTools();
     if (opts.noteKind && els.noteKind) els.noteKind.value = opts.noteKind;
     if (opts.agentWeb && els.agentWeb) els.agentWeb.checked = true;
-    setActiveNav(navBtn || null);
-    // Defer the scroll until the drawer has been laid out this frame.
-    requestAnimationFrame(function () {
-      var section = document.getElementById(sectionId);
-      if (!section) return;
-      section.scrollIntoView({ block: 'start' });
-      section.classList.add('tool-section-flash');
-      setTimeout(function () { section.classList.remove('tool-section-flash'); }, 1200);
-      var focusable = section.querySelector('input:not([type=file]):not([type=checkbox]), textarea');
-      if (focusable) { try { focusable.focus({ preventScroll: true }); } catch (_) { focusable.focus(); } }
-    });
+    // Lazy first-load.
+    if (!loadedScreens[name] && screenLoaders[name]) {
+      loadedScreens[name] = true;
+      try { screenLoaders[name](); } catch (_) {}
+    }
+    // The Models screen shares the GPU poll; refresh it on entry.
+    if (name === 'models') refreshGpuStatus();
+    // Collapse the overlay sidebar on mobile after a pick.
+    if (window.innerWidth <= 700 && els.sidebar) els.sidebar.classList.add('collapsed');
+    // Focus the primary input of the screen for keyboard users.
+    focusScreen(name);
   }
 
-  function setActiveNav(navBtn) {
-    if (!els.featureNav) return;
-    var items = els.featureNav.querySelectorAll('.nav-item');
-    for (var i = 0; i < items.length; i++) items[i].classList.remove('active');
-    if (navBtn && navBtn.classList && navBtn.classList.contains('nav-item')) {
-      navBtn.classList.add('active');
-    }
+  function focusScreen(name) {
+    if (name === 'chat') { if (els.chatInput) els.chatInput.focus(); return; }
+    var sec = document.getElementById('screen-' + name);
+    if (!sec) return;
+    var f = sec.querySelector('input:not([type=file]):not([type=checkbox]):not([type=password]), textarea');
+    if (f) { try { f.focus({ preventScroll: true }); } catch (_) {} }
+  }
+
+  function activeConvTitle() {
+    var c = activeConv();
+    return (c && c.title) || 'New chat';
   }
 
   function handleNavClick(btn) {
     if (!btn || btn.disabled) return;
-    var feature = btn.getAttribute('data-feature');
-    if (!feature) return;
-    openFeature(feature, {
+    var screen = btn.getAttribute('data-screen');
+    if (!screen) return;
+    navigate(screen, {
       noteKind: btn.getAttribute('data-note-kind'),
       agentWeb: btn.getAttribute('data-agent-web') === '1',
-    }, btn);
-    // On mobile the sidebar is an overlay — close it once a feature is chosen.
-    if (window.innerWidth <= 700 && els.sidebar) els.sidebar.classList.add('collapsed');
+    });
   }
 
   // ─── Composer send mode (Chat vs Agent) ────────────────────────────────────
@@ -1214,16 +1351,261 @@
     applyTheme(saved === 'light' ? 'light' : 'dark');
   }
 
+  function persistTheme(theme) {
+    try { localStorage.setItem('pai_theme', theme); } catch (_) {}
+  }
+
   function toggleTheme() {
     var next = document.documentElement.classList.contains('theme-light') ? 'dark' : 'light';
     applyTheme(next);
-    try { localStorage.setItem('pai_theme', next); } catch (_) {}
+    persistTheme(next);
+    if (currentScreen() === 'settings') syncSettingsTheme();
+  }
+
+  function signOut() {
+    clearToken();
+    if (state.notifPollTimer) clearInterval(state.notifPollTimer);
+    if (state.gpuPollTimer) clearTimeout(state.gpuPollTimer);
+    var cfg = state.config;
+    var issuer = cfg && cfg.issuer;
+    var clientId = cfg && cfg.client_id;
+    if (issuer && clientId) {
+      var logoutUrl = issuer.replace(/\/$/, '') + '/logout?client_id=' + encodeURIComponent(clientId)
+        + '&logout_uri=' + encodeURIComponent(window.location.origin + '/login.html');
+      window.location.href = logoutUrl;
+    } else {
+      window.location.href = '/login.html';
+    }
   }
 
   function toggleSidebar() {
     if (!els.sidebar) return;
     var collapsed = els.sidebar.classList.toggle('collapsed');
     if (els.sidebarToggle) els.sidebarToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  }
+
+  // ─── GPU status + cold-start flow ──────────────────────────────────────────
+  // The GPU inference plane is scale-to-zero (Karpenter). A chat to a cold GPU
+  // returns 503 + Retry-After while a node provisions (~2 min). We surface that
+  // state (banner + Models screen), auto-retry sends, and offer a warm-up.
+
+  async function fetchGpuStatus() {
+    try {
+      var r = await apiFetch('/v1/inference/status?probe=1');
+      if (!r.ok) return { state: 'unknown' };
+      return await r.json();
+    } catch (_) { return { state: 'error' }; }
+  }
+
+  function gpuLabel(s) {
+    switch (s && s.state) {
+      case 'warm':         return 'GPU ready';
+      case 'loading':      return 'GPU is loading the model…';
+      case 'cold':         return 'GPU is idle (cold) — your first message wakes it (~2 min).';
+      case 'unconfigured': return 'Inference is not configured for this workspace.';
+      case 'error':        return 'Inference status is unavailable right now.';
+      default:             return 'Checking GPU…';
+    }
+  }
+
+  function applyGpuState(s) {
+    var st = (s && s.state) || 'unknown';
+    state.gpuState = st;
+    if (els.gpuBanner) {
+      els.gpuBanner.className = 'gpu-banner ' + st;
+      if (els.gpuBannerText) setText(els.gpuBannerText, state.warming
+        ? 'Warming up the GPU… this can take ~2 minutes.' : gpuLabel(s));
+      // Show the banner only when it is actionable/informative: hide it when
+      // warm (nothing to say) and when inference is unconfigured (an ops concern
+      // surfaced on the Settings screen instead).
+      els.gpuBanner.hidden = (st === 'warm' && !state.warming) || st === 'unconfigured';
+      if (els.gpuWarmupBtn) {
+        els.gpuWarmupBtn.hidden = state.warming || !(st === 'cold' || st === 'error' || st === 'unknown');
+      }
+    }
+    if (els.modelsGpu) {
+      els.modelsGpu.className = 'models-gpu ' + st;
+      if (els.modelsGpuText) setText(els.modelsGpuText, gpuLabel(s));
+      if (els.modelsWarmupBtn) els.modelsWarmupBtn.disabled = state.warming || st === 'warm';
+    }
+  }
+
+  async function refreshGpuStatus() {
+    var s = await fetchGpuStatus();
+    applyGpuState(s);
+    return s;
+  }
+
+  function scheduleGpuPoll() {
+    if (state.gpuPollTimer) clearTimeout(state.gpuPollTimer);
+    // Poll fast while something is changing, slow otherwise.
+    var fast = state.warming || state.gpuState === 'loading';
+    state.gpuPollTimer = setTimeout(async function () {
+      if (!state.token) return;
+      await refreshGpuStatus();
+      scheduleGpuPoll();
+    }, fast ? 5000 : 30000);
+  }
+
+  // Trigger a scale-from-zero without a full chat: a tiny completion request is
+  // enough to make Karpenter provision a GPU node. Uses only existing endpoints.
+  async function warmUpGpu() {
+    if (state.warming) return;
+    state.warming = true;
+    applyGpuState({ state: 'loading' });
+    scheduleGpuPoll();
+    try {
+      await apiFetch('/v1/chat/completions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: state.selectedModel || 'default',
+          messages: [{ role: 'user', content: 'ping' }],
+          max_tokens: 1, temperature: 0,
+        }),
+      });
+    } catch (_) { /* the request itself often 503s while the node provisions */ }
+    await pollUntilWarm(150000);
+    state.warming = false;
+    await refreshGpuStatus();
+  }
+
+  async function pollUntilWarm(maxMs) {
+    var start = Date.now();
+    while (Date.now() - start < maxMs) {
+      var s = await fetchGpuStatus();
+      applyGpuState(s);
+      if (s.state === 'warm') return true;
+      await delay(5000);
+    }
+    return false;
+  }
+
+  // ─── Models screen ─────────────────────────────────────────────────────────
+
+  async function loadModelsScreen() {
+    if (els.modelsList) { clearChildren(els.modelsList); appendResultLine(els.modelsList, 'Loading…'); }
+    var items = [], caps = {};
+    try {
+      var r = await toolJson('/v1/models');
+      items = (r.data && r.data.items) || [];
+      caps = (r.data && r.data.capabilities) || {};
+    } catch (_) {}
+    var gpu = await refreshGpuStatus();
+    renderModelsList(items, gpu);
+    applyModelCapabilities(caps);
+  }
+
+  function buildStatusPill(st) {
+    var labels = { warm: 'Ready', loading: 'Loading', cold: 'Idle (cold)', failed: 'Failed', unconfigured: 'Not configured' };
+    var cls = ['warm', 'loading', 'cold', 'failed'].indexOf(st) !== -1 ? st : 'unknown';
+    var pill = document.createElement('span');
+    pill.className = 'status-pill ' + cls;
+    var dot = document.createElement('span'); dot.className = 'dot'; pill.appendChild(dot);
+    var t = document.createElement('span'); setText(t, labels[st] || 'Status unavailable'); pill.appendChild(t);
+    return pill;
+  }
+
+  function renderModelsList(items, gpu) {
+    if (!els.modelsList) return;
+    clearChildren(els.modelsList);
+    if (!items.length) { appendResultLine(els.modelsList, 'No models configured.'); return; }
+    items.forEach(function (m) {
+      var row = document.createElement('div'); row.className = 'model-row';
+      var name = document.createElement('div'); name.className = 'model-name';
+      var b = document.createElement('b'); setText(b, m.label || m.id); name.appendChild(b);
+      if (m.served) { var sv = document.createElement('span'); sv.className = 'model-served'; setText(sv, '· default'); name.appendChild(sv); }
+      row.appendChild(name);
+      // Served model shows the live GPU state; others show their catalog status.
+      var pillState = m.served ? ((gpu && gpu.state) || 'unknown') : (m.status || 'unknown');
+      row.appendChild(buildStatusPill(pillState));
+      els.modelsList.appendChild(row);
+    });
+  }
+
+  // Deny-by-default: management actions stay disabled until the server reports
+  // the matching capability (which is gated behind the escalation-reviewed
+  // backend phases — see docs/m11-followups/04-model-management.md).
+  function applyModelCapabilities(caps) {
+    caps = caps || {};
+    var canRequest = !!(caps.install || caps.request_install);
+    if (els.modelInstallBtn) els.modelInstallBtn.disabled = !canRequest;
+    if (els.modelInstallNote) setText(els.modelInstallNote, canRequest
+      ? 'Requests are recorded for an operator to review; installs are applied via the deploy pipeline.'
+      : 'Self-serve model install is operator-gated and not enabled here yet (design Phase 1a). Downloading arbitrary models onto GPU nodes is an escalation-reviewed change applied via the deploy pipeline.');
+    if (els.hfTokenSaveBtn) els.hfTokenSaveBtn.disabled = !caps.token_config;
+    if (els.hfTokenConfig) els.hfTokenConfig.disabled = !caps.token_config;
+    if (els.hfTokenStatus) setText(els.hfTokenStatus, caps.token_config ? ''
+      : 'The Hugging Face token is managed by your operator in the cluster secret store; the control plane never returns it.');
+  }
+
+  async function requestModelInstall() {
+    if (!els.modelHfRepo) return;
+    var repo = els.modelHfRepo.value.trim();
+    if (!repo) { setStatus(els.modelInstallStatus, 'Enter a Hugging Face repo id.', true); return; }
+    setStatus(els.modelInstallStatus, 'Submitting request…');
+    try {
+      var r = await toolJson('/v1/models/install-requests', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hf_repo_id: repo }),
+      });
+      if (r.status === 404 || r.status === 501) {
+        setStatus(els.modelInstallStatus, 'Self-serve install is not enabled yet (operator-gated).', true);
+        return;
+      }
+      if (!r.ok) { setStatus(els.modelInstallStatus, (r.data && (r.data.detail || r.data.error)) || ('Failed (' + r.status + ')'), true); return; }
+      setStatus(els.modelInstallStatus, 'Requested — an operator will review it.');
+      els.modelHfRepo.value = '';
+    } catch (_) {}
+  }
+
+  // ─── Settings screen ───────────────────────────────────────────────────────
+
+  function tenantFromEmail(e) { var at = (e || '').indexOf('@'); return at > -1 ? e.slice(at + 1) : '—'; }
+  function getDefaultModelPref() { try { return localStorage.getItem('pai_default_model') || ''; } catch (_) { return ''; } }
+  function setDefaultModelPref(m) { try { localStorage.setItem('pai_default_model', m); } catch (_) {} }
+
+  function loadSettingsScreen() {
+    syncSettingsTheme();
+    populateSettingsModels();
+    loadSettingsInference();
+    if (els.settingsEmail) setText(els.settingsEmail, state.email || '—');
+    if (els.settingsTenant) setText(els.settingsTenant, tenantFromEmail(state.email));
+  }
+
+  function syncSettingsTheme() {
+    var light = document.documentElement.classList.contains('theme-light');
+    if (els.settingsThemeLight) els.settingsThemeLight.classList.toggle('active', light);
+    if (els.settingsThemeDark) els.settingsThemeDark.classList.toggle('active', !light);
+  }
+
+  function populateSettingsModels() {
+    if (!els.settingsDefaultModel) return;
+    clearChildren(els.settingsDefaultModel);
+    var models = (state.models && state.models.length) ? state.models : ['default'];
+    var pref = getDefaultModelPref();
+    models.forEach(function (m) {
+      var o = document.createElement('option'); o.value = m; setText(o, m);
+      if (m === pref) o.selected = true;
+      els.settingsDefaultModel.appendChild(o);
+    });
+  }
+
+  async function loadSettingsInference() {
+    if (!els.settingsInference) return;
+    clearChildren(els.settingsInference);
+    var s = await fetchGpuStatus();
+    [
+      ['Backend', s.backend || '—'],
+      ['Configured', s.status === 'configured' ? 'yes' : 'no'],
+      ['GPU state', s.state || 'unknown'],
+      ['Model', s.model || '—'],
+    ].forEach(function (kv) {
+      var row = document.createElement('div'); row.className = 'kv-row';
+      var k = document.createElement('span'); k.className = 'kv-key'; setText(k, kv[0]);
+      var v = document.createElement('span'); v.className = 'kv-val'; setText(v, String(kv[1]));
+      row.appendChild(k); row.appendChild(v);
+      els.settingsInference.appendChild(row);
+    });
   }
   function setStatus(el, msg, isErr) {
     setText(el, msg || '');
@@ -1779,34 +2161,50 @@
       newConversation();
     });
 
-    // Tools drawer
-    els.toolsBtn.addEventListener('click', function () {
-      if (els.toolsDrawer.classList.contains('open')) closeTools(); else openTools();
-    });
-    els.toolsCloseBtn.addEventListener('click', closeTools);
-
-    // Feature rail — delegate clicks to the launcher buttons.
+    // Screen router — the rail, the footer settings button, and the composer
+    // quick-tools all navigate via data-screen. Router applies presets.
     if (els.featureNav) {
       els.featureNav.addEventListener('click', function (e) {
         var btn = e.target.closest ? e.target.closest('.nav-item') : null;
         if (btn) handleNavClick(btn);
       });
     }
-    // Composer quick-tool buttons (search → Documents; wrench → Tools drawer).
+    if (els.settingsBtn) els.settingsBtn.addEventListener('click', function () { navigate('settings'); });
     if (els.composerTools) {
       els.composerTools.addEventListener('click', function (e) {
         var btn = e.target.closest ? e.target.closest('.composer-tool') : null;
-        if (!btn) return;
-        var feature = btn.getAttribute('data-feature');
-        if (feature) openFeature(feature, {}, null); else openTools();
+        if (btn && btn.getAttribute('data-screen')) navigate(btn.getAttribute('data-screen'));
       });
     }
+    window.addEventListener('hashchange', onHashChange);
+
     // Composer send-mode toggle.
     if (els.modeChat) els.modeChat.addEventListener('click', function () { setMode('chat'); });
     if (els.modeAgent) els.modeAgent.addEventListener('click', function () { setMode('agent'); });
     // Theme + sidebar toggles.
     if (els.themeBtn) els.themeBtn.addEventListener('click', toggleTheme);
     if (els.sidebarToggle) els.sidebarToggle.addEventListener('click', toggleSidebar);
+
+    // GPU cold-start warm-up buttons (chat banner + Models screen).
+    if (els.gpuWarmupBtn) els.gpuWarmupBtn.addEventListener('click', warmUpGpu);
+    if (els.modelsWarmupBtn) els.modelsWarmupBtn.addEventListener('click', warmUpGpu);
+
+    // Models screen actions.
+    if (els.modelsRefreshBtn) els.modelsRefreshBtn.addEventListener('click', loadModelsScreen);
+    if (els.modelInstallBtn) els.modelInstallBtn.addEventListener('click', requestModelInstall);
+
+    // Settings screen actions.
+    if (els.settingsThemeDark) els.settingsThemeDark.addEventListener('click', function () { applyTheme('dark'); persistTheme('dark'); syncSettingsTheme(); });
+    if (els.settingsThemeLight) els.settingsThemeLight.addEventListener('click', function () { applyTheme('light'); persistTheme('light'); syncSettingsTheme(); });
+    if (els.settingsDefaultModel) els.settingsDefaultModel.addEventListener('change', function () {
+      setDefaultModelPref(this.value);
+      state.selectedModel = this.value;
+      if (els.modelSelect) els.modelSelect.value = this.value;
+    });
+    if (els.settingsSignoutBtn) els.settingsSignoutBtn.addEventListener('click', function () { signOut(); });
+    if (els.settingsResetDismissed) els.settingsResetDismissed.addEventListener('click', function () {
+      dismissedIds.clear(); persistDismissed(); updateNotifBadge();
+    });
 
     els.docUploadBtn.addEventListener('click', uploadDocument);
     els.docQueryBtn.addEventListener('click', queryDocuments);
@@ -1865,21 +2263,8 @@
     // Notification close button
     els.notifCloseBtn.addEventListener('click', closeNotifDrawer);
 
-    // Sign out
-    els.signoutBtn.addEventListener('click', function () {
-      clearToken();
-      if (state.notifPollTimer) clearInterval(state.notifPollTimer);
-      var cfg = state.config;
-      var issuer = cfg && cfg.issuer;
-      var clientId = cfg && cfg.client_id;
-      if (issuer && clientId) {
-        var logoutUrl = issuer.replace(/\/$/, '') + '/logout?client_id=' + encodeURIComponent(clientId)
-          + '&logout_uri=' + encodeURIComponent(window.location.origin + '/login.html');
-        window.location.href = logoutUrl;
-      } else {
-        window.location.href = '/login.html';
-      }
-    });
+    // Sign out (topbar; Settings screen reuses signOut()).
+    els.signoutBtn.addEventListener('click', signOut);
 
     // Close notif drawer when clicking outside on mobile
     document.addEventListener('click', function (e) {
