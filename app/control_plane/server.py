@@ -368,6 +368,7 @@ def build_chat_response(
     body: bytes,
     config: ControlPlaneConfig,
     token_verifier: TokenVerifier | None,
+    rate_limiter: "RateLimiter | None" = None,
 ) -> Response:
     """Build a Response for POST /v1/chat/completions.
 
@@ -396,7 +397,7 @@ def build_chat_response(
         )
 
     try:
-        token_verifier.verify(raw_token)
+        claims = token_verifier.verify(raw_token)
     except TokenVerificationError:
         AUTH_FAILURES_TOTAL.labels(reason="invalid_token").inc()
         return Response(
@@ -423,7 +424,21 @@ def build_chat_response(
             {"error": "bad_request", "detail": parse_error},
         )
 
-    # 5. Forward to inference plane; degrade gracefully on failure.
+    # 5. Per-tenant rate/concurrency limit on the primary chat path (M7b
+    #    backpressure — a valid token could otherwise drive unbounded inference
+    #    fan-out; the streaming path is already bounded). Acquired before the
+    #    forward and released in the finally below.
+    tenant_id = _extract_tenant_id(claims)
+    if rate_limiter is not None and not rate_limiter.try_acquire(tenant_id, now=int(time.time())):
+        return Response(
+            HTTPStatus.TOO_MANY_REQUESTS,
+            {"error": "rate_limited",
+             "detail": "Chat rate/concurrency limit exceeded; retry shortly.",
+             "status": "degraded"},
+            headers={"Retry-After": "5"},
+        )
+
+    # 6. Forward to inference plane; degrade gracefully on failure.
     # All degraded 503 responses include a Retry-After header so clients can
     # back off without hammering the control plane during cold-start or outage.
     client = VLLMInferenceClient(base_url=config.inference_base_url)
@@ -486,6 +501,9 @@ def build_chat_response(
             },
             headers={"Retry-After": "30"},
         )
+    finally:
+        if rate_limiter is not None:
+            rate_limiter.release()
 
 
 def prepare_chat_stream(
@@ -742,6 +760,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     body=body,
                     config=self.__class__.config,
                     token_verifier=self.__class__.token_verifier,
+                    rate_limiter=self.__class__.chat_rate_limiter,
                 )
 
             if path == _NOTIFICATIONS_PATH:

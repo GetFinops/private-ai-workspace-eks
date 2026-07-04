@@ -233,6 +233,38 @@ class ChatResponseAuthTests(TestCase):
         self.assertEqual(resp.status_code, HTTPStatus.OK)
         self.assertEqual(resp.payload["object"], "chat.completion")
 
+    def test_rate_limited_returns_429(self) -> None:
+        # M7b backpressure: the primary chat path honors a per-tenant limiter.
+        from app.control_plane.agent_tools import RateLimiter
+
+        rl = RateLimiter(per_minute=1, max_concurrency=4)
+        with patch(
+            "app.control_plane.server.VLLMInferenceClient.chat_completions",
+            return_value={"object": "chat.completion", "choices": []},
+        ):
+            first = build_chat_response(
+                authorization="Bearer tok", body=_VALID_BODY, config=_cfg_with_inference(),
+                token_verifier=_AcceptingVerifier(), rate_limiter=rl)
+            second = build_chat_response(
+                authorization="Bearer tok", body=_VALID_BODY, config=_cfg_with_inference(),
+                token_verifier=_AcceptingVerifier(), rate_limiter=rl)
+        self.assertEqual(first.status_code, HTTPStatus.OK)
+        self.assertEqual(second.status_code, HTTPStatus.TOO_MANY_REQUESTS)
+        self.assertEqual(second.payload["error"], "rate_limited")
+
+    def test_no_rate_limiter_is_unbounded(self) -> None:
+        # Backward-compatible: without a limiter (the default), no 429.
+        with patch(
+            "app.control_plane.server.VLLMInferenceClient.chat_completions",
+            return_value={"object": "chat.completion", "choices": []},
+        ):
+            resp = None
+            for _ in range(3):
+                resp = build_chat_response(
+                    authorization="Bearer tok", body=_VALID_BODY,
+                    config=_cfg_with_inference(), token_verifier=_AcceptingVerifier())
+        self.assertEqual(resp.status_code, HTTPStatus.OK)
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # DevTokenVerifier
