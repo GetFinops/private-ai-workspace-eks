@@ -191,6 +191,19 @@ M9 UI adaptation — third-party asset and font license record
     OFL note: OFL-1.1 permits use, embedding, and redistribution in software
     products free of charge provided the font is not sold by itself.
 
+  pdf.js (pdfjs-dist 3.11.174)
+    Source: https://github.com/mozilla/pdf.js
+    License: Apache License 2.0
+    Copyright: Copyright (c) Mozilla Foundation and contributors.
+    Use: client-side PDF text extraction for RAG document upload. The pre-built
+         UMD distribution (pdf.min.js + pdf.worker.min.js) is vendored verbatim,
+         self-hosted under app/ui/static/vendor/, and served same-origin so it
+         stays within the strict Content-Security-Policy (no CDN, no eval). No
+         pdf.js source is modified; only the published dist bundle is included.
+    Apache-2.0 note: permissive and compatible with this project's MIT licence.
+         This is an upstream-independent, permissively-licensed library — it is
+         NOT adapted from Odysseus and carries no AGPL exposure.
+
 ────────────────────────────────────────────────────────────────────────────────
 Third-party dependency license record (M3 — state externalization)
 ────────────────────────────────────────────────────────────────────────────────
@@ -774,3 +787,67 @@ Per-model records:
   unit-covered (tests/test_media.py); live GPU validation of SDXL is deferred (the
   dev media validation uses the smaller Whisper model per the M14 cost
   discipline).
+
+  M14 TTS text-to-speech (third model). Decision: ADOPTED (harness routing only).
+  Text-to-speech is a natural M14 follow-on media service (docs/13 §3). Implemented
+  as ORIGINAL control-plane code: media.py gains kind="tts" and a synthesize path
+  exposing the OpenAI /v1/audio/speech shape (POST {model,input} -> audio bytes),
+  stored as a per-tenant S3 artifact exactly like image generation. NO model
+  weights or TTS engine are vendored — the registry is empty (deny-by-default) and
+  the operator supplies a license-reviewed, digest-pinned OpenAI-compatible TTS
+  image + model (no AGPL in the default set) at deploy time, as with the other
+  media models. All harness constraints carry unchanged (allow-list, kill-switch,
+  rate limits, size cap on the input text, shape-only audit). The control-plane
+  synthesize path is unit-covered (tests/test_media.py). A `media-src 'self' data:`
+  Content-Security-Policy directive was added (app/ui/nginx.conf) so the UI can
+  play returned audio via a same-origin data: URL (audio is not covered by the
+  existing img-src); no new external origin is permitted.
+
+────────────────────────────────────────────────────────────────────────────────
+Web search for deep research (external-service adoption)
+────────────────────────────────────────────────────────────────────────────────
+
+The M11 deep-research sub-feature is extended to optional HYBRID corpus+web
+research (docs/13 §3, §5 Tier B). Adopting web search touches licensing and new
+outbound egress, so it is recorded here.
+
+Decision: ADOPTED as an EXTERNAL-SERVICE integration, deny-by-default.
+- NO search engine is vendored. app/control_plane/web_search.py is an ORIGINAL,
+  generic JSON-search client — it embeds NO SearXNG or any copyleft/AGPL engine,
+  which stays "Excluded by Default" (docs/12). The operator points WEB_SEARCH at a
+  non-AGPL provider API or a separately-run service; nothing is bundled.
+- Egress goes through the SAME hardened URL guard as M13 (validate_outbound_url +
+  guarded_open): https-only, deny-by-default single-host allow-list (the provider
+  host), DNS resolve-then-pin, private/loopback/link-local/metadata IPs blocked.
+- Deny-by-default at every layer: web mode is unavailable unless the operator
+  configures WEB_SEARCH (unconfigured -> no client), the tenant is allow-listed for
+  the existing "deep_research" capability, AND the request opts in ("web": true) —
+  the request flag alone can never enable egress. The existing kill-switch and
+  budgets (wall-clock re-checked after the web fetch) still bound the run.
+- Content policy: web results are treated as UNTRUSTED, model-facing sources (same
+  stance as the retrieval corpus — nothing from them is executed); audit remains
+  shape-only. Prompt-injection from fetched content is an accepted, documented risk
+  of web research and is mitigated only by never acting on model output.
+- Unit-covered: tests/test_web_search.py (guard block, provider-shape parsing,
+  deny-by-default) and tests/test_deep_research.py (hybrid sourcing, flag gating).
+  Live validation against a real provider requires operator-provisioned WEB_SEARCH
+  config and is a maintainer step.
+
+────────────────────────────────────────────────────────────────────────────────
+MCP + integrations UI surfacing — escalation sign-off
+────────────────────────────────────────────────────────────────────────────────
+
+Surfacing agent-tool / MCP / integration execution in the user-facing UI is an
+escalation trigger (confused-deputy / prompt-injection; docs/13 §7). The MCP and
+Google-Calendar panels were first drafted behind a "pending review" gate; this
+records the maintainer sign-off to lift that gate.
+
+Decision: APPROVED. The UI panels (app/ui/static/) are callers only — they add NO
+new authorization surface. Every backend guarantee is unchanged: deny-by-default
+per-tenant allow-lists, operator kill-switches (AGENT_TOOLS_ENABLED / MCP_ENABLED /
+INTEGRATIONS_ENABLED), per-tenant credential scoping, and shape-only audit all
+still gate each call server-side. The UI renders all tool/integration output via
+textContent / a JSON <pre> (never innerHTML), carries the bearer token only over
+same-origin fetch, and logs no content. Residual prompt-injection exposure is the
+same as the API it fronts and is owned as an M7b hardening item (agent/tool
+prompt-injection + sandbox boundaries).

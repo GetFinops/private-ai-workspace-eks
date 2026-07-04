@@ -95,6 +95,11 @@ class ControlPlaneConfig:
     media_max_concurrency: int = 2
     media_max_audio_bytes: int = 25 * 1024 * 1024
     media_max_prompt_chars: int = 2000
+    # Web search for deep research (deny-by-default, off unless configured).
+    # WEB_SEARCH is JSON {"provider","url","host","api_key","api_key_header","top_k"}.
+    # No search engine is bundled: this points at an external JSON search API
+    # reached through the hardened outbound guard (never SearXNG/AGPL vendored).
+    web_search: str | None = None
     # Agent loop (M11 follow-up). Shares the agent_tools kill-switch and
     # allow-list; additionally requires inference to be configured (cold → 503).
     # Budgets are server-enforced and never client/model settable.
@@ -160,6 +165,7 @@ class ControlPlaneConfig:
             media_enabled=values.get("MEDIA_ENABLED", "false").lower() == "true",
             media_allowlist=_clean(values.get("MEDIA_ALLOWLIST")),
             media_services=_clean(values.get("MEDIA_SERVICES")),
+            web_search=_clean(values.get("WEB_SEARCH")),
             media_rate_per_minute=int(values.get("MEDIA_RATE_PER_MINUTE", "10") or "10"),
             media_max_concurrency=int(values.get("MEDIA_MAX_CONCURRENCY", "2") or "2"),
             media_max_audio_bytes=int(values.get("MEDIA_MAX_AUDIO_BYTES", str(25 * 1024 * 1024)) or str(25 * 1024 * 1024)),

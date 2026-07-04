@@ -115,6 +115,34 @@ def _retrieve(
     return passages
 
 
+@dataclass(frozen=True)
+class _WebPassage:
+    """A web-search hit adapted to the passage shape (.document_id/.content/
+    .chunk_id) so it flows through synthesis and citation like a corpus passage.
+    Its content is UNTRUSTED, model-facing source text — never executed."""
+
+    document_id: str   # the source URL, used as the citation handle
+    content: str
+    chunk_id: str      # the URL again, for dedup
+
+
+def _retrieve_web(queries: list[str], *, web_search_client, budgets: DeepResearchBudgets) -> list:
+    """Fetch web results for each subquery through the guarded search client and
+    adapt them to passages. The client never raises and is deny-by-default."""
+    seen: set = set()
+    passages: list = []
+    for q in queries:
+        for res in web_search_client.search(q):
+            if res.url in seen:
+                continue
+            seen.add(res.url)
+            content = f"{res.title} — {res.snippet}".strip(" —")
+            passages.append(_WebPassage(document_id=res.url, content=content, chunk_id=res.url))
+            if len(passages) >= _MAX_PASSAGES:
+                return passages
+    return passages
+
+
 def _synthesize(
     question: str, passages: list, *, inference: ChatClient, budgets: DeepResearchBudgets
 ) -> str:
@@ -160,9 +188,13 @@ def run_deep_research(
     inference_client: ChatClient,
     budgets: DeepResearchBudgets,
     notification_store: NotificationStore | None = None,
+    use_web: bool = False,
+    web_search_client=None,
 ) -> DeepResearchOutcome:
-    """Run plan -> retrieve -> synthesize. Pure orchestration; retrieval is the
-    tenant's own corpus and all model output is treated as untrusted."""
+    """Run plan -> retrieve -> synthesize. Pure orchestration; corpus retrieval is
+    the tenant's own store and all model output is treated as untrusted. When
+    ``use_web`` is set and a guarded web-search client is configured, web results
+    are added as extra (untrusted, cited) sources — a hybrid corpus+web run."""
     run_id = str(uuid.uuid4())
     _emit(notification_store, tenant_id=tenant_id, user_id=user_id,
           event_class=_EVENT_PROGRESS, run_id=run_id)
@@ -184,6 +216,14 @@ def run_deep_research(
                              embedding_client=embedding_client, budgets=budgets)
         if _over_budget():
             return _fail("wall_clock", len(queries))
+        if use_web and web_search_client is not None:
+            existing = {getattr(p, "chunk_id", None) for p in passages}
+            for wp in _retrieve_web(queries, web_search_client=web_search_client, budgets=budgets):
+                if wp.chunk_id not in existing and len(passages) < _MAX_PASSAGES:
+                    passages.append(wp)
+                    existing.add(wp.chunk_id)
+            if _over_budget():
+                return _fail("wall_clock", len(queries))
         answer = _synthesize(question, passages, inference=inference_client, budgets=budgets)
     except Exception as exc:  # noqa: BLE001 - inference/embedding failure → clean fail
         logger.warning("Deep-research failure: %s", type(exc).__name__)
@@ -219,8 +259,13 @@ def build_deep_research_response(
     budgets: DeepResearchBudgets,
     rate_limiter: RateLimiter,
     notification_store: NotificationStore | None = None,
+    web_search_client=None,
 ) -> tuple[int, dict]:
-    """Handle POST /v1/agent/research. Body: {"question": "<text>"}."""
+    """Handle POST /v1/agent/research. Body: {"question": "<text>", "web": bool}.
+
+    ``web`` opts the run into hybrid corpus+web research; it takes effect only when
+    the operator has configured a guarded web-search client (deny-by-default —
+    the request flag alone cannot enable egress)."""
     import json
 
     claims, err = _verify_and_extract(authorization, token_verifier)
@@ -249,6 +294,7 @@ def build_deep_research_response(
     if not isinstance(data, dict):
         return HTTPStatus.BAD_REQUEST, {"error": "bad_request"}
     question = data.get("question")
+    use_web = bool(data.get("web")) and web_search_client is not None
     if not isinstance(question, str) or not question.strip():
         return HTTPStatus.BAD_REQUEST, {"error": "bad_request", "detail": "'question' is required."}
     if len(question.encode("utf-8")) > _MAX_QUESTION_BYTES:
@@ -278,6 +324,7 @@ def build_deep_research_response(
             question=question, tenant_id=tenant_id, user_id=user_id, store=store,
             embedding_client=embedding_client, inference_client=inference_client,
             budgets=budgets, notification_store=notification_store,
+            use_web=use_web, web_search_client=web_search_client,
         )
     finally:
         rate_limiter.release()

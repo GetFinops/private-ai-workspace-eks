@@ -17,6 +17,8 @@ from app.control_plane.notifications import (
     build_notification_publish_response,
     build_notification_read_response,
     build_notifications_list_response,
+    format_notification_sse,
+    stream_notification_frames,
     _extract_tenant_id,
     _MAX_NOTIFICATIONS_PER_USER,
 )
@@ -153,6 +155,54 @@ class TestInMemoryStore(unittest.TestCase):
             tenant_id="example.com", user_id="user-1", limit=5
         )
         self.assertLessEqual(len(result), 5)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SSE stream (real-time push)
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestNotificationStream(unittest.TestCase):
+
+    def setUp(self):
+        self.store = InMemoryNotificationStore()
+
+    def _data_frames(self, frames):
+        return [f for f in frames if f.startswith(b"data:")]
+
+    def test_emits_unread_then_heartbeat(self):
+        self.store.publish(_make_event(id="a", tenant_id="t", user_id="u"))
+        self.store.publish(_make_event(id="b", tenant_id="t", user_id="u"))
+        frames = list(stream_notification_frames(
+            self.store, tenant_id="t", user_id="u", max_ticks=1, sleep=lambda: None))
+        data = self._data_frames(frames)
+        self.assertEqual(len(data), 2)
+        self.assertTrue(any(f.startswith(b": ping") for f in frames))  # heartbeat
+
+    def test_frame_is_content_safe_shape_only(self):
+        self.store.publish(_make_event(id="a", tenant_id="t", user_id="u"))
+        frames = list(stream_notification_frames(
+            self.store, tenant_id="t", user_id="u", max_ticks=1, sleep=lambda: None))
+        payload = json.loads(self._data_frames(frames)[0][len(b"data: "):].decode())
+        self.assertEqual(set(payload), {"id", "event_class", "resource_id",
+                                        "created_at", "read_at", "read"})
+
+    def test_dedup_across_ticks(self):
+        self.store.publish(_make_event(id="a", tenant_id="t", user_id="u"))
+        frames = list(stream_notification_frames(
+            self.store, tenant_id="t", user_id="u", max_ticks=3, sleep=lambda: None))
+        self.assertEqual(len(self._data_frames(frames)), 1)  # emitted once, not per tick
+
+    def test_seen_suppresses_known_events(self):
+        self.store.publish(_make_event(id="a", tenant_id="t", user_id="u"))
+        frames = list(stream_notification_frames(
+            self.store, tenant_id="t", user_id="u", max_ticks=1, sleep=lambda: None, seen={"a"}))
+        self.assertEqual(self._data_frames(frames), [])
+
+    def test_isolation_other_user_sees_nothing(self):
+        self.store.publish(_make_event(id="a", tenant_id="t", user_id="u"))
+        frames = list(stream_notification_frames(
+            self.store, tenant_id="t", user_id="other", max_ticks=1, sleep=lambda: None))
+        self.assertEqual(self._data_frames(frames), [])
 
 
 # ──────────────────────────────────────────────────────────────────────────────

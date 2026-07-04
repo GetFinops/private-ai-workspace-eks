@@ -41,15 +41,23 @@ set should close **before** M7b.
 
 | Capability (built + dev-validated) | Endpoint(s) | In the v1 UI today |
 | --- | --- | --- |
-| Chat completions | `POST /v1/chat/completions` | ✅ |
-| Notifications feed | `GET/POST /v1/notifications`, `…/{id}/read` | ✅ |
-| Retrieval / RAG | `POST /v1/retrieval/{documents,query}` | ❌ |
-| Per-user memory | `GET/POST /v1/memory`, `…/recall`, `DELETE …/{id}` | ❌ |
-| Agent tools / loop / deep-research | `POST /v1/agent/{tools/invoke,runs,research}` | ❌ |
-| MCP | `POST /v1/mcp/{tools/list,invoke}` | ❌ |
-| Integrations (Google Calendar) | `POST /v1/integrations/{list,invoke}` | ❌ |
-| Media (STT, image) | `POST /v1/media/{list,transcribe,generate}` | ❌ |
+| Chat completions | `POST /v1/chat/completions` (+ `…/stream` SSE) | ✅ |
+| Notifications feed | `GET/POST /v1/notifications`, `…/{id}/read`, `…/stream` (SSE push) | ✅ |
+| Retrieval / RAG | `POST /v1/retrieval/{documents,query,upload}` | ✅ |
+| Per-user memory | `GET/POST /v1/memory`, `…/recall`, `DELETE …/{id}` | ✅ |
+| Agent tools / loop / deep-research | `POST /v1/agent/{tools/invoke,runs,research}` (incl. web) | ✅ |
+| MCP | `POST /v1/mcp/{tools/list,invoke}` | ✅ |
+| Integrations (Google Calendar) | `POST /v1/integrations/{list,invoke}` | ✅ |
+| Media (STT, image, TTS) | `POST /v1/media/{list,transcribe,generate,synthesize}` | ✅ |
 | Model listing | (none — models hardcoded in Helm values) | ❌ |
+
+> **Update (2026-07-04):** the reachability gap above is closed. Tier A (§5)
+> surfaced RAG/memory/agents/media; a follow-up pass then added the remaining
+> partials — TTS, real-time SSE notification push, optional hybrid **web** deep
+> research (guarded external-service search, no AGPL engine bundled), and the
+> **MCP** + **integrations** panels (escalation sign-off recorded in `NOTICE`).
+> Only dynamic **model listing** (Tier B) remains un-surfaced. These surfaces are
+> exactly what M7b now hardens.
 
 **Decision (recorded):** the v1 UI is scoped to surface **all four** product
 areas — retrieval/RAG (+ file upload), memory, agents (tools/loop/deep-research),

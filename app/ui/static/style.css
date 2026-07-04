@@ -735,4 +735,10 @@ pre, code { font-family: var(--font-mono); }
 .tool-result-title { font-weight: 600; margin-bottom: 3px; }
 .tool-result-snippet { color: var(--muted); white-space: pre-wrap; word-break: break-word; }
 .tool-image { max-width: 100%; border-radius: 8px; border: 1px solid var(--border); }
+.tool-audio { width: 100%; margin-top: 4px; }
+.tool-json {
+  margin: 0; padding: 8px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; font-family: 'Fira Code', monospace; font-size: 0.78rem;
+  white-space: pre-wrap; word-break: break-word; overflow-x: auto; max-height: 320px;
+}
 @media (max-width: 640px) { #tools-drawer { width: 100%; } }
