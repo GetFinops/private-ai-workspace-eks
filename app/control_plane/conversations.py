@@ -12,6 +12,7 @@ content), NOT this owner-scoped store.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from http import HTTPStatus
@@ -96,6 +97,10 @@ class InMemoryConversationStore:
     def __init__(self) -> None:
         # conversation_id -> (Conversation, list[Message])
         self._convs: dict[str, tuple[Conversation, list[Message]]] = {}
+        # The dev/test server is a ThreadingHTTPServer — concurrent requests hit
+        # the same store instance, so guard mutations (matches the memory /
+        # retrieval / notes stores). Production uses PostgresConversationStore.
+        self._lock = threading.Lock()
 
     def create(self, *, tenant_id: str, user_id: str, title: str) -> Conversation:
         now = _now_utc()
@@ -103,10 +108,12 @@ class InMemoryConversationStore:
             id=str(uuid4()), tenant_id=tenant_id, user_id=user_id,
             title=title[:_MAX_TITLE_LEN], created_at=now, updated_at=now,
         )
-        self._convs[conv.id] = (conv, [])
+        with self._lock:
+            self._convs[conv.id] = (conv, [])
         return conv
 
     def _owned(self, conversation_id, tenant_id, user_id):
+        # Callers hold self._lock.
         entry = self._convs.get(conversation_id)
         if entry is None:
             return None
@@ -116,42 +123,46 @@ class InMemoryConversationStore:
         return entry
 
     def list_for_user(self, *, tenant_id, user_id, limit=100):
-        convs = [c for (c, _) in self._convs.values() if c.tenant_id == tenant_id and c.user_id == user_id]
+        with self._lock:
+            convs = [c for (c, _) in self._convs.values() if c.tenant_id == tenant_id and c.user_id == user_id]
         convs.sort(key=lambda c: c.updated_at, reverse=True)
         return convs[:limit]
 
     def get(self, *, tenant_id, user_id, conversation_id):
-        entry = self._owned(conversation_id, tenant_id, user_id)
-        if entry is None:
-            return None
-        conv, msgs = entry
-        return Conversation(conv.id, conv.tenant_id, conv.user_id, conv.title,
-                            conv.created_at, conv.updated_at, list(msgs))
+        with self._lock:
+            entry = self._owned(conversation_id, tenant_id, user_id)
+            if entry is None:
+                return None
+            conv, msgs = entry
+            return Conversation(conv.id, conv.tenant_id, conv.user_id, conv.title,
+                                conv.created_at, conv.updated_at, list(msgs))
 
     def delete(self, *, tenant_id, user_id, conversation_id):
-        if self._owned(conversation_id, tenant_id, user_id) is None:
-            return False
-        del self._convs[conversation_id]
-        return True
+        with self._lock:
+            if self._owned(conversation_id, tenant_id, user_id) is None:
+                return False
+            del self._convs[conversation_id]
+            return True
 
     def append(self, *, tenant_id, user_id, conversation_id, role, content):
-        entry = self._owned(conversation_id, tenant_id, user_id)
-        if entry is None:
-            return None
-        conv, msgs = entry
-        if len(msgs) >= _MAX_MESSAGES_PER_CONVERSATION:
-            msgs.pop(0)
-        msg = Message(id=str(uuid4()), role=role, content=content[:_MAX_CONTENT_LEN], created_at=_now_utc())
-        msgs.append(msg)
-        # First user message seeds the title; bump updated_at.
-        title = conv.title
-        if conv.title == "New conversation" and role == "user":
-            title = content[:_MAX_TITLE_LEN].strip() or conv.title
-        self._convs[conversation_id] = (
-            Conversation(conv.id, conv.tenant_id, conv.user_id, title, conv.created_at, msg.created_at),
-            msgs,
-        )
-        return msg
+        with self._lock:
+            entry = self._owned(conversation_id, tenant_id, user_id)
+            if entry is None:
+                return None
+            conv, msgs = entry
+            if len(msgs) >= _MAX_MESSAGES_PER_CONVERSATION:
+                msgs.pop(0)
+            msg = Message(id=str(uuid4()), role=role, content=content[:_MAX_CONTENT_LEN], created_at=_now_utc())
+            msgs.append(msg)
+            # First user message seeds the title; bump updated_at.
+            title = conv.title
+            if conv.title == "New conversation" and role == "user":
+                title = content[:_MAX_TITLE_LEN].strip() or conv.title
+            self._convs[conversation_id] = (
+                Conversation(conv.id, conv.tenant_id, conv.user_id, title, conv.created_at, msg.created_at),
+                msgs,
+            )
+            return msg
 
 
 # ── Postgres backend ──────────────────────────────────────────────────────────

@@ -180,5 +180,40 @@ class TestPostgresStore(unittest.TestCase):
         self.assertFalse(PostgresConversationStore(pool).delete(tenant_id="t", user_id="u", conversation_id="x"))
 
 
+class TestConcurrencyIsolation(unittest.TestCase):
+    """M7b under-load isolation: concurrent multi-user create+list must keep each
+    user's threads private and lose no writes (the in-memory store is locked)."""
+
+    def test_concurrent_multi_user_isolation(self):
+        import threading
+
+        store = InMemoryConversationStore()
+        per_user = 8
+        users = [_Verifier(f"u{i}", f"u{i}@tenant-{i % 2}.test") for i in range(6)]
+        errors: list = []
+
+        def worker(v):
+            try:
+                for n in range(per_user):
+                    _create(store, verifier=v, title=f"c{n}")
+                _, payload = build_conversations_list_response(
+                    authorization=_AUTH, token_verifier=v, store=store)
+                if len(payload["conversations"]) != per_user:   # only this user's threads
+                    errors.append((v._c.subject, len(payload["conversations"])))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(v,)) for v in users]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [], f"cross-user conversation leakage/lost writes under load: {errors}")
+        total = sum(
+            len(build_conversations_list_response(authorization=_AUTH, token_verifier=v, store=store)[1]["conversations"])
+            for v in users)
+        self.assertEqual(total, per_user * len(users))   # no writes lost
+
+
 if __name__ == "__main__":
     unittest.main()
