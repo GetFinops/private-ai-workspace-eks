@@ -99,8 +99,9 @@ gaps are two un-surfaced capability areas plus chat-product polish:
 | Real-time + delivery | 30s notification polling | 🟢 **closed** — `/v1/notifications/stream` SSE push (bounded, content-safe), polling kept as a backstop |
 | Agent / deep research | corpus-only research | 🟢 **closed** — optional hybrid **web** research via a guarded external-service search client (deny-by-default, no AGPL engine bundled) |
 | Media | STT + image | 🟢 **closed** — **TTS** added (`/v1/media/synthesize`, OpenAI speech shape); image editor/gallery still future |
-| Model selection | internal vLLM routing | 🟡 **open** — models hardcoded in UI Helm values; no `/v1/models` listing (Tier B) |
-| Upstream parity (optional) | — | 🟡 **open** — Compare, Cookbook/model-mgmt, Notes/Tasks, Documents editor, mail+contacts, 2FA |
+| Model selection | internal vLLM routing | 🟢 **closed** — dynamic `GET /v1/models` (config-served, GPU-independent); UI selector populated from it |
+| Compare | — | 🟢 **closed** — `POST /v1/compare`: blind A/B of one prompt across N models + optional synthesis, over the existing inference client |
+| Upstream parity (optional) | — | 🟡 **open** — Cookbook/model-mgmt, Notes/Tasks, Documents editor, mail+contacts, 2FA (each Tier-B / its own adoption) |
 
 The remaining 🟡 items are sequenced against M7b → M8 in
 [`13-pre-production-gap-plan.md`](13-pre-production-gap-plan.md) §5 (Tier B /

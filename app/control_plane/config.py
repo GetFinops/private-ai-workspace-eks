@@ -7,6 +7,7 @@ should only pass when production-critical dependencies are configured.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from os import environ
 from typing import TYPE_CHECKING, Mapping
@@ -27,6 +28,10 @@ class ControlPlaneConfig:
     object_storage_bucket: str | None = None
     secrets_provider: str = "aws-secrets-manager"
     inference_base_url: str | None = None
+    # Selectable chat models exposed at GET /v1/models (single source of truth,
+    # replacing the UI-baked list). MODELS is a JSON array or comma-separated list
+    # of model names the inference plane serves; empty falls back to ["default"].
+    models: str | None = None
     # Retrieval embeddings (M10). EMBEDDING_BASE_URL points at an in-cluster
     # OpenAI-compatible /v1/embeddings endpoint (vLLM or a dedicated embedding
     # deployment). When unset, the deterministic dev embedding is used.
@@ -135,6 +140,7 @@ class ControlPlaneConfig:
             object_storage_bucket=_clean(values.get("OBJECT_STORAGE_BUCKET")),
             secrets_provider=values.get("SECRETS_PROVIDER", "aws-secrets-manager"),
             inference_base_url=_clean(values.get("INFERENCE_BASE_URL")),
+            models=_clean(values.get("MODELS")),
             embedding_base_url=_clean(values.get("EMBEDDING_BASE_URL")),
             embedding_model=values.get("EMBEDDING_MODEL", "embedding"),
             retrieval_max_upload_bytes=int(values.get("RETRIEVAL_MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)) or str(10 * 1024 * 1024)),
@@ -180,6 +186,26 @@ class ControlPlaneConfig:
             log_format=values.get("LOG_FORMAT", "json").lower(),
             otel_endpoint=_clean(values.get("OTEL_EXPORTER_OTLP_ENDPOINT")),
         )
+
+    def model_list(self) -> list[str]:
+        """Parse MODELS (JSON array or comma-separated) into the selectable model
+        list. Falls back to the agent-loop model, then to ["default"]. Pure config
+        — no inference-plane call, so /v1/models works while the GPU is cold."""
+        raw = self.models
+        names: list[str] = []
+        if raw:
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    names = [str(m).strip() for m in parsed if str(m).strip()]
+            except (ValueError, json.JSONDecodeError):
+                names = [m.strip() for m in raw.split(",") if m.strip()]
+        if not names:
+            fallback = (self.agent_loop_model or "").strip()
+            names = [fallback] if fallback and fallback != "default" else ["default"]
+        # De-duplicate, preserving order.
+        seen: set[str] = set()
+        return [m for m in names if not (m in seen or seen.add(m))]
 
     def readiness_checks(self) -> dict[str, bool]:
         """Return dependency checks that are safe to expose operationally.

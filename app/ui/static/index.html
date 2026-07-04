@@ -162,6 +162,20 @@
         <div id="agent-result" class="tool-results"></div>
       </section>
 
+      <section class="tool-section" aria-labelledby="t-compare-h">
+        <h3 id="t-compare-h">Compare</h3>
+        <p class="tool-hint">Run one prompt against two models, blind, then reveal.</p>
+        <textarea id="compare-prompt" rows="2" placeholder="Prompt to compare…" aria-label="Compare prompt"></textarea>
+        <div class="tool-row">
+          <select id="compare-model-a" aria-label="Model A"></select>
+          <select id="compare-model-b" aria-label="Model B"></select>
+        </div>
+        <label class="tool-check"><input type="checkbox" id="compare-synth" /> Also synthesize a combined answer</label>
+        <button class="tool-btn" id="compare-btn" type="button">Compare</button>
+        <div id="compare-status" class="tool-status" role="status"></div>
+        <div id="compare-results" class="tool-results"></div>
+      </section>
+
       <section class="tool-section" aria-labelledby="t-media-h">
         <h3 id="t-media-h">Media</h3>
         <p class="tool-hint">Transcribe audio, generate an image, or synthesize speech.</p>

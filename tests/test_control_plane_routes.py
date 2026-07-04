@@ -30,3 +30,24 @@ class ControlPlaneRouteTests(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertEqual(response.payload["status"], "configured")
         self.assertTrue(response.payload["internal_only"])
+
+    def test_models_endpoint_defaults_without_config(self) -> None:
+        response = build_response("/v1/models", ControlPlaneConfig.from_env({}))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertEqual(response.payload["models"], ["default"])
+        self.assertEqual(response.payload["default"], "default")
+
+    def test_models_endpoint_parses_json_list(self) -> None:
+        response = build_response(
+            "/v1/models",
+            ControlPlaneConfig.from_env({"MODELS": '["mistral-7b", "llama-3-8b"]'}),
+        )
+        self.assertEqual(response.payload["models"], ["mistral-7b", "llama-3-8b"])
+        self.assertEqual(response.payload["default"], "mistral-7b")
+
+    def test_models_endpoint_parses_csv_and_is_gpu_independent(self) -> None:
+        # No INFERENCE_BASE_URL configured -> still lists models (config-served).
+        response = build_response(
+            "/v1/models", ControlPlaneConfig.from_env({"MODELS": "a, b ,a"})
+        )
+        self.assertEqual(response.payload["models"], ["a", "b"])  # csv + de-duped
