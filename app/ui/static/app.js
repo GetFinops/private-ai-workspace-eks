@@ -45,6 +45,7 @@
     notifications:  [],   // notification objects from the API
     notifPollTimer: null,
     toolsLoaded:    false,
+    mode:           'chat',   // composer send mode: 'chat' | 'agent'
   };
 
   // ─── DOM refs ─────────────────────────────────────────────────────────────
@@ -70,6 +71,14 @@
     messageList:   $('message-list'),
     chatInput:     $('chat-input'),
     sendBtn:       $('send-btn'),
+    // Shell chrome: feature rail, theme + sidebar toggles, composer mode switch.
+    featureNav:    $('feature-nav'),
+    themeBtn:      $('theme-btn'),
+    sidebarToggle: $('sidebar-toggle'),
+    topbarTitle:   $('topbar-title'),
+    composerTools: $('composer-tools'),
+    modeChat:      $('mode-chat'),
+    modeAgent:     $('mode-agent'),
     // Tools drawer (RAG, memory, agent, media).
     toolsBtn:      $('tools-btn'),
     toolsDrawer:   $('tools-drawer'),
@@ -371,6 +380,9 @@
   // ─── Boot ────────────────────────────────────────────────────────────────
 
   async function boot() {
+    // 0. Apply the saved colour theme before anything renders (avoids a flash).
+    initTheme();
+
     // 1. Handle OIDC callback if code param is present.
     if (new URLSearchParams(window.location.search).get('code')) {
       var ok = await handleCallback();
@@ -407,6 +419,13 @@
     renderModelSelect();
     renderUserEmail();
     attachListeners();
+    setMode(state.mode);
+
+    // The sidebar is an overlay on small screens — start it collapsed there.
+    if (window.innerWidth <= 700 && els.sidebar) {
+      els.sidebar.classList.add('collapsed');
+      if (els.sidebarToggle) els.sidebarToggle.setAttribute('aria-expanded', 'false');
+    }
 
     // Activate the most recent conversation (or create a blank one).
     if (state.conversations.length > 0) {
@@ -581,15 +600,8 @@
     clearChildren(els.messageList);
 
     if (!conv || conv.messages.length === 0) {
-      var empty = document.createElement('div');
-      empty.id = 'empty-state';
-      var h2 = document.createElement('h2');
-      setText(h2, 'Private AI Workspace');
-      var p = document.createElement('p');
-      setText(p, 'Start a conversation using the input below.');
-      empty.appendChild(h2);
-      empty.appendChild(p);
-      els.messageList.appendChild(empty);
+      els.messageList.appendChild(buildHeroEl());
+      updateTopbarTitle();
       return;
     }
 
@@ -598,6 +610,58 @@
     });
 
     els.messageList.scrollTop = els.messageList.scrollHeight;
+    updateTopbarTitle();
+  }
+
+  // Centred welcome hero shown when a conversation has no messages. Quick-start
+  // chips launch the matching feature panel. Built entirely with createElement
+  // (no innerHTML) so it stays within the strict CSP.
+  function buildHeroEl() {
+    var empty = document.createElement('div');
+    empty.id = 'empty-state';
+
+    var mark = document.createElement('div');
+    mark.className = 'hero-mark';
+    mark.setAttribute('aria-hidden', 'true');
+    empty.appendChild(mark);
+
+    var h2 = document.createElement('h2');
+    setText(h2, 'Private AI Workspace');
+    empty.appendChild(h2);
+
+    var tagline = document.createElement('p');
+    tagline.className = 'hero-tagline';
+    setText(tagline, 'Private by design — ready when you are.');
+    empty.appendChild(tagline);
+
+    var tip = document.createElement('p');
+    tip.className = 'hero-tip';
+    setText(tip, 'Ask a question, upload a document, run an agent, or compare models — everything stays inside your workspace.');
+    empty.appendChild(tip);
+
+    var chips = document.createElement('div');
+    chips.className = 'hero-chips';
+    [
+      { label: 'Upload a document', feature: 'feat-docs' },
+      { label: 'Run an agent',      feature: 'feat-agent' },
+      { label: 'Compare models',    feature: 'feat-compare' },
+      { label: 'Save a note',       feature: 'feat-notes' },
+    ].forEach(function (c) {
+      var chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'hero-chip';
+      setText(chip, c.label);
+      chip.addEventListener('click', function () { openFeature(c.feature, {}, null); });
+      chips.appendChild(chip);
+    });
+    empty.appendChild(chips);
+    return empty;
+  }
+
+  function updateTopbarTitle() {
+    if (!els.topbarTitle) return;
+    var c = activeConv();
+    setText(els.topbarTitle, (c && c.title) || 'New chat');
   }
 
   function buildMessageEl(role, content) {
@@ -737,6 +801,10 @@
     els.chatInput.style.height = '';
     setSendingState(true);
 
+    // Agent mode routes the message to the agent run endpoint instead of the
+    // streaming chat completion, then renders the result as an assistant turn.
+    if (state.mode === 'agent') { await runAgentInline(input); return; }
+
     // A live assistant bubble that fills in as tokens stream from /v1/chat/stream.
     var stream = buildStreamingAssistantEl();
     els.messageList.appendChild(stream.wrap);
@@ -817,6 +885,33 @@
     state.sending = sending;
     els.sendBtn.disabled = sending;
     els.chatInput.disabled = sending;
+  }
+
+  // Run the composer input as an agent task (Agent mode). Shows a placeholder
+  // assistant bubble while the run is in flight, then the final answer.
+  async function runAgentInline(input) {
+    var stream = buildStreamingAssistantEl();
+    els.messageList.appendChild(stream.wrap);
+    setText(stream.bubble, 'Working on it… (this can take a while)');
+    els.messageList.scrollTop = els.messageList.scrollHeight;
+    try {
+      var r = await toolJson('/v1/agent/runs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task: input }),
+      });
+      stream.wrap.remove();
+      if (!r.ok) {
+        showError(r.data.detail || r.data.error || ('Agent failed (' + r.status + ')'));
+      } else {
+        var answer = r.data.answer || r.data.result || r.data.final || JSON.stringify(r.data);
+        appendMessage('assistant', String(answer));
+      }
+    } catch (e) {
+      stream.wrap.remove();
+      showError('Agent error: ' + (e.message || 'unknown'));
+    } finally {
+      setSendingState(false);
+    }
   }
 
   // ─── Notifications ───────────────────────────────────────────────────────
@@ -1041,6 +1136,94 @@
   function closeTools() {
     els.toolsDrawer.classList.remove('open');
     els.toolsBtn.setAttribute('aria-expanded', 'false');
+    setActiveNav(null);
+  }
+
+  // ─── Feature rail: launch a panel by its section id ────────────────────────
+
+  // Open the Tools drawer and reveal a specific feature panel. `opts` may carry
+  // pre-actions (e.g. preselect the note kind, tick the deep-research box).
+  function openFeature(sectionId, opts, navBtn) {
+    opts = opts || {};
+    openTools();
+    if (opts.noteKind && els.noteKind) els.noteKind.value = opts.noteKind;
+    if (opts.agentWeb && els.agentWeb) els.agentWeb.checked = true;
+    setActiveNav(navBtn || null);
+    // Defer the scroll until the drawer has been laid out this frame.
+    requestAnimationFrame(function () {
+      var section = document.getElementById(sectionId);
+      if (!section) return;
+      section.scrollIntoView({ block: 'start' });
+      section.classList.add('tool-section-flash');
+      setTimeout(function () { section.classList.remove('tool-section-flash'); }, 1200);
+      var focusable = section.querySelector('input:not([type=file]):not([type=checkbox]), textarea');
+      if (focusable) { try { focusable.focus({ preventScroll: true }); } catch (_) { focusable.focus(); } }
+    });
+  }
+
+  function setActiveNav(navBtn) {
+    if (!els.featureNav) return;
+    var items = els.featureNav.querySelectorAll('.nav-item');
+    for (var i = 0; i < items.length; i++) items[i].classList.remove('active');
+    if (navBtn && navBtn.classList && navBtn.classList.contains('nav-item')) {
+      navBtn.classList.add('active');
+    }
+  }
+
+  function handleNavClick(btn) {
+    if (!btn || btn.disabled) return;
+    var feature = btn.getAttribute('data-feature');
+    if (!feature) return;
+    openFeature(feature, {
+      noteKind: btn.getAttribute('data-note-kind'),
+      agentWeb: btn.getAttribute('data-agent-web') === '1',
+    }, btn);
+    // On mobile the sidebar is an overlay — close it once a feature is chosen.
+    if (window.innerWidth <= 700 && els.sidebar) els.sidebar.classList.add('collapsed');
+  }
+
+  // ─── Composer send mode (Chat vs Agent) ────────────────────────────────────
+
+  function setMode(mode) {
+    state.mode = mode === 'agent' ? 'agent' : 'chat';
+    var agent = state.mode === 'agent';
+    if (els.modeAgent) {
+      els.modeAgent.classList.toggle('active', agent);
+      els.modeAgent.setAttribute('aria-selected', agent ? 'true' : 'false');
+    }
+    if (els.modeChat) {
+      els.modeChat.classList.toggle('active', !agent);
+      els.modeChat.setAttribute('aria-selected', agent ? 'false' : 'true');
+    }
+    els.chatInput.placeholder = agent ? 'Describe a task for the agent…' : 'Message Private AI…';
+  }
+
+  // ─── Theme + sidebar toggles ───────────────────────────────────────────────
+
+  function applyTheme(theme) {
+    var light = theme === 'light';
+    document.documentElement.classList.toggle('theme-light', light);
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', light ? '#f6f5f3' : '#1f2229');
+    if (els.themeBtn) els.themeBtn.setAttribute('aria-pressed', light ? 'true' : 'false');
+  }
+
+  function initTheme() {
+    var saved = null;
+    try { saved = localStorage.getItem('pai_theme'); } catch (_) {}
+    applyTheme(saved === 'light' ? 'light' : 'dark');
+  }
+
+  function toggleTheme() {
+    var next = document.documentElement.classList.contains('theme-light') ? 'dark' : 'light';
+    applyTheme(next);
+    try { localStorage.setItem('pai_theme', next); } catch (_) {}
+  }
+
+  function toggleSidebar() {
+    if (!els.sidebar) return;
+    var collapsed = els.sidebar.classList.toggle('collapsed');
+    if (els.sidebarToggle) els.sidebarToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
   }
   function setStatus(el, msg, isErr) {
     setText(el, msg || '');
@@ -1601,6 +1784,30 @@
       if (els.toolsDrawer.classList.contains('open')) closeTools(); else openTools();
     });
     els.toolsCloseBtn.addEventListener('click', closeTools);
+
+    // Feature rail — delegate clicks to the launcher buttons.
+    if (els.featureNav) {
+      els.featureNav.addEventListener('click', function (e) {
+        var btn = e.target.closest ? e.target.closest('.nav-item') : null;
+        if (btn) handleNavClick(btn);
+      });
+    }
+    // Composer quick-tool buttons (search → Documents; wrench → Tools drawer).
+    if (els.composerTools) {
+      els.composerTools.addEventListener('click', function (e) {
+        var btn = e.target.closest ? e.target.closest('.composer-tool') : null;
+        if (!btn) return;
+        var feature = btn.getAttribute('data-feature');
+        if (feature) openFeature(feature, {}, null); else openTools();
+      });
+    }
+    // Composer send-mode toggle.
+    if (els.modeChat) els.modeChat.addEventListener('click', function () { setMode('chat'); });
+    if (els.modeAgent) els.modeAgent.addEventListener('click', function () { setMode('agent'); });
+    // Theme + sidebar toggles.
+    if (els.themeBtn) els.themeBtn.addEventListener('click', toggleTheme);
+    if (els.sidebarToggle) els.sidebarToggle.addEventListener('click', toggleSidebar);
+
     els.docUploadBtn.addEventListener('click', uploadDocument);
     els.docQueryBtn.addEventListener('click', queryDocuments);
     els.docQuery.addEventListener('keydown', function (e) { if (e.key === 'Enter') queryDocuments(); });

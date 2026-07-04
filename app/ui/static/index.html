@@ -1,8 +1,12 @@
 <!DOCTYPE html>
 <!--
-  Private AI Workspace — main application shell
-  UI patterns adapted from pewdiepie-archdaemon/odysseus (MIT).
-  Provenance recorded in NOTICE under "M9 UI adaptation".
+  Private AI Workspace — main application shell.
+
+  Layout: a left feature-launcher rail, a centred welcome hero, and a
+  composer with an inline model badge and a Chat/Agent mode switch.
+  This is an independent, clean-room implementation of a common chat-workspace
+  layout; no third-party UI source is copied. UI provenance for the design
+  token system is recorded in NOTICE ("M9 UI adaptation").
 -->
 <html lang="en">
 <head>
@@ -10,7 +14,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Private AI Workspace</title>
   <link rel="manifest" href="/static/manifest.json">
-  <meta name="theme-color" content="#282c34">
+  <meta name="theme-color" content="#1f2229">
   <link rel="stylesheet" href="/static/style.css">
   <style>
     @font-face {
@@ -34,26 +38,99 @@
 <!-- ── App shell ─────────────────────────────────────────────────────────── -->
 <div id="app-shell">
 
-  <!-- Sidebar -->
+  <!-- Sidebar: brand, new chat, feature launchers, conversation list, footer -->
   <aside id="sidebar">
     <div id="sidebar-header">
-      <span id="sidebar-title">Private AI</span>
-      <button id="new-chat-btn" type="button" aria-label="New conversation">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8">
-          <path d="M7 1v12M1 7h12"/>
-        </svg>
-        New
-      </button>
+      <span id="sidebar-title">
+        <span class="brand-mark" aria-hidden="true"></span>
+        Private&nbsp;AI
+      </span>
     </div>
+
+    <button id="new-chat-btn" type="button" aria-label="New conversation">
+      <svg width="15" height="15" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+        <path d="M7 1v12M1 7h12"/>
+      </svg>
+      New chat
+    </button>
+
+    <!-- Feature launchers — each opens the matching panel in the Tools drawer.
+         Names and icons are our own; behaviour is wired in app.js by data-feature. -->
+    <nav id="feature-nav" aria-label="Workspace features">
+      <button class="nav-item" type="button" data-feature="feat-docs" aria-label="Documents">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 1.5h5l3 3v10H4z"/><path d="M9 1.5v3h3"/><path d="M6 8h4M6 10.5h4"/></svg>
+        <span>Documents</span>
+      </button>
+      <button class="nav-item" type="button" data-feature="feat-editor" aria-label="Editor">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M11 2.5l2.5 2.5L6 12.5l-3 .5.5-3z"/><path d="M9.5 4l2.5 2.5"/></svg>
+        <span>Editor</span>
+      </button>
+      <button class="nav-item" type="button" data-feature="feat-memory" aria-label="Memory">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 2.5c-2 0-3.2 1.3-3.2 3 0 .5-.6.8-.6 1.8 0 1 .8 1.4.8 2.2 0 1.3 1 2.2 2.4 2.2.9 0 1.6-.5 1.6-1.3V4c0-.9-.5-1.5-1-1.5z"/><path d="M8 2.5c2 0 3.2 1.3 3.2 3 0 .5.6.8.6 1.8 0 1-.8 1.4-.8 2.2 0 1.3-1 2.2-2.4 2.2"/></svg>
+        <span>Memory</span>
+      </button>
+      <button class="nav-item" type="button" data-feature="feat-notes" data-note-kind="note" aria-label="Notes">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3.5 2.5h9v11h-9z"/><path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3"/></svg>
+        <span>Notes</span>
+      </button>
+      <button class="nav-item" type="button" data-feature="feat-notes" data-note-kind="task" aria-label="Tasks">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2.5 4.5l1.5 1.5 2.5-2.5"/><path d="M2.5 10l1.5 1.5L6.5 9"/><path d="M8.5 4.5h5M8.5 10h5"/></svg>
+        <span>Tasks</span>
+      </button>
+      <button class="nav-item" type="button" data-feature="feat-compare" aria-label="Compare models">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 2v12"/><path d="M3 4.5h2.5v7H3zM10.5 4.5H13v7h-2.5z"/></svg>
+        <span>Compare</span>
+      </button>
+      <button class="nav-item" type="button" data-feature="feat-agent" aria-label="Agent">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.5v2"/><rect x="3" y="3.5" width="10" height="8" rx="2"/><path d="M6 7v1.5M10 7v1.5"/><path d="M5.5 13.5h5"/></svg>
+        <span>Agent</span>
+      </button>
+      <button class="nav-item" type="button" data-feature="feat-agent" data-agent-web="1" aria-label="Research">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+        <span>Research</span>
+      </button>
+      <button class="nav-item" type="button" data-feature="feat-media" aria-label="Media">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><circle cx="6" cy="6.5" r="1"/><path d="M3 11l3-2.5 2.5 2 2-1.5L13 11"/></svg>
+        <span>Media</span>
+      </button>
+      <button class="nav-item" type="button" data-feature="feat-integrations" aria-label="Calendar and integrations">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="1.5"/><path d="M2.5 6.5h11M5.5 2v2M10.5 2v2"/></svg>
+        <span>Calendar</span>
+      </button>
+      <button class="nav-item" type="button" data-feature="feat-mcp" aria-label="Tools and MCP">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M10.5 2.5a2.5 2.5 0 0 0-3 3.2L3 10.2l1.6 1.6 4.5-4.5a2.5 2.5 0 0 0 3.2-3l-1.7 1.7-1.1-1.1z"/></svg>
+        <span>Tools</span>
+      </button>
+      <button class="nav-item nav-item-soon" type="button" disabled aria-label="Models — coming soon">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3l2 1.5"/></svg>
+        <span>Models</span>
+        <span class="nav-soon">soon</span>
+      </button>
+      <button class="nav-item nav-item-soon" type="button" disabled aria-label="Email — coming soon">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4" width="11" height="8" rx="1.5"/><path d="M3 5l5 3.5L13 5"/></svg>
+        <span>Email</span>
+        <span class="nav-soon">soon</span>
+      </button>
+    </nav>
+
+    <div id="chats-header">Chats</div>
     <nav id="conversation-list" aria-label="Conversations">
       <!-- Populated by app.js -->
     </nav>
+
     <div id="sidebar-footer">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-        <circle cx="7" cy="4.5" r="2.5"/>
-        <path d="M1.5 12c0-3.04 2.46-5.5 5.5-5.5s5.5 2.46 5.5 5.5"/>
-      </svg>
-      <span id="user-email"></span>
+      <div id="user-info">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <circle cx="7" cy="4.5" r="2.5"/>
+          <path d="M1.5 12c0-3.04 2.46-5.5 5.5-5.5s5.5 2.46 5.5 5.5"/>
+        </svg>
+        <span id="user-email"></span>
+      </div>
+      <button id="theme-btn" type="button" aria-label="Toggle light and dark theme" title="Toggle theme">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <path d="M11.5 8.6A4 4 0 0 1 7.4 4.5 4 4 0 1 0 11.5 8.6Z"/>
+        </svg>
+      </button>
     </div>
   </aside>
 
@@ -62,15 +139,17 @@
     <!-- Top bar -->
     <header id="topbar">
       <div id="topbar-left">
-        <label id="model-label" for="model-select">Model</label>
-        <select id="model-select" aria-label="Select model">
-          <!-- Populated on load -->
-        </select>
+        <button id="sidebar-toggle" type="button" aria-label="Toggle sidebar" aria-expanded="true">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <path d="M2.5 4.5h13M2.5 9h13M2.5 13.5h13"/>
+          </svg>
+        </button>
+        <span id="topbar-title">New chat</span>
       </div>
       <div id="topbar-right">
         <!-- Notification bell -->
         <button id="notif-btn" type="button" aria-label="Notifications" aria-haspopup="true" aria-expanded="false">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
             <path d="M9 2.5a5.5 5.5 0 0 1 5.5 5.5v2.5l1.5 2H2L3.5 10.5V8A5.5 5.5 0 0 1 9 2.5Z"/>
             <path d="M7 14.5a2 2 0 0 0 4 0"/>
           </svg>
@@ -84,23 +163,47 @@
     <!-- Error banner -->
     <div id="error-banner" role="alert"></div>
 
-    <!-- Messages -->
+    <!-- Messages (empty-state hero rendered here by app.js) -->
     <div id="message-list" role="log" aria-label="Conversation messages" aria-live="polite">
-      <!-- Empty state shown by JS -->
+      <!-- Empty state / messages shown by JS -->
     </div>
 
-    <!-- Input area -->
+    <!-- Composer -->
     <div id="input-area">
-      <div id="input-row">
+      <div id="composer">
+        <div id="composer-top">
+          <label id="model-label" for="model-select">Model</label>
+          <select id="model-select" aria-label="Select model">
+            <!-- Populated on load -->
+          </select>
+          <div id="mode-toggle" role="tablist" aria-label="Send mode">
+            <button id="mode-chat" class="mode-btn active" type="button" role="tab" aria-selected="true">Chat</button>
+            <button id="mode-agent" class="mode-btn" type="button" role="tab" aria-selected="false">Agent</button>
+          </div>
+        </div>
         <textarea
           id="chat-input"
           rows="1"
-          placeholder="Send a message…"
+          placeholder="Message Private AI…"
           aria-label="Message input"
           autocomplete="off"
           spellcheck="true"
         ></textarea>
-        <button id="send-btn" type="button" aria-label="Send message">Send</button>
+        <div id="composer-bottom">
+          <div id="composer-tools">
+            <button class="composer-tool" type="button" data-feature="feat-docs" aria-label="Search documents" title="Search documents">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+            </button>
+            <button class="composer-tool" type="button" id="composer-tools-btn" aria-label="Open tools" title="Open tools">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M10.5 2.5a2.5 2.5 0 0 0-3 3.2L3 10.2l1.6 1.6 4.5-4.5a2.5 2.5 0 0 0 3.2-3l-1.7 1.7-1.1-1.1z"/></svg>
+            </button>
+          </div>
+          <button id="send-btn" type="button" aria-label="Send message">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/>
+            </svg>
+          </button>
+        </div>
       </div>
       <p id="input-hint">Enter to send · Shift+Enter for new line</p>
     </div>
@@ -125,7 +228,7 @@
     </div>
     <div id="tools-body">
 
-      <section class="tool-section" aria-labelledby="t-docs-h">
+      <section class="tool-section" id="feat-docs" aria-labelledby="t-docs-h">
         <h3 id="t-docs-h">Documents</h3>
         <p class="tool-hint">Upload a document, then ask questions grounded in it.</p>
         <input type="file" id="doc-file" accept=".txt,.md,.markdown,.csv,.json,.pdf,text/*" aria-label="Document to upload" />
@@ -138,7 +241,7 @@
         <div id="doc-results" class="tool-results" role="list"></div>
       </section>
 
-      <section class="tool-section" aria-labelledby="t-editor-h">
+      <section class="tool-section" id="feat-editor" aria-labelledby="t-editor-h">
         <h3 id="t-editor-h">Editor</h3>
         <p class="tool-hint">Write a document, then ask AI to edit it. Private to you.</p>
         <input type="text" id="doc-editor-title" placeholder="Document title…" aria-label="Document title" />
@@ -155,7 +258,7 @@
         <div id="doc-editor-list" class="tool-results" role="list"></div>
       </section>
 
-      <section class="tool-section" aria-labelledby="t-mem-h">
+      <section class="tool-section" id="feat-memory" aria-labelledby="t-mem-h">
         <h3 id="t-mem-h">Memory</h3>
         <p class="tool-hint">Things you ask the assistant to remember about you.</p>
         <textarea id="mem-text" rows="2" placeholder="Remember that…" aria-label="Memory text"></textarea>
@@ -166,7 +269,7 @@
         <div id="mem-results" class="tool-results" role="list"></div>
       </section>
 
-      <section class="tool-section" aria-labelledby="t-notes-h">
+      <section class="tool-section" id="feat-notes" aria-labelledby="t-notes-h">
         <h3 id="t-notes-h">Notes &amp; Tasks</h3>
         <p class="tool-hint">Jot a note or track a task. Private to you.</p>
         <div class="tool-row">
@@ -183,7 +286,7 @@
         <div id="note-results" class="tool-results" role="list"></div>
       </section>
 
-      <section class="tool-section" aria-labelledby="t-agent-h">
+      <section class="tool-section" id="feat-agent" aria-labelledby="t-agent-h">
         <h3 id="t-agent-h">Agent</h3>
         <p class="tool-hint">Give the agent a task, or run deep research over your documents.</p>
         <textarea id="agent-task" rows="2" placeholder="e.g. Summarise my uploaded notes" aria-label="Agent task"></textarea>
@@ -196,7 +299,7 @@
         <div id="agent-result" class="tool-results"></div>
       </section>
 
-      <section class="tool-section" aria-labelledby="t-compare-h">
+      <section class="tool-section" id="feat-compare" aria-labelledby="t-compare-h">
         <h3 id="t-compare-h">Compare</h3>
         <p class="tool-hint">Run one prompt against two models, blind, then reveal.</p>
         <textarea id="compare-prompt" rows="2" placeholder="Prompt to compare…" aria-label="Compare prompt"></textarea>
@@ -210,7 +313,7 @@
         <div id="compare-results" class="tool-results"></div>
       </section>
 
-      <section class="tool-section" aria-labelledby="t-media-h">
+      <section class="tool-section" id="feat-media" aria-labelledby="t-media-h">
         <h3 id="t-media-h">Media</h3>
         <p class="tool-hint">Transcribe audio, generate an image, or synthesize speech.</p>
         <select id="media-stt-service" aria-label="Transcription service"></select>
@@ -239,7 +342,7 @@
            callers only — backend authz (deny-by-default, per-tenant, kill-switch)
            gates every call server-side. Residual exposure is owned as an M7b
            hardening item. -->
-      <section class="tool-section" aria-labelledby="t-integ-h">
+      <section class="tool-section" id="feat-integrations" aria-labelledby="t-integ-h">
         <h3 id="t-integ-h">Integrations</h3>
         <p class="tool-hint">Call a connected external service (e.g. Google Calendar).</p>
         <div class="tool-row">
@@ -253,7 +356,7 @@
         <div id="integ-result" class="tool-results"></div>
       </section>
 
-      <section class="tool-section" aria-labelledby="t-mcp-h">
+      <section class="tool-section" id="feat-mcp" aria-labelledby="t-mcp-h">
         <h3 id="t-mcp-h">MCP</h3>
         <p class="tool-hint">List and invoke tools from a per-tenant MCP server.</p>
         <div class="tool-row">
