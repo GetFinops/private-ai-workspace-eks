@@ -1,0 +1,51 @@
+# CodeQL — advanced setup (workflow-driven, so we control languages, query suite,
+# and analysed paths). Runs on pushes/PRs to main and on a weekly schedule.
+# Results surface in the repository Security → Code scanning tab.
+name: "CodeQL"
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "27 3 * * 1"  # Mondays, 03:27 UTC
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Both languages are interpreted → no build step needed.
+          - language: python
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # Broader-than-default suite (security + maintainability); advanced setup.
+          queries: security-and-quality
+          # Vendored, minified third-party JS is not ours to analyse.
+          config: |
+            paths-ignore:
+              - app/ui/static/vendor
+              - tests
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
