@@ -194,5 +194,45 @@ class TestAllowlistParsing(unittest.TestCase):
         self.assertEqual(parse_mcp_allowlist(None), {})
 
 
+class TestCredentialScopingUnderLoad(unittest.TestCase):
+    """M7b isolation-under-load: when many tenants invoke a secret-requiring MCP
+    server concurrently, each spawned child's env carries ONLY that tenant's
+    resolved secret — no cross-tenant bleed, and no ambient host secrets."""
+
+    def test_concurrent_child_env_credential_scoping(self):
+        import threading
+
+        server = {"command": ["/bin/true"], "requires_secret": "vault_creds"}
+        ex = MCPExecutor(
+            servers={"vault": server},
+            secret_resolver=lambda t, k: ({"MCP_SECRET": f"sk-{t}"} if k == "vault_creds" else {}),
+        )
+        tenants = [f"tenant-{i}.test" for i in range(6)]
+        all_secrets = {f"sk-{t}" for t in tenants}
+        envs: dict = {}
+        errors: list = []
+
+        def worker(t):
+            try:
+                envs[t] = ex._child_env(server, t)   # the per-tenant env the child spawns with
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(t,)) for t in tenants]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join()
+
+        self.assertEqual(errors, [], f"child-env build failures under load: {errors}")
+        for t in tenants:
+            env = envs[t]
+            self.assertEqual(env.get("MCP_SECRET"), f"sk-{t}")                    # own secret present
+            leaked = (set(env.values()) & all_secrets) - {f"sk-{t}"}
+            self.assertEqual(leaked, set(), f"cross-tenant secret bleed for {t}")  # no other tenant's
+            for forbidden in ("AWS_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID", "DATABASE_URL", "OIDC_CLIENT_SECRET"):
+                self.assertNotIn(forbidden, env)                                  # ambient host secrets scrubbed
+
+
 if __name__ == "__main__":
     unittest.main()
