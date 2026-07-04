@@ -17,6 +17,10 @@ AWS EKS.
 > adapted from its source). Full provenance and the preserved upstream notices
 > are in [`NOTICE`](NOTICE).
 
+**Acknowledgments.** This project is built on the work of many open-source
+projects, standards, and communities — see [`ACKNOWLEDGMENTS.md`](ACKNOWLEDGMENTS.md)
+(legal provenance is in [`NOTICE`](NOTICE)).
+
 ## Positioning
 
 This project is intended for:

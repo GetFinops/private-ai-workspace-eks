@@ -195,5 +195,44 @@ class TestMemoryEmbeddingDegradation(unittest.TestCase):
         self.assertEqual(status, 503)
 
 
+class TestConcurrencyIsolation(unittest.TestCase):
+    """M7b under-load isolation: concurrent multi-user record+list — including the
+    high-risk same-tenant/different-user case — must not leak or lose writes."""
+
+    def test_concurrent_cross_user_isolation(self):
+        import threading
+
+        store = InMemoryMemoryStore()
+        per_user = 10
+        # 6 users across 2 tenants → 3 users share each tenant (same-tenant,
+        # different-user is exactly the case that must hold under concurrency).
+        users = [_Verifier(subject=f"u{i}", email=f"u{i}@tenant-{i % 2}.test") for i in range(6)]
+        errors: list = []
+
+        def worker(v):
+            try:
+                for n in range(per_user):
+                    build_memory_record_response(
+                        authorization=_AUTH, body=_record_body(content=f"memory {n}"),
+                        token_verifier=v, store=store, embedding_client=_EMBED)
+                _, listing = build_memory_list_response(
+                    authorization=_AUTH, token_verifier=v, store=store)
+                if listing["count"] != per_user:      # only ever this user's memories
+                    errors.append((v._claims.subject, listing["count"]))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(v,)) for v in users]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [], f"cross-user memory leakage/lost writes under load: {errors}")
+        total = sum(
+            build_memory_list_response(authorization=_AUTH, token_verifier=v, store=store)[1]["count"]
+            for v in users)
+        self.assertEqual(total, per_user * len(users))   # no writes lost
+
+
 if __name__ == "__main__":
     unittest.main()

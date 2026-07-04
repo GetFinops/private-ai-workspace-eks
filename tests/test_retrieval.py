@@ -312,5 +312,40 @@ class TestEmbeddingDegradation(unittest.TestCase):
         self.assertEqual(status, 503)
 
 
+class TestConcurrencyIsolation(unittest.TestCase):
+    """M7b under-load isolation: many tenants indexing + querying identical terms
+    concurrently must each retrieve ONLY their own chunk."""
+
+    def test_concurrent_multi_tenant_index_query_isolated(self):
+        import threading
+
+        store = InMemoryRetrievalStore()
+        content = "kubernetes pods autoscaling horizontal scaling runbook"
+        users = [_Verifier(subject=f"u{i}", email=f"u{i}@tenant-{i}.test") for i in range(6)]
+        errors: list = []
+
+        def worker(v):
+            try:
+                build_index_document_response(
+                    authorization=_AUTH, body=_index_body(title="doc", content=content),
+                    token_verifier=v, store=store, embedding_client=_EMBED)
+                _, payload = build_retrieval_query_response(
+                    authorization=_AUTH, body=_query_body(query=content),
+                    token_verifier=v, store=store, embedding_client=_EMBED)
+                # Each tenant indexed one identical doc → isolation means the query
+                # returns exactly that one in-scope chunk, never another tenant's.
+                if payload["count"] != 1:
+                    errors.append(("count", payload["count"]))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(v,)) for v in users]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [], f"cross-tenant retrieval leakage under load: {errors}")
+
+
 if __name__ == "__main__":
     unittest.main()

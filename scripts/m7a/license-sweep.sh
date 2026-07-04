@@ -74,29 +74,65 @@ echo "==> Container images and model artifacts"
 images=(
   "vllm/vllm-openai"
   "mistralai/Mistral-7B-Instruct-v0.3"
+  # M14 media + M10 embedding runtime artifacts that now ship.
+  "faster-whisper"
+  "stable-diffusion-xl"
+  "text-embeddings-inference"
+  "external-dns"
 )
 for img in "${images[@]}"; do
   check_notice_contains "image/model: ${img}" "${img}"
 done
 
 echo ""
-echo "==> AGPL-sensitive components (must NOT appear in default build)"
-agpl_sensitive=(
-  "PyMuPDF"
-  "SearXNG"
-)
-for component in "${agpl_sensitive[@]}"; do
-  # PyMuPDF and SearXNG are allowed to be mentioned in NOTICE/docs as
-  # excluded-by-default, but they must not appear in pyproject.toml or
-  # Chart.yaml as a runtime dependency.
-  if grep -rq --include='pyproject.toml' --include='Chart.yaml' \
-       -F -- "${component}" "${ROOT}"; then
-    echo "  FAIL  ${component} appears as a runtime dependency (must be excluded)"
-    fail=1
-  else
-    echo "  PASS  ${component} not present as runtime dependency"
-  fi
-done
+echo "==> Vendored frontend + new-this-cycle artifacts"
+# pdf.js is vendored verbatim under app/ui/static/vendor and must (a) be recorded
+# in NOTICE, (b) retain its Apache-2.0 @license header in the shipped file, and
+# (c) carry a standalone attribution file alongside the binaries.
+check_notice_contains "vendored: pdf.js (pdfjs-dist)" "pdfjs-dist"
+check_notice_contains "feature: web_search (external-service, no bundled engine)" "web_search"
+PDFJS="${ROOT}/app/ui/static/vendor/pdf.min.js"
+PDFJS_LICENSE="${ROOT}/app/ui/static/vendor/LICENSE"
+if [[ -f "${PDFJS}" ]] && grep -q "Apache License" "${PDFJS}"; then
+  echo "  PASS  pdf.min.js present with embedded Apache-2.0 @license header"
+else
+  echo "  FAIL  pdf.min.js missing or its Apache-2.0 @license header was stripped"
+  fail=1
+fi
+if [[ -f "${PDFJS_LICENSE}" ]]; then
+  echo "  PASS  standalone vendor/LICENSE attribution present"
+else
+  echo "  FAIL  app/ui/static/vendor/LICENSE (attribution) is missing"
+  fail=1
+fi
+
+echo ""
+echo "==> AGPL-sensitive components (must NOT be WIRED into the default build)"
+# These may be MENTIONED in NOTICE / docs / code comments as excluded-by-default
+# (e.g. web_search.py's "embeds NO SearXNG") — that is the exclusion *statement*
+# and is intentionally not scanned. We check the surfaces where a real
+# dependency / image / vendored asset would actually live: Python deps, the whole
+# deploy/ Helm surface (charts AND values, broadened from the old Chart.yaml-only
+# check), and the vendored-assets dir.
+VENDOR_DIR="${ROOT}/app/ui/static/vendor"
+
+# PyMuPDF — a Python dependency; must not be declared in pyproject.toml.
+if grep -iq "pymupdf" "${ROOT}/pyproject.toml"; then
+  echo "  FAIL  PyMuPDF present in pyproject.toml (must be excluded)"
+  fail=1
+else
+  echo "  PASS  PyMuPDF not a Python dependency"
+fi
+
+# SearXNG — a bundled search engine; must not appear as a Helm image/chart/values
+# entry or as a vendored asset (WEB_SEARCH is external-service only).
+if grep -riq "searxng" "${ROOT}/deploy" 2>/dev/null \
+   || { [[ -d "${VENDOR_DIR}" ]] && ls "${VENDOR_DIR}" | grep -qi "searxng"; }; then
+  echo "  FAIL  SearXNG wired into Helm/deploy or vendored (must be excluded)"
+  fail=1
+else
+  echo "  PASS  SearXNG not wired into Helm/deploy or vendored"
+fi
 
 echo ""
 if [[ "${fail}" -eq 0 ]]; then

@@ -1,0 +1,29 @@
+Third-party vendored assets — license attribution
+==================================================
+
+This directory holds verbatim, self-hosted third-party browser assets served
+same-origin under the app's strict Content-Security-Policy (no CDN, no eval).
+Provenance is also recorded in the repository-root NOTICE file.
+
+pdf.js  (pdf.min.js, pdf.worker.min.js)
+---------------------------------------
+Project:   Mozilla pdf.js  (npm: pdfjs-dist, version 3.11.174)
+Source:    https://github.com/mozilla/pdf.js
+Copyright: Copyright (c) Mozilla Foundation and contributors.
+License:   Apache License, Version 2.0
+
+    Licensed under the Apache License, Version 2.0 (the "License"); you may not
+    use these files except in compliance with the License. You may obtain a copy
+    of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+    License for the specific language governing permissions and limitations
+    under the License.
+
+The full Apache-2.0 @license notice is also embedded verbatim in the header of
+pdf.min.js / pdf.worker.min.js as shipped. Apache-2.0 is permissive and
+compatible with this project's MIT licence; the files are used unmodified.
