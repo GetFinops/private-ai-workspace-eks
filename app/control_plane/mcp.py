@@ -36,7 +36,6 @@ from app.control_plane.notifications import (
     _extract_tenant_id,
     _verify_and_extract,
 )
-from app.control_plane.token_verifier import TokenVerifier
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +166,7 @@ class MCPExecutor:
             try:
                 proc.kill()
             except ProcessLookupError:
-                pass
+                pass  # process already exited — nothing to kill
         try:
             proc.communicate(timeout=2)
         except Exception:  # noqa: BLE001

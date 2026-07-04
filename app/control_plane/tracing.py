@@ -99,7 +99,7 @@ def get_current_trace_id() -> str:
         if ctx and ctx.is_valid:
             return format(ctx.trace_id, "032x")
     except Exception:
-        pass
+        pass  # tracing is best-effort — no/invalid span must not break the caller
     return ""
 
 
@@ -112,7 +112,7 @@ def inject_trace_headers(headers: dict[str, str]) -> dict[str, str]:
         from opentelemetry.propagate import inject  # type: ignore[import]
         inject(headers)
     except Exception:
-        pass
+        pass  # best-effort trace propagation — never block the outgoing request
     return headers
 
 

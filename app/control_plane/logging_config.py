@@ -21,7 +21,6 @@ from __future__ import annotations
 import json
 import logging
 import sys
-import time
 from contextvars import ContextVar
 from typing import Any
 
@@ -64,7 +63,7 @@ class _JsonFormatter(logging.Formatter):
             if ctx and ctx.is_valid:
                 trace_id = format(ctx.trace_id, "032x")
         except Exception:
-            pass
+            pass  # tracing is best-effort — log without trace correlation
 
         entry: dict[str, Any] = {
             "timestamp": self.formatTime(record, "%Y-%m-%dT%H:%M:%S.{ms}Z").format(

@@ -156,7 +156,7 @@ class SandboxExecutor:
             try:
                 proc.kill()
             except ProcessLookupError:
-                pass
+                pass  # process already exited — nothing to kill
         try:
             proc.communicate(timeout=2)
         except Exception:  # noqa: BLE001

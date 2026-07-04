@@ -34,7 +34,7 @@ import datetime
 import json
 import threading
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Protocol, runtime_checkable
 
