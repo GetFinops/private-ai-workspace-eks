@@ -51,6 +51,7 @@ require_cmd() {
 }
 require_cmd helm
 require_cmd kubectl
+require_cmd jq   # used to read the current Helm revision (rollback target)
 
 echo "==> Pre-flight: confirm release is healthy"
 helm status "${RELEASE}" --namespace "${NAMESPACE}" > /dev/null
