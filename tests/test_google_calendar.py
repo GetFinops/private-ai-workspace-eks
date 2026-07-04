@@ -182,5 +182,60 @@ class TestExecutorRoundTrip(unittest.TestCase):
         go.assert_not_called()
 
 
+class TestCredentialScopingUnderLoad(unittest.TestCase):
+    """M7b isolation-under-load: under concurrent multi-tenant invokes, each
+    tenant's per-(tenant,integration) OAuth token cache must hold ONLY its own
+    minted token — no cross-tenant credential bleed."""
+
+    def test_concurrent_token_cache_isolation(self):
+        import threading
+        import urllib.parse
+
+        # Each tenant's secret carries a DISTINCT refresh token (rt-<tenant>).
+        ex = IntegrationExecutor(
+            integrations=register({}),
+            secret_resolver=lambda t, i: (
+                {"CLIENT_ID": "c", "CLIENT_SECRET": "s", "REFRESH_TOKEN": f"rt-{t}"}
+                if i == "google_calendar" else None),
+        )
+
+        def _mint_by_tenant(target, **kw):
+            # For the token endpoint, mint an access token that ENCODES the
+            # tenant (derived from the refresh_token in the request body) so any
+            # cross-tenant bleed is directly observable in the cache.
+            if target.host == "oauth2.googleapis.com":
+                body = kw.get("body", b"") or b""
+                rt = urllib.parse.parse_qs(body.decode()).get("refresh_token", [""])[0]
+                return OutboundResponse(
+                    200, {"content-type": "application/json"},
+                    f'{{"access_token": "AT-{rt[3:]}", "expires_in": 3600}}'.encode())
+            return _CAL_RESP
+
+        tenants = [f"tenant-{i}.test" for i in range(6)]
+        errors: list = []
+
+        def worker(t):
+            try:
+                out = ex.invoke("google_calendar", "list_events", {}, tenant_id=t)
+                if out.result_class != "success":
+                    errors.append((t, out.result_class))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        with _public_dns(), mock.patch.object(integ, "guarded_open", side_effect=_mint_by_tenant):
+            threads = [threading.Thread(target=worker, args=(t,)) for t in tenants]
+            for th in threads:
+                th.start()
+            for th in threads:
+                th.join()
+
+        self.assertEqual(errors, [], f"integration invoke failures under load: {errors}")
+        # Every tenant's cached access token is its OWN — no cross-tenant bleed.
+        for t in tenants:
+            cached = ex._token_cache.get((t, "google_calendar"))
+            self.assertIsNotNone(cached, f"no token cached for {t}")
+            self.assertEqual(cached[0], f"AT-{t}", f"cross-tenant token bleed for {t}")
+
+
 if __name__ == "__main__":
     unittest.main()
