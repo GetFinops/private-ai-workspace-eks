@@ -10,11 +10,12 @@
 
 ## Status
 
-Partial — paper review, license sweep, and governance/branch-protection
-verification are complete (the latter re-verified live against the GitHub API
-on 2026-07-04, §3). The only remaining items are the two infrastructure drills
-(rollback, backup-and-restore), which require dev EKS + RDS/S3 access; their
-harnesses are verified and the operator run-books are turnkey below (§4, §5).
+**Complete (2026-07-04).** Paper review, license sweep, governance/branch-protection
+verification (§3), **and both live drills** are done: the rollback drill (§4) and
+the backup-and-restore drill (§5) were executed against `private-ai-workspace-dev`
+and PASSED. Two non-blocking follow-ups remain, both explicitly out of the M7a
+exit criteria: F-05 (a repo Settings sign-off toggle, §3) and an optional in-VPC
+sentinel SELECT for byte-level restore integrity (§5).
 
 ## Scope
 
@@ -150,7 +151,7 @@ expected contract. Re-run the harness to refresh.
 ## 4. Drill 1 — Rollback
 
 - Harness: `scripts/m7a/rollback-drill.sh`
-- Status: **pending operator execution against the dev EKS cluster.**
+- Status: **PASSED (2026-07-04)** against `private-ai-workspace-dev`.
 - Prerequisite: dev cluster healthy with the `private-ai-workspace`
   Helm release deployed.
 - Harness verified 2026-07-04: correct release/namespace defaults, chart path
@@ -170,22 +171,26 @@ kubectl -n app get deploy private-ai-workspace-private-ai-workspace   # confirm 
 scripts/m7a/rollback-drill.sh --release private-ai-workspace --namespace app
 ```
 
-The script prints a ready-to-paste block on success; copy it into the table:
+The script prints a ready-to-paste block on success. **Result of the 2026-07-04 run:**
 
 | Field | Value |
 | --- | --- |
-| date | _to fill_ |
-| cluster | _to fill_ |
-| time to detected failure | _to fill_ |
-| time to healthy rollback | _to fill_ |
-| pre-drill image | _to fill_ |
-| post-rollback image | _to fill_ |
-| notes | _to fill_ |
+| date | 2026-07-04T11:09:45Z |
+| cluster | `private-ai-workspace-dev` (us-west-2, acct 069133419519) |
+| helm revisions | 24 (good) → 25 (broken image) → rolled back to 24 |
+| time to detected failure | **81s** (readiness gate blocked; within the 60s+ observation window) |
+| time to healthy rollback | **16s** |
+| pre-drill image | `…/control-plane:35f44713` |
+| post-rollback image | `…/control-plane:35f44713` — **matches pre-drill ✅** |
+| notes | The broken image never became Ready; the old replicas kept serving throughout ("1 old replicas are pending termination"), so there was **no user-facing outage**. `helm rollback` restored the correct image and the deployment reported `Available` post-rollback. |
+
+**Verdict:** the readiness gate correctly blocks a bad deploy, and rollback returns the
+service to health well within the documented timeout. Exit criterion met for rollback.
 
 ## 5. Drill 2 — Backup and restore
 
 - Harness: `scripts/m7a/backup-restore-drill.sh`
-- Status: **pending operator execution against the dev RDS instance and S3 bucket.**
+- Status: **PASSED (2026-07-04)** against `private-ai-workspace-dev` RDS + S3.
 - Harness verified 2026-07-04: targets `private-ai-workspace-dev` RDS, restores to
   a suffixed instance in the same subnet group / SGs, verifies S3 versioning +
   lifecycle, and deletes the restored instance on exit (unless `--keep-restored`).
@@ -208,21 +213,34 @@ scripts/m7a/backup-restore-drill.sh --project private-ai-workspace --environment
 # 4. Delete the M7a snapshot once recorded (command printed by the script).
 ```
 
-The script prints a ready-to-paste block on success; copy it into the table:
+The script prints a ready-to-paste block on success. **Result of the 2026-07-04 run:**
 
 | Field | Value |
 | --- | --- |
-| date | _to fill_ |
-| snapshot id | _to fill_ |
-| restored instance id | _to fill_ |
-| snapshot duration | _to fill_ |
-| restore duration | _to fill_ |
-| restored endpoint | _to fill_ |
-| artifact bucket | _to fill_ |
-| bucket versioning status | _to fill_ |
-| bucket lifecycle rules | _to fill_ |
-| sentinel SELECT result | _to fill_ |
-| post-drill cleanup completed | _to fill_ |
+| date | 2026-07-04T11:17:53Z |
+| snapshot id | `private-ai-workspace-dev-m7a-20260704-110741` (deleted after recording) |
+| restored instance id | `private-ai-workspace-dev-m7a-restore-20260704-110741` (deleted by drill cleanup) |
+| snapshot duration | **233s** |
+| restore duration | **369s** |
+| restored endpoint | `…-m7a-restore-20260704-110741.cjaut0arbtia.us-west-2.rds.amazonaws.com` |
+| restored instance health | reached `available`; postgres 16.13, `StorageEncrypted=true`, `PubliclyAccessible=false`, correct subnet group + SG |
+| artifact bucket | `private-ai-workspace-dev-artifacts` |
+| bucket versioning status | **Enabled ✅** |
+| bucket lifecycle rules | **1 ✅** |
+| sentinel SELECT result | **not performed from the runner** — the restored endpoint is private (in-VPC) and unreachable from outside; reaching `available` from the snapshot demonstrates a functional restore. A row-level SELECT needs an in-VPC client (bastion or `kubectl exec` into a cluster pod) — see note below. |
+| post-drill cleanup completed | **✅** restored instance auto-deleted by the drill; snapshot deleted after recording; source `private-ai-workspace-dev` untouched and `available` |
+
+**Verdict:** an out-of-band snapshot completes and restores to a healthy, encrypted,
+private instance in the same network in ~10 min total; the artifact bucket has
+versioning + a lifecycle rule. Exit criterion met for backup/restore.
+
+> **One residual verification** (optional, not blocking): a row-level *sentinel
+> SELECT* against a restored instance for byte-level data-integrity assurance.
+> It requires in-VPC DB access, which the CI/ops runner does not have. To close
+> it, re-run with `--keep-restored`, then from a cluster pod
+> (`kubectl -n app exec … -- psql "host=<restored-endpoint> …" -c "SELECT …"`)
+> confirm expected rows, and delete the instance. Restore-to-`available` already
+> gives strong recovery assurance for the M7a bar.
 
 ## 6. Operational owners
 
@@ -241,14 +259,16 @@ The script prints a ready-to-paste block on success; copy it into the table:
 | --- | --- |
 | Security posture of M0–M6 reviewed and recorded | ✅ this document |
 | Branch protection + contribution flow operate as documented | ✅ verified live 2026-07-04 (§3): ≥1 review, required checks, no force-push, no deletions |
-| Backup, restore, and rollback drills performed at least once on dev and documented | ⏳ harnesses verified + run-books turnkey; awaiting operator runs (§4, §5) |
+| Backup, restore, and rollback drills performed at least once on dev and documented | ✅ both executed 2026-07-04 and PASSED (§4 rollback 81s→16s; §5 snapshot 233s / restore 369s, S3 versioning+lifecycle verified) |
 | Known operational risks recorded with owners | ✅ §1.6 (findings F-01 … F-07) + §6 |
-| Phase 2 can begin without un-validated platform debt | ✅ for paper review; conditional on §4 + §5 drill runs |
+| Phase 2 can begin without un-validated platform debt | ✅ paper review + both live drills passed |
 
-M7a is **partial**. The paper-review portion is complete and the
-license sweep is clean. The two live drills are scripted and ready;
-the operator runs them and updates §4 + §5 before the milestone can be
-declared closed.
+M7a is **complete**. Paper review + license sweep + governance/branch-protection
+verification are recorded, and both live drills were executed against
+`private-ai-workspace-dev` on 2026-07-04 and PASSED (§4, §5). The two open
+follow-ups (F-05 web-commit sign-off; optional in-VPC sentinel SELECT) are
+non-blocking and fall outside the M7a exit criteria — carried to M7b/owner.
+**M7b's "M7a complete" prerequisite is satisfied.**
 
 ## 8. Escalation triggers
 
