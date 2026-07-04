@@ -71,6 +71,11 @@ class TestDocumentEdit(unittest.TestCase):
             inference_client=_Inference(), rate_limiter=RateLimiter())
         self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
 
+    def test_kill_switch_disables(self):
+        status, payload = _edit({"content": "a", "instruction": "b"}, enabled=False)
+        self.assertEqual(status, HTTPStatus.SERVICE_UNAVAILABLE)
+        self.assertEqual(payload["error"], "documents_unavailable")
+
     def test_degraded_when_inference_cold(self):
         status, payload = build_document_edit_response(
             authorization="Bearer valid", body=json.dumps({"content": "a", "instruction": "b"}).encode(),

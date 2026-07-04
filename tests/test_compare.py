@@ -82,6 +82,11 @@ class TestCompare(unittest.TestCase):
             inference_client=_Inference({}), rate_limiter=RateLimiter())
         self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
 
+    def test_kill_switch_disables(self):
+        status, payload = _invoke({"prompt": "hi", "models": ["a", "b"]}, enabled=False)
+        self.assertEqual(status, HTTPStatus.SERVICE_UNAVAILABLE)
+        self.assertEqual(payload["error"], "compare_unavailable")
+
     def test_degraded_when_inference_cold(self):
         status, payload = build_compare_response(
             authorization="Bearer valid", body=json.dumps({"prompt": "x", "models": ["a", "b"]}).encode(),

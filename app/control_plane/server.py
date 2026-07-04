@@ -549,6 +549,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     web_search_client = None  # set at startup from WEB_SEARCH; None = web mode off
     compare_rate_limiter: RateLimiter = RateLimiter()
     documents_rate_limiter: RateLimiter = RateLimiter()
+    chat_rate_limiter: RateLimiter = RateLimiter()  # gates SSE chat-stream opens
     notes_store: NotesStore = InMemoryNotesStore()  # type: ignore[assignment]
     # MCP integration (M12). Disabled by default; allow-list empty (deny by default).
     mcp_enabled: bool = False
@@ -863,7 +864,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     authorization=self.headers.get("Authorization"),
                     body=body,
                     token_verifier=self.__class__.token_verifier,
-                    enabled=True,
+                    enabled=self.__class__.config.compare_enabled,
                     inference_client=self.__class__.agent_loop_inference_client,
                     rate_limiter=self.__class__.compare_rate_limiter,
                     default_models=self.__class__.config.model_list(),
@@ -875,7 +876,7 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     authorization=self.headers.get("Authorization"),
                     body=body,
                     token_verifier=self.__class__.token_verifier,
-                    enabled=True,
+                    enabled=self.__class__.config.documents_enabled,
                     inference_client=self.__class__.agent_loop_inference_client,
                     rate_limiter=self.__class__.documents_rate_limiter,
                 )
@@ -1069,36 +1070,52 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
         if err is not None:
             self._write_json(err.status_code, err.payload, err.headers)
             return
-        client = VLLMInferenceClient(base_url=self.__class__.config.inference_base_url)
-        try:
-            resp = client.open_chat_stream(chat_request)  # type: ignore[arg-type]
-        except InferenceUnavailableError:
-            INFERENCE_REQUESTS_TOTAL.labels(status="unavailable").inc()
-            self._write_json(HTTPStatus.SERVICE_UNAVAILABLE,
-                             {"error": "inference_unavailable", "status": "degraded", "retry_after": 30},
-                             {"Retry-After": "30"})
+        # Rate-limit / cap concurrency at stream OPEN, per tenant — a stream is a
+        # long-lived, thread-holding connection, so unbounded opens are the core
+        # backpressure risk. Auth already succeeded in prepare_chat_stream; re-derive
+        # the tenant (cheap, once per open) for the limiter key.
+        claims, _cerr = _verify_and_extract(self.headers.get("Authorization"), self.__class__.token_verifier)
+        tenant_id = _extract_tenant_id(claims) if claims is not None else "unknown"
+        rate_limiter = self.__class__.chat_rate_limiter
+        if not rate_limiter.try_acquire(tenant_id, now=int(time.time())):
+            self._write_json(HTTPStatus.TOO_MANY_REQUESTS, {"error": "rate_limited"})
             return
-        except (TimeoutError, InferenceRoutingError):
-            self._write_json(HTTPStatus.GATEWAY_TIMEOUT, {"error": "inference_timeout", "status": "degraded"})
-            return
-        # Relay the SSE stream verbatim.
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Cache-Control", "no-cache")
-        self.send_header("X-Accel-Buffering", "no")
-        self.end_headers()
-        INFERENCE_REQUESTS_TOTAL.labels(status="success").inc()
         try:
-            for line in resp:
-                self.wfile.write(line)
-                self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
-            pass
-        finally:
+            client = VLLMInferenceClient(base_url=self.__class__.config.inference_base_url)
             try:
-                resp.close()
-            except Exception:  # pragma: no cover
+                resp = client.open_chat_stream(chat_request)  # type: ignore[arg-type]
+            except InferenceUnavailableError:
+                INFERENCE_REQUESTS_TOTAL.labels(status="unavailable").inc()
+                self._write_json(HTTPStatus.SERVICE_UNAVAILABLE,
+                                 {"error": "inference_unavailable", "status": "degraded", "retry_after": 30},
+                                 {"Retry-After": "30"})
+                return
+            except (TimeoutError, InferenceRoutingError):
+                self._write_json(HTTPStatus.GATEWAY_TIMEOUT, {"error": "inference_timeout", "status": "degraded"})
+                return
+            # Relay the SSE stream verbatim, bounded by a max connection lifetime.
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+            INFERENCE_REQUESTS_TOTAL.labels(status="success").inc()
+            deadline = time.monotonic() + self.__class__.config.chat_stream_max_seconds
+            try:
+                for line in resp:
+                    self.wfile.write(line)
+                    self.wfile.flush()
+                    if time.monotonic() > deadline:
+                        break  # lifetime cap — client must reconnect
+            except (BrokenPipeError, ConnectionResetError):
                 pass
+            finally:
+                try:
+                    resp.close()
+                except Exception:  # pragma: no cover
+                    pass
+        finally:
+            rate_limiter.release()
 
     def _handle_notifications_stream(self) -> None:
         """GET /v1/notifications/stream — push unread notifications over SSE.
@@ -1648,4 +1665,7 @@ def run_server(
         )
 
     server = ThreadingHTTPServer((host, port), ControlPlaneHandler)
+    # Backpressure hygiene (M7b): per-connection threads are daemons so a slow
+    # client / stuck stream cannot block process shutdown.
+    server.daemon_threads = True
     server.serve_forever()

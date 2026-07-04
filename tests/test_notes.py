@@ -1,5 +1,6 @@
 """Tests for Notes & Tasks — CRUD + per-tenant/user isolation."""
 import json
+import threading
 import unittest
 from http import HTTPStatus
 
@@ -142,6 +143,54 @@ class TestIsolation(unittest.TestCase):
     def test_other_tenant_delete_is_404(self):
         self.assertEqual(_delete(self.store, _CARL, self.alice_item["id"])[0], HTTPStatus.NOT_FOUND)
         self.assertEqual(_list(self.store, _ALICE)[1]["count"], 1)  # still there
+
+    def test_documents_kind_doc_isolation(self):
+        # Documents (Documents-editor) persist as kind="doc" notes, so isolation
+        # must hold for them exactly as for notes/tasks.
+        _, doc = _create(self.store, _ALICE, kind="doc", title="alice-doc", body="secret")
+        self.assertEqual(_list(self.store, _CARL, kind="doc")[1]["count"], 0)          # other tenant
+        self.assertEqual(_update(self.store, _BEN, doc["id"], body="x")[0], HTTPStatus.NOT_FOUND)  # other user
+
+
+class TestConcurrencyIsolation(unittest.TestCase):
+    """M7b-style isolation UNDER LOAD: concurrent multi-tenant traffic must not
+    leak across tenants and must not lose writes (InMemoryNotesStore is locked)."""
+
+    def test_concurrent_multi_tenant_create_and_list_stay_isolated(self):
+        store = InMemoryNotesStore()
+        per_user = 25
+        users = [_Verifier(f"u{i}", f"u{i}@tenant-{i}.test") for i in range(6)]
+        errors: list = []
+
+        def worker(v):
+            try:
+                for n in range(per_user):
+                    status, _ = build_note_create_response(
+                        authorization="Bearer valid",
+                        body=json.dumps({"kind": "note", "title": f"t{n}"}).encode(),
+                        token_verifier=v, store=store)
+                    if status != HTTPStatus.CREATED:
+                        errors.append(("create", status))
+                # This user must see ONLY their own items — never the other 5 users'.
+                count = build_notes_list_response(
+                    authorization="Bearer valid", token_verifier=v, store=store)[1]["count"]
+                if count != per_user:
+                    errors.append((v._claims.email, count))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(v,)) for v in users]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(errors, [], f"cross-tenant leakage or lost writes under load: {errors}")
+        # No writes lost across the whole store.
+        total = sum(
+            build_notes_list_response(authorization="Bearer valid", token_verifier=v, store=store)[1]["count"]
+            for v in users)
+        self.assertEqual(total, per_user * len(users))
 
 
 if __name__ == "__main__":
