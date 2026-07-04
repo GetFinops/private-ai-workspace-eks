@@ -80,12 +80,27 @@
     docQuery:      $('doc-query'),
     docQueryBtn:   $('doc-query-btn'),
     docResults:    $('doc-results'),
+    docEditorTitle: $('doc-editor-title'),
+    docEditorBody: $('doc-editor-body'),
+    docSaveBtn:    $('doc-save-btn'),
+    docNewBtn:     $('doc-new-btn'),
+    docInstruction: $('doc-instruction'),
+    docAiBtn:      $('doc-ai-btn'),
+    docEditorStatus: $('doc-editor-status'),
+    docEditorList: $('doc-editor-list'),
     memText:       $('mem-text'),
     memConsent:    $('mem-consent'),
     memSaveBtn:    $('mem-save-btn'),
     memStatus:     $('mem-status'),
     memRefreshBtn: $('mem-refresh-btn'),
     memResults:    $('mem-results'),
+    noteKind:      $('note-kind'),
+    noteTitle:     $('note-title'),
+    noteBody:      $('note-body'),
+    noteAddBtn:    $('note-add-btn'),
+    noteStatus:    $('note-status'),
+    noteRefreshBtn: $('note-refresh-btn'),
+    noteResults:   $('note-results'),
     agentTask:     $('agent-task'),
     agentWeb:      $('agent-web'),
     agentRunBtn:   $('agent-run-btn'),
@@ -1036,7 +1051,7 @@
   function openTools() {
     els.toolsDrawer.classList.add('open');
     els.toolsBtn.setAttribute('aria-expanded', 'true');
-    if (!state.toolsLoaded) { state.toolsLoaded = true; loadMediaServices(); refreshMemory(); loadIntegrations(); populateCompareModels(); }
+    if (!state.toolsLoaded) { state.toolsLoaded = true; loadMediaServices(); refreshMemory(); loadIntegrations(); populateCompareModels(); refreshNotes(); refreshDocs(); }
   }
   function closeTools() {
     els.toolsDrawer.classList.remove('open');
@@ -1266,6 +1281,144 @@
     } catch (e) { setStatus(els.mediaStatus, 'Error: ' + (e.message || 'unknown'), true); }
   }
 
+  // Documents editor (writing-first + AI edit; persisted as kind="doc")
+  async function saveDoc() {
+    var title = els.docEditorTitle.value.trim();
+    var bodyText = els.docEditorBody.value;
+    if (!title) { setStatus(els.docEditorStatus, 'Give the document a title.', true); return; }
+    setStatus(els.docEditorStatus, 'Saving…');
+    try {
+      var path = state.currentDocId ? '/v1/notes/' + encodeURIComponent(state.currentDocId) : '/v1/notes';
+      var payload = state.currentDocId ? { title: title, body: bodyText } : { kind: 'doc', title: title, body: bodyText };
+      var r = await toolJson(path, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      });
+      if (!r.ok && r.status !== 201) { setStatus(els.docEditorStatus, r.data.detail || r.data.error || 'Save failed', true); return; }
+      if (r.data && r.data.id) state.currentDocId = r.data.id;
+      setStatus(els.docEditorStatus, 'Saved.');
+      refreshDocs();
+    } catch (e) {}
+  }
+  function newDoc() {
+    state.currentDocId = null;
+    els.docEditorTitle.value = ''; els.docEditorBody.value = ''; els.docInstruction.value = '';
+    setStatus(els.docEditorStatus, '');
+  }
+  function openDoc(doc) {
+    state.currentDocId = doc.id;
+    els.docEditorTitle.value = doc.title || '';
+    els.docEditorBody.value = doc.body || '';
+    setStatus(els.docEditorStatus, 'Loaded “' + (doc.title || 'document') + '”.');
+  }
+  async function aiEditDoc() {
+    var content = els.docEditorBody.value;
+    var instruction = els.docInstruction.value.trim();
+    if (!content.trim()) { setStatus(els.docEditorStatus, 'Write something first.', true); return; }
+    if (!instruction) { setStatus(els.docEditorStatus, 'Enter an edit instruction.', true); return; }
+    setStatus(els.docEditorStatus, 'AI editing… (this can take a while)');
+    try {
+      var r = await toolJson('/v1/documents/edit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: content, instruction: instruction, model: state.selectedModel || 'default' }),
+      });
+      if (!r.ok) { setStatus(els.docEditorStatus, r.data.detail || r.data.error || 'AI edit failed', true); return; }
+      els.docEditorBody.value = r.data.result || content;   // apply the revision
+      setStatus(els.docEditorStatus, 'AI edit applied — Save to keep it.');
+    } catch (e) {}
+  }
+  async function refreshDocs() {
+    clearChildren(els.docEditorList);
+    try {
+      var r = await toolJson('/v1/notes?kind=doc');
+      var docs = (r.data && r.data.notes) || [];
+      if (docs.length === 0) { appendResultLine(els.docEditorList, 'No saved documents yet.'); return; }
+      docs.forEach(function (d) {
+        var item = document.createElement('div');
+        item.className = 'tool-result-item';
+        var open = document.createElement('button');
+        open.className = 'tool-btn-ghost'; open.type = 'button'; setText(open, d.title || '(untitled)');
+        open.addEventListener('click', function () { openDoc(d); });
+        var del = document.createElement('button');
+        del.className = 'tool-btn-ghost'; del.type = 'button'; setText(del, 'Delete');
+        del.addEventListener('click', function () {
+          deleteNote(d.id, item);
+          if (state.currentDocId === d.id) newDoc();
+        });
+        item.appendChild(open); item.appendChild(del);
+        els.docEditorList.appendChild(item);
+      });
+    } catch (e) {}
+  }
+
+  // Notes & Tasks (per-user; private)
+  async function createNote() {
+    var title = els.noteTitle.value.trim();
+    if (!title) { setStatus(els.noteStatus, 'Enter a title.', true); return; }
+    try {
+      var r = await toolJson('/v1/notes', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: els.noteKind.value, title: title, body: els.noteBody.value.trim() }),
+      });
+      if (r.status !== 201) { setStatus(els.noteStatus, r.data.detail || r.data.error || 'Add failed', true); return; }
+      setStatus(els.noteStatus, '');
+      els.noteTitle.value = ''; els.noteBody.value = '';
+      refreshNotes();
+    } catch (e) {}
+  }
+  async function refreshNotes() {
+    clearChildren(els.noteResults);
+    try {
+      var r = await toolJson('/v1/notes');
+      // Documents (kind="doc") live in the Editor panel, not here.
+      var notes = ((r.data && r.data.notes) || []).filter(function (n) { return n.kind !== 'doc'; });
+      if (notes.length === 0) { appendResultLine(els.noteResults, 'No notes or tasks yet.'); return; }
+      notes.forEach(function (n) { els.noteResults.appendChild(renderNote(n)); });
+    } catch (e) {}
+  }
+  function renderNote(n) {
+    var item = document.createElement('div');
+    item.className = 'tool-result-item';
+    var head = document.createElement('div'); head.className = 'tool-result-title';
+    if (n.kind === 'task') {
+      var cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.checked = !!n.done; cb.setAttribute('aria-label', 'Done');
+      cb.addEventListener('change', function () { toggleNote(n.id, cb.checked, head); });
+      head.appendChild(cb);
+    }
+    var t = document.createElement('span');
+    setText(t, ' ' + n.title);
+    if (n.kind === 'task' && n.done) t.style.textDecoration = 'line-through';
+    head.appendChild(t);
+    item.appendChild(head);
+    if (n.body) {
+      var b = document.createElement('div'); b.className = 'tool-result-snippet';
+      setText(b, n.body); item.appendChild(b);
+    }
+    var del = document.createElement('button');
+    del.className = 'tool-btn-ghost'; del.type = 'button'; setText(del, 'Delete');
+    del.addEventListener('click', function () { deleteNote(n.id, item); });
+    item.appendChild(del);
+    return item;
+  }
+  async function toggleNote(id, done, headEl) {
+    try {
+      var r = await toolJson('/v1/notes/' + encodeURIComponent(id), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ done: done }),
+      });
+      if (r.ok) {
+        var span = headEl.querySelector('span');
+        if (span) span.style.textDecoration = done ? 'line-through' : 'none';
+      }
+    } catch (e) {}
+  }
+  async function deleteNote(id, itemEl) {
+    try {
+      var resp = await apiFetch('/v1/notes/' + encodeURIComponent(id), { method: 'DELETE' });
+      if (resp.ok && itemEl) itemEl.remove();
+    } catch (e) {}
+  }
+
   // Compare (blind A/B across two models + optional synthesis)
   function populateCompareModels() {
     var models = (state.models && state.models.length ? state.models : ['default']);
@@ -1476,6 +1629,11 @@
     els.mediaGenerateBtn.addEventListener('click', generateImage);
     els.mediaSynthesizeBtn.addEventListener('click', synthesizeSpeech);
     els.compareBtn.addEventListener('click', runCompare);
+    els.noteAddBtn.addEventListener('click', createNote);
+    els.noteRefreshBtn.addEventListener('click', refreshNotes);
+    els.docSaveBtn.addEventListener('click', saveDoc);
+    els.docNewBtn.addEventListener('click', newDoc);
+    els.docAiBtn.addEventListener('click', aiEditDoc);
     // Draft surfaces (escalation-gated).
     els.integRefreshBtn.addEventListener('click', loadIntegrations);
     els.integInvokeBtn.addEventListener('click', invokeIntegration);

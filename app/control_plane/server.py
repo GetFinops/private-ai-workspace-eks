@@ -16,6 +16,9 @@ POST /v1/agent/tools/invoke    — sandboxed, allow-listed tool execution (M11)
 POST /v1/agent/runs            — LLM agent loop over allow-listed tools (M11)
 POST /v1/agent/research        — deep-research (plan→retrieve→synthesize) (M11)
 POST /v1/compare               — blind A/B of one prompt across N models + synthesis
+GET/POST /v1/notes             — list / create notes, tasks & docs (per-tenant/user)
+POST/DELETE /v1/notes/{id}     — update / delete a caller-owned note/task/doc
+POST /v1/documents/edit        — AI edit of a document given an instruction (writing-first)
 POST /v1/mcp/tools/list        — list an allow-listed MCP server's tools (M12)
 POST /v1/mcp/invoke            — invoke a tool on a sandboxed MCP server (M12)
 POST /v1/media/transcribe      — speech-to-text via an allow-listed backend (M14)
@@ -128,6 +131,15 @@ from app.control_plane.media import (
 )
 from app.control_plane.web_search import WebSearchClient, parse_web_search_config
 from app.control_plane.compare import build_compare_response
+from app.control_plane.documents import build_document_edit_response
+from app.control_plane.notes import (
+    InMemoryNotesStore,
+    NotesStore,
+    build_note_create_response,
+    build_note_delete_response,
+    build_note_update_response,
+    build_notes_list_response,
+)
 from app.control_plane.conversations import (
     ConversationStore,
     InMemoryConversationStore,
@@ -184,6 +196,8 @@ _AGENT_TOOLS_INVOKE_PATH = "/v1/agent/tools/invoke"
 _AGENT_RUNS_PATH = "/v1/agent/runs"
 _AGENT_RESEARCH_PATH = "/v1/agent/research"
 _COMPARE_PATH = "/v1/compare"
+_NOTES_PATH = "/v1/notes"
+_DOCUMENT_EDIT_PATH = "/v1/documents/edit"
 _MCP_INVOKE_PATH = "/v1/mcp/invoke"
 _MCP_LIST_PATH = "/v1/mcp/tools/list"
 _INTEGRATIONS_INVOKE_PATH = "/v1/integrations/invoke"
@@ -534,6 +548,8 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     deep_research_budgets: DeepResearchBudgets = DeepResearchBudgets()
     web_search_client = None  # set at startup from WEB_SEARCH; None = web mode off
     compare_rate_limiter: RateLimiter = RateLimiter()
+    documents_rate_limiter: RateLimiter = RateLimiter()
+    notes_store: NotesStore = InMemoryNotesStore()  # type: ignore[assignment]
     # MCP integration (M12). Disabled by default; allow-list empty (deny by default).
     mcp_enabled: bool = False
     mcp_allowlist: dict = {}  # type: ignore[type-arg]
@@ -636,6 +652,18 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                 authorization=self.headers.get("Authorization"),
                 token_verifier=self.__class__.token_verifier,
                 store=self.__class__.memory_store,
+            )
+            self._instrument("GET", lambda s=status, p=payload: Response(s, p))
+            return
+        if path == _NOTES_PATH:
+            from urllib.parse import parse_qs, urlsplit
+
+            kind = parse_qs(urlsplit(self.path).query).get("kind", [None])[0]
+            status, payload = build_notes_list_response(
+                authorization=self.headers.get("Authorization"),
+                token_verifier=self.__class__.token_verifier,
+                store=self.__class__.notes_store,
+                kind=kind,
             )
             self._instrument("GET", lambda s=status, p=payload: Response(s, p))
             return
@@ -841,6 +869,39 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                     default_models=self.__class__.config.model_list(),
                 )
                 return Response(status, payload)
+
+            if path == _DOCUMENT_EDIT_PATH:
+                status, payload = build_document_edit_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    enabled=True,
+                    inference_client=self.__class__.agent_loop_inference_client,
+                    rate_limiter=self.__class__.documents_rate_limiter,
+                )
+                return Response(status, payload)
+
+            if path == _NOTES_PATH:
+                status, payload = build_note_create_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    store=self.__class__.notes_store,
+                )
+                return Response(status, payload)
+
+            # POST /v1/notes/{id} — partial update (title/body/done).
+            if path.startswith(_NOTES_PATH + "/"):
+                note_id = path[len(_NOTES_PATH) + 1:]
+                if note_id and "/" not in note_id:
+                    status, payload = build_note_update_response(
+                        authorization=self.headers.get("Authorization"),
+                        item_id=note_id,
+                        body=body,
+                        token_verifier=self.__class__.token_verifier,
+                        store=self.__class__.notes_store,
+                    )
+                    return Response(status, payload)
 
             if path == _MCP_LIST_PATH:
                 status, payload = build_mcp_list_response(
@@ -1090,6 +1151,18 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                         store=self.__class__.memory_store,
                     )
                     return Response(status, payload)
+            # DELETE /v1/notes/{id} — authoritative delete of a caller-owned item.
+            nprefix = _NOTES_PATH + "/"
+            if path.startswith(nprefix):
+                note_id = path[len(nprefix):]
+                if note_id and "/" not in note_id:
+                    status, payload = build_note_delete_response(
+                        authorization=self.headers.get("Authorization"),
+                        item_id=note_id,
+                        token_verifier=self.__class__.token_verifier,
+                        store=self.__class__.notes_store,
+                    )
+                    return Response(status, payload)
             # DELETE /v1/conversations/{id}
             cprefix = _CONVERSATIONS_PATH + "/"
             if path.startswith(cprefix):
@@ -1249,6 +1322,31 @@ def _build_integration_secret_resolver(config: ControlPlaneConfig):
         config.integrations_secret_env or config.environment,
         ttl_seconds=config.integrations_secret_ttl_s,
     )
+
+
+def _build_notes_store(config: ControlPlaneConfig) -> NotesStore:
+    """Return a Postgres-backed notes store when DATABASE_URL is configured."""
+    if not config.database_url:
+        return InMemoryNotesStore()
+    try:
+        from app.db.connection import open_pool
+        from app.control_plane.notes import PostgresNotesStore
+
+        pool = open_pool(config.database_url)
+        logger.info("Using PostgreSQL notes store.")
+        return PostgresNotesStore(pool)
+    except Exception as exc:
+        exc_type = type(exc).__name__
+        if config.environment != "development":
+            raise RuntimeError(
+                f"Failed to initialize PostgreSQL notes store ({exc_type}); "
+                f"refusing to fall back in environment={config.environment!r}."
+            ) from None
+        logger.error(
+            "Failed to initialize PostgreSQL notes store (%s) — "
+            "falling back to in-memory (development only).", exc_type,
+        )
+        return InMemoryNotesStore()
 
 
 def _build_conversation_store(config: ControlPlaneConfig) -> ConversationStore:
@@ -1445,6 +1543,7 @@ def run_server(
         memory_store or _build_memory_store(resolved_config)
     )
     ControlPlaneHandler.conversation_store = _build_conversation_store(resolved_config)  # type: ignore[assignment]
+    ControlPlaneHandler.notes_store = _build_notes_store(resolved_config)  # type: ignore[assignment]
     ControlPlaneHandler.embedding_client = (
         embedding_client or _build_embedding_client(resolved_config)
     )

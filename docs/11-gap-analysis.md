@@ -101,7 +101,9 @@ gaps are two un-surfaced capability areas plus chat-product polish:
 | Media | STT + image | 🟢 **closed** — **TTS** added (`/v1/media/synthesize`, OpenAI speech shape); image editor/gallery still future |
 | Model selection | internal vLLM routing | 🟢 **closed** — dynamic `GET /v1/models` (config-served, GPU-independent); UI selector populated from it |
 | Compare | — | 🟢 **closed** — `POST /v1/compare`: blind A/B of one prompt across N models + optional synthesis, over the existing inference client |
-| Upstream parity (optional) | — | 🟡 **open** — Cookbook/model-mgmt, Notes/Tasks, Documents editor, mail+contacts, 2FA (each Tier-B / its own adoption) |
+| Notes / Tasks | — | 🟢 **closed** — per-tenant/user RDS store (`notes` table) + CRUD (`/v1/notes`), mirroring the memory-store isolation + content policy; UI panel |
+| Documents editor | RAG ingest only | 🟢 **closed** — writing-first editor persisted as `kind="doc"` notes + `POST /v1/documents/edit` (stateless AI edit over the inference client); UI editor panel |
+| Upstream parity (optional) | — | 🟡 **open** — Cookbook/model-mgmt, mail+contacts, 2FA (each a milestone or its own adoption/credential review) |
 
 The remaining 🟡 items are sequenced against M7b → M8 in
 [`13-pre-production-gap-plan.md`](13-pre-production-gap-plan.md) §5 (Tier B /

@@ -133,3 +133,21 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
 CREATE INDEX IF NOT EXISTS idx_conversation_messages
     ON conversation_messages (conversation_id, created_at);
 
+-- Migration 0007: notes & tasks (wave-2 product surface)
+-- Per-tenant/user notes and tasks. Isolation is enforced at the storage layer;
+-- title/body are user content (returned only to the owner, never logged).
+CREATE TABLE IF NOT EXISTS notes (
+    id          UUID        PRIMARY KEY,
+    tenant_id   TEXT        NOT NULL,
+    user_id     TEXT        NOT NULL,
+    kind        TEXT        NOT NULL,
+    title       TEXT        NOT NULL,
+    body        TEXT        NOT NULL DEFAULT '',
+    done        BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at  TIMESTAMPTZ NOT NULL,
+    updated_at  TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_notes_user
+    ON notes (tenant_id, user_id, created_at DESC);
+
