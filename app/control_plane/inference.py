@@ -25,7 +25,9 @@ from typing import Iterable, Literal, Protocol
 
 from app.control_plane.routing import (
     InferenceEndpoint,
+    InferenceRoutingError,
     InferenceUnavailableError,
+    build_health_url,
 )
 
 
@@ -39,6 +41,55 @@ _MAX_RETRIES = 1
 
 # Back-off seconds between retries.
 _RETRY_BACKOFF = 2.0
+
+# Timeout for the lightweight GPU-readiness probe. Kept short: /v1/inference/status
+# is polled by the UI and must stay responsive even when the GPU is scaled to zero.
+_STATUS_PROBE_TIMEOUT = 2.0
+
+
+def probe_inference_health(
+    base_url: str, timeout: float = _STATUS_PROBE_TIMEOUT
+) -> dict[str, str]:
+    """Probe the inference plane's ``/health`` endpoint and classify GPU readiness.
+
+    Returns ``{"gpu": <state>, "detail": <short reason>}`` where state is one of:
+      - ``"warm"``:    /health returned 200 — model loaded, ready to serve.
+      - ``"loading"``: pod reachable but not ready (HTTP 5xx, e.g. 503 while the
+                       model weights are still loading).
+      - ``"cold"``:    endpoint unreachable (connection refused / timeout) — the
+                       GPU node is scaled to zero (Karpenter scale-from-zero on
+                       first use).
+      - ``"unconfigured"``: no inference base URL is configured.
+      - ``"unknown"``: any other outcome we can't classify.
+
+    Performs a single short-timeout GET and never raises — callers treat any
+    failure as unreachable.  Content policy (M5): only the HTTP status / failure
+    class is inspected; no request or response body is read or logged.
+    """
+    if not base_url:
+        return {"gpu": "unconfigured", "detail": "inference URL not configured"}
+    try:
+        url = build_health_url(base_url)
+    except InferenceRoutingError:
+        return {"gpu": "unconfigured", "detail": "inference URL not configured"}
+
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            status = getattr(resp, "status", None) or resp.getcode()
+            if 200 <= int(status) < 300:
+                return {"gpu": "warm", "detail": "model ready"}
+            return {"gpu": "loading", "detail": f"health returned {status}"}
+    except urllib.error.HTTPError as exc:
+        # Pod is answering but not ready (e.g. 503 while loading weights).
+        if 500 <= exc.code < 600:
+            return {"gpu": "loading", "detail": f"health returned {exc.code}"}
+        return {"gpu": "unknown", "detail": f"health returned {exc.code}"}
+    except (urllib.error.URLError, TimeoutError, OSError):
+        # Connection refused / DNS failure / timeout → node scaled to zero.
+        return {"gpu": "cold", "detail": "inference endpoint unreachable"}
+    except Exception:  # pragma: no cover - defensive; probe must never raise
+        return {"gpu": "unknown", "detail": "probe failed"}
 
 
 @dataclass(frozen=True)

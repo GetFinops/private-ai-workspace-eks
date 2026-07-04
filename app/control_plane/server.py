@@ -56,6 +56,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
@@ -65,6 +66,7 @@ from app.control_plane.inference import (
     ChatCompletionRequest,
     ChatMessage,
     VLLMInferenceClient,
+    probe_inference_health,
 )
 from app.control_plane.logging_config import clear_request_context, set_request_context
 from app.control_plane.metrics import (
@@ -228,8 +230,41 @@ class Response:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+def _utc_now_iso() -> str:
+    """Return the current UTC time as an ISO-8601 string (for status freshness)."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+# Short TTL cache for the GPU health probe. /v1/inference/status is an
+# unauthenticated ops GET, so caching bounds how often an internal /health probe
+# can be triggered regardless of caller rate (best-effort; a race only costs one
+# extra probe, never wrong data).
+_GPU_PROBE_TTL_SECONDS = 3.0
+_gpu_probe_cache: dict[str, Any] = {"ts": 0.0, "base": None, "result": None}
+
+
+def _cached_gpu_probe(base_url: str) -> dict[str, str]:
+    now = time.time()
+    cache = _gpu_probe_cache
+    if (
+        cache["result"] is not None
+        and cache["base"] == base_url
+        and (now - cache["ts"]) < _GPU_PROBE_TTL_SECONDS
+    ):
+        return cache["result"]
+    result = probe_inference_health(base_url)
+    _gpu_probe_cache.update({"ts": now, "base": base_url, "result": result})
+    return result
+
+
 def build_response(path: str, config: ControlPlaneConfig) -> Response:
     """Build a JSON response for a control-plane GET route."""
+
+    # Split off any query string so exact-match routing is query-robust; a few
+    # routes (e.g. inference status) read their own query params below.
+    raw_path = path
+    path = raw_path.split("?", 1)[0]
+    query = raw_path.split("?", 1)[1] if "?" in raw_path else ""
 
     if path == "/healthz":
         return Response(
@@ -253,24 +288,91 @@ def build_response(path: str, config: ControlPlaneConfig) -> Response:
         )
 
     if path == "/v1/inference/status":
-        return Response(
-            HTTPStatus.OK,
-            {
-                "status": "configured"
-                if config.inference_base_url
-                else "not_configured",
-                "backend": "vllm-openai-compatible",
-                "internal_only": True,
-            },
-        )
+        configured = bool(config.inference_base_url)
+        body: dict[str, Any] = {
+            "status": "configured" if configured else "not_configured",
+            "backend": "vllm-openai-compatible",
+            "internal_only": True,
+        }
+        # Opt-in warm/cold/loading probe (?probe=1). Kept opt-in so the default
+        # call stays cheap; the UI cold-start flow + Models screen request it to
+        # show GPU readiness without a chat round-trip. Content-safe: the probe
+        # reads only the health HTTP status, never any body.
+        from urllib.parse import parse_qs
+
+        want_probe = parse_qs(query).get("probe", ["0"])[0] in ("1", "true", "yes")
+        if want_probe:
+            # Field shape follows the model-management design's front-end
+            # contract so the chat cold-start flow + Models screen share one
+            # poller. `state` ∈ warm|loading|cold|unconfigured|unknown. progress
+            # and eta are placeholders (null) until deeper vLLM introspection
+            # lands; detail/state are content-safe enums only — no URL/host/body.
+            if configured:
+                probe = _cached_gpu_probe(config.inference_base_url)
+                models = config.model_list()
+                body["state"] = probe.get("gpu", "unknown")
+                body["detail"] = probe.get("detail")
+                body["model"] = models[0] if models else None
+            else:
+                body["state"] = "unconfigured"
+                body["detail"] = "inference URL not configured"
+                body["model"] = None
+            body["progress"] = None
+            body["eta_seconds"] = None
+            body["updated_at"] = _utc_now_iso()
+        return Response(HTTPStatus.OK, body)
 
     if path == "/v1/models":
         # Selectable chat models, from control-plane config (single source of
         # truth). Non-sensitive config data, served GPU-independently.
+        #
+        # Back-compat: `models`/`default` stay exactly as before so the chat
+        # model <select> keeps working. Additive per the model-management design
+        # front-end contract: `items[]` (richer per-model rows for the Models
+        # screen) and a deny-by-default `capabilities{}` block computed
+        # server-side (never trust the client). All management capabilities are
+        # false until the escalation-gated phases land (see
+        # docs/m11-followups/04-model-management.md); the UI renders those
+        # actions disabled while they are false.
         models = config.model_list()
+        default_model = models[0] if models else "default"
+        items = [
+            {
+                "id": m,
+                "label": m,
+                "source": "config",
+                "served": m == default_model,
+                "status": "unknown",
+                "detail": None,
+                "progress": None,
+                "removable": False,
+                "warmable": True,
+            }
+            for m in models
+        ]
+        # Deny-by-default: every management capability is off until its
+        # escalation-gated backend phase ships. The UI renders actions disabled
+        # while false and treats a 501 from any unbuilt endpoint as "not yet
+        # available". `warm` is client-side (a lightweight chat request wakes the
+        # GPU) so it needs no server capability here.
+        capabilities = {
+            "search": False,
+            "install": False,
+            "request_install": False,
+            "warm": False,
+            "remove": False,
+            "token_config": False,
+            "admin": False,
+        }
         return Response(
             HTTPStatus.OK,
-            {"models": models, "default": models[0]},
+            {
+                "models": models,
+                "default": default_model,
+                "items": items,
+                "capabilities": capabilities,
+                "phase": 0,
+            },
         )
 
     if path == _METRICS_PATH:

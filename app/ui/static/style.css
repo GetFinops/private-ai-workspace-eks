@@ -998,3 +998,186 @@ pre, code { font-family: var(--font-mono); }
   white-space: pre-wrap; word-break: break-word; overflow-x: auto; max-height: 320px;
 }
 @media (max-width: 640px) { #tools-drawer { width: 100%; } }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   9. Full-screen router — screen host, screens, panels (drawer retired)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* The feature rail is longer now (Chat + tools + Models); let it scroll and
+   leave the conversation list its own scroll region below. */
+#feature-nav { max-height: 52vh; }
+
+#screen-host {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.screen {
+  display: none;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  flex-direction: column;
+}
+.screen.active { display: flex; }
+
+/* Screen chrome (non-chat screens) */
+.screen-head { flex-shrink: 0; padding: 22px 28px 4px; }
+.screen-head h1 {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.screen-sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+.screen-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 28px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 900px;
+}
+.screen-body-wide {
+  max-width: 1120px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.panel-title { font-size: 14px; font-weight: 600; color: var(--fg); }
+.panel-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.panel-grow { flex: 1 1 440px; min-width: 0; }
+.panel-side { flex: 1 1 260px; min-width: 0; }
+.screen-note { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+/* Inputs inside screen panels (the drawer's .tool-section width rule is gone). */
+.panel input[type="text"],
+.panel input[type="password"],
+.panel textarea,
+.panel select,
+.panel input[type="file"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  background: var(--input-bg);
+  color: var(--fg);
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  font: inherit;
+}
+.panel textarea { resize: vertical; line-height: 1.5; }
+.panel .tool-row { display: flex; gap: 8px; align-items: center; }
+.panel .tool-row > input[type="text"],
+.panel .tool-row > select { flex: 1; width: auto; }
+
+/* ── GPU cold-start banner (chat) + status pills ─────────────────────────── */
+.gpu-banner {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 20px 0;
+  padding: 9px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.gpu-banner[hidden] { display: none; }
+.gpu-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--muted); flex-shrink: 0;
+}
+.gpu-banner-text { flex: 1; color: var(--fg); }
+.gpu-banner-btn {
+  padding: 4px 13px; border-radius: 999px;
+  background: var(--brand-color); color: #fff; font-size: 12px; font-weight: 600;
+  transition: filter var(--t-fast);
+}
+.gpu-banner-btn:hover { filter: brightness(1.08); }
+.gpu-banner-btn[hidden] { display: none; }
+.gpu-banner.warm    .gpu-dot { background: var(--green); }
+.gpu-banner.loading .gpu-dot { background: var(--yellow); animation: gpuPulse 1.2s infinite; }
+.gpu-banner.cold    .gpu-dot { background: var(--muted); }
+.gpu-banner.error   .gpu-dot { background: var(--red); }
+@keyframes gpuPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .gpu-banner.loading .gpu-dot { animation: none; } }
+
+.status-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--muted); white-space: nowrap;
+}
+.status-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.status-pill.warm    { color: var(--green); }  .status-pill.warm .dot    { background: var(--green); }
+.status-pill.loading { color: var(--yellow); } .status-pill.loading .dot { background: var(--yellow); }
+.status-pill.cold    { color: var(--muted); }
+.status-pill.failed  { color: var(--red); }    .status-pill.failed .dot  { background: var(--red); }
+.status-pill.unknown { color: var(--muted); }
+
+/* ── Models screen ───────────────────────────────────────────────────────── */
+.models-gpu {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; color: var(--muted); padding: 2px 0 10px;
+}
+.models-gpu #models-gpu-text { flex: 1; }
+.models-gpu.warm    #models-gpu-dot { background: var(--green); }
+.models-gpu.loading #models-gpu-dot { background: var(--yellow); animation: gpuPulse 1.2s infinite; }
+.models-gpu.cold    #models-gpu-dot { background: var(--muted); }
+.model-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 13px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--bg);
+}
+.model-row .model-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.model-row .model-name b { color: var(--fg); }
+.model-row .model-served { font-size: 11px; color: var(--brand-color); margin-left: 6px; }
+
+/* Buttons rendered disabled while a capability is off (deny-by-default). */
+.tool-btn:disabled, .tool-btn[disabled] { opacity: 0.5; cursor: not-allowed; filter: none; }
+
+/* ── Settings screen ─────────────────────────────────────────────────────── */
+.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.setting-label { font-size: 13px; color: var(--fg); font-weight: 500; }
+.setting-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.seg-toggle {
+  display: inline-flex; padding: 2px; border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 7%, transparent); border: 1px solid var(--border);
+}
+.seg-btn { padding: 5px 15px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--muted); transition: background var(--t-fast), color var(--t-fast); }
+.seg-btn.active { background: var(--brand-color); color: #fff; }
+.settings-kv { display: flex; flex-direction: column; gap: 9px; }
+.kv-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+.kv-key { color: var(--muted); }
+.kv-val { color: var(--fg); text-align: right; }
+#settings-default-model { max-width: 240px; }
+
+/* Footer settings button (sits beside the theme toggle). */
+#settings-btn {
+  flex-shrink: 0; width: 30px; height: 30px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; color: var(--muted);
+  transition: color var(--t-fast), background var(--t-fast);
+}
+#settings-btn:hover, #settings-btn.active { color: var(--brand-color); background: color-mix(in srgb, var(--fg) 7%, transparent); }
+
+@media (max-width: 700px) {
+  .screen-head { padding: 16px 16px 4px; }
+  .screen-body { padding: 12px 16px 28px; }
+  .screen-body-wide { flex-direction: column; }
+}

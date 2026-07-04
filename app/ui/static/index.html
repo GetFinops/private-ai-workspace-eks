@@ -2,11 +2,11 @@
 <!--
   Private AI Workspace — main application shell.
 
-  Layout: a left feature-launcher rail, a centred welcome hero, and a
-  composer with an inline model badge and a Chat/Agent mode switch.
-  This is an independent, clean-room implementation of a common chat-workspace
-  layout; no third-party UI source is copied. UI provenance for the design
-  token system is recorded in NOTICE ("M9 UI adaptation").
+  Full-screen routed layout: a left feature rail switches the main area between
+  screens (Chat is home; each tool is its own full-screen view; plus Models and
+  Settings). Hash-routed, no framework, no build step. An independent clean-room
+  implementation — no third-party UI source is copied. Design-token provenance is
+  recorded in NOTICE ("M9 UI adaptation").
 -->
 <html lang="en">
 <head>
@@ -18,367 +18,452 @@
   <link rel="stylesheet" href="/static/style.css">
   <style>
     @font-face {
-      font-family: 'Fira Code';
-      font-weight: 400;
-      font-style: normal;
-      font-display: swap;
+      font-family: 'Fira Code'; font-weight: 400; font-style: normal; font-display: swap;
       src: url('/static/fonts/FiraCode-Regular.woff2') format('woff2');
     }
     @font-face {
-      font-family: 'Fira Code';
-      font-weight: 600;
-      font-style: normal;
-      font-display: swap;
+      font-family: 'Fira Code'; font-weight: 600; font-style: normal; font-display: swap;
       src: url('/static/fonts/FiraCode-SemiBold.woff2') format('woff2');
     }
   </style>
 </head>
 <body>
 
-<!-- ── App shell ─────────────────────────────────────────────────────────── -->
 <div id="app-shell">
 
-  <!-- Sidebar: brand, new chat, feature launchers, conversation list, footer -->
+  <!-- ── Sidebar: brand, new chat, feature rail (routes), chats, footer ─────── -->
   <aside id="sidebar">
     <div id="sidebar-header">
-      <span id="sidebar-title">
-        <span class="brand-mark" aria-hidden="true"></span>
-        Private&nbsp;AI
-      </span>
+      <span id="sidebar-title"><span class="brand-mark" aria-hidden="true"></span>Private&nbsp;AI</span>
     </div>
 
     <button id="new-chat-btn" type="button" aria-label="New conversation">
-      <svg width="15" height="15" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-        <path d="M7 1v12M1 7h12"/>
-      </svg>
+      <svg width="15" height="15" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M7 1v12M1 7h12"/></svg>
       New chat
     </button>
 
-    <!-- Feature launchers — each opens the matching panel in the Tools drawer.
-         Names and icons are our own; behaviour is wired in app.js by data-feature. -->
-    <nav id="feature-nav" aria-label="Workspace features">
-      <button class="nav-item" type="button" data-feature="feat-docs" aria-label="Documents">
+    <nav id="feature-nav" aria-label="Workspace">
+      <button class="nav-item" type="button" data-screen="chat" aria-label="Chat">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2.5 4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4v5A1.5 1.5 0 0 1 12 10.5H6l-3 2.5V10.5H4A1.5 1.5 0 0 1 2.5 9z"/></svg>
+        <span>Chat</span>
+      </button>
+      <button class="nav-item" type="button" data-screen="documents" aria-label="Documents">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 1.5h5l3 3v10H4z"/><path d="M9 1.5v3h3"/><path d="M6 8h4M6 10.5h4"/></svg>
         <span>Documents</span>
       </button>
-      <button class="nav-item" type="button" data-feature="feat-editor" aria-label="Editor">
+      <button class="nav-item" type="button" data-screen="editor" aria-label="Editor">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M11 2.5l2.5 2.5L6 12.5l-3 .5.5-3z"/><path d="M9.5 4l2.5 2.5"/></svg>
         <span>Editor</span>
       </button>
-      <button class="nav-item" type="button" data-feature="feat-memory" aria-label="Memory">
+      <button class="nav-item" type="button" data-screen="memory" aria-label="Memory">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 2.5c-2 0-3.2 1.3-3.2 3 0 .5-.6.8-.6 1.8 0 1 .8 1.4.8 2.2 0 1.3 1 2.2 2.4 2.2.9 0 1.6-.5 1.6-1.3V4c0-.9-.5-1.5-1-1.5z"/><path d="M8 2.5c2 0 3.2 1.3 3.2 3 0 .5.6.8.6 1.8 0 1-.8 1.4-.8 2.2 0 1.3-1 2.2-2.4 2.2"/></svg>
         <span>Memory</span>
       </button>
-      <button class="nav-item" type="button" data-feature="feat-notes" data-note-kind="note" aria-label="Notes">
+      <button class="nav-item" type="button" data-screen="notes" data-note-kind="note" aria-label="Notes">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3.5 2.5h9v11h-9z"/><path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3"/></svg>
         <span>Notes</span>
       </button>
-      <button class="nav-item" type="button" data-feature="feat-notes" data-note-kind="task" aria-label="Tasks">
+      <button class="nav-item" type="button" data-screen="notes" data-note-kind="task" aria-label="Tasks">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2.5 4.5l1.5 1.5 2.5-2.5"/><path d="M2.5 10l1.5 1.5L6.5 9"/><path d="M8.5 4.5h5M8.5 10h5"/></svg>
         <span>Tasks</span>
       </button>
-      <button class="nav-item" type="button" data-feature="feat-compare" aria-label="Compare models">
+      <button class="nav-item" type="button" data-screen="compare" aria-label="Compare models">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 2v12"/><path d="M3 4.5h2.5v7H3zM10.5 4.5H13v7h-2.5z"/></svg>
         <span>Compare</span>
       </button>
-      <button class="nav-item" type="button" data-feature="feat-agent" aria-label="Agent">
+      <button class="nav-item" type="button" data-screen="agent" aria-label="Agent">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.5v2"/><rect x="3" y="3.5" width="10" height="8" rx="2"/><path d="M6 7v1.5M10 7v1.5"/><path d="M5.5 13.5h5"/></svg>
         <span>Agent</span>
       </button>
-      <button class="nav-item" type="button" data-feature="feat-agent" data-agent-web="1" aria-label="Research">
+      <button class="nav-item" type="button" data-screen="agent" data-agent-web="1" aria-label="Research">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
         <span>Research</span>
       </button>
-      <button class="nav-item" type="button" data-feature="feat-media" aria-label="Media">
+      <button class="nav-item" type="button" data-screen="media" aria-label="Media">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><circle cx="6" cy="6.5" r="1"/><path d="M3 11l3-2.5 2.5 2 2-1.5L13 11"/></svg>
         <span>Media</span>
       </button>
-      <button class="nav-item" type="button" data-feature="feat-integrations" aria-label="Calendar and integrations">
+      <button class="nav-item" type="button" data-screen="integrations" aria-label="Calendar and integrations">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="1.5"/><path d="M2.5 6.5h11M5.5 2v2M10.5 2v2"/></svg>
         <span>Calendar</span>
       </button>
-      <button class="nav-item" type="button" data-feature="feat-mcp" aria-label="Tools and MCP">
+      <button class="nav-item" type="button" data-screen="mcp" aria-label="Tools and MCP">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M10.5 2.5a2.5 2.5 0 0 0-3 3.2L3 10.2l1.6 1.6 4.5-4.5a2.5 2.5 0 0 0 3.2-3l-1.7 1.7-1.1-1.1z"/></svg>
         <span>Tools</span>
       </button>
-      <button class="nav-item nav-item-soon" type="button" disabled aria-label="Models — coming soon">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3l2 1.5"/></svg>
+      <button class="nav-item" type="button" data-screen="models" aria-label="Models">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3"/><circle cx="12" cy="4" r="2.2" fill="currentColor" stroke="none"/></svg>
         <span>Models</span>
-        <span class="nav-soon">soon</span>
-      </button>
-      <button class="nav-item nav-item-soon" type="button" disabled aria-label="Email — coming soon">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4" width="11" height="8" rx="1.5"/><path d="M3 5l5 3.5L13 5"/></svg>
-        <span>Email</span>
-        <span class="nav-soon">soon</span>
       </button>
     </nav>
 
     <div id="chats-header">Chats</div>
-    <nav id="conversation-list" aria-label="Conversations">
-      <!-- Populated by app.js -->
-    </nav>
+    <nav id="conversation-list" aria-label="Conversations"><!-- populated by app.js --></nav>
 
     <div id="sidebar-footer">
       <div id="user-info">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-          <circle cx="7" cy="4.5" r="2.5"/>
-          <path d="M1.5 12c0-3.04 2.46-5.5 5.5-5.5s5.5 2.46 5.5 5.5"/>
-        </svg>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="4.5" r="2.5"/><path d="M1.5 12c0-3.04 2.46-5.5 5.5-5.5s5.5 2.46 5.5 5.5"/></svg>
         <span id="user-email"></span>
       </div>
+      <button id="settings-btn" type="button" data-screen="settings" aria-label="Settings" title="Settings">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="2"/><path d="M8 1.5v1.6M8 12.9v1.6M14.5 8h-1.6M3.1 8H1.5M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1M12.6 12.6l-1.1-1.1M4.5 4.5L3.4 3.4"/></svg>
+      </button>
       <button id="theme-btn" type="button" aria-label="Toggle light and dark theme" title="Toggle theme">
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-          <path d="M11.5 8.6A4 4 0 0 1 7.4 4.5 4 4 0 1 0 11.5 8.6Z"/>
-        </svg>
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M11.5 8.6A4 4 0 0 1 7.4 4.5 4 4 0 1 0 11.5 8.6Z"/></svg>
       </button>
     </div>
   </aside>
 
-  <!-- Main area -->
+  <!-- ── Main area: topbar + screen host ──────────────────────────────────── -->
   <main id="main-area">
-    <!-- Top bar -->
     <header id="topbar">
       <div id="topbar-left">
         <button id="sidebar-toggle" type="button" aria-label="Toggle sidebar" aria-expanded="true">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-            <path d="M2.5 4.5h13M2.5 9h13M2.5 13.5h13"/>
-          </svg>
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 4.5h13M2.5 9h13M2.5 13.5h13"/></svg>
         </button>
-        <span id="topbar-title">New chat</span>
+        <span id="topbar-title">Chat</span>
       </div>
       <div id="topbar-right">
-        <!-- Notification bell -->
         <button id="notif-btn" type="button" aria-label="Notifications" aria-haspopup="true" aria-expanded="false">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-            <path d="M9 2.5a5.5 5.5 0 0 1 5.5 5.5v2.5l1.5 2H2L3.5 10.5V8A5.5 5.5 0 0 1 9 2.5Z"/>
-            <path d="M7 14.5a2 2 0 0 0 4 0"/>
-          </svg>
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M9 2.5a5.5 5.5 0 0 1 5.5 5.5v2.5l1.5 2H2L3.5 10.5V8A5.5 5.5 0 0 1 9 2.5Z"/><path d="M7 14.5a2 2 0 0 0 4 0"/></svg>
           <span id="notif-badge" aria-live="polite"></span>
         </button>
-        <button id="tools-btn" type="button" aria-label="Tools" aria-haspopup="true" aria-expanded="false">Tools</button>
         <button id="signout-btn" type="button">Sign out</button>
       </div>
     </header>
 
-    <!-- Error banner -->
     <div id="error-banner" role="alert"></div>
 
-    <!-- Messages (empty-state hero rendered here by app.js) -->
-    <div id="message-list" role="log" aria-label="Conversation messages" aria-live="polite">
-      <!-- Empty state / messages shown by JS -->
-    </div>
+    <div id="screen-host">
 
-    <!-- Composer -->
-    <div id="input-area">
-      <div id="composer">
-        <div id="composer-top">
-          <label id="model-label" for="model-select">Model</label>
-          <select id="model-select" aria-label="Select model">
-            <!-- Populated on load -->
-          </select>
-          <div id="mode-toggle" role="tablist" aria-label="Send mode">
-            <button id="mode-chat" class="mode-btn active" type="button" role="tab" aria-selected="true">Chat</button>
-            <button id="mode-agent" class="mode-btn" type="button" role="tab" aria-selected="false">Agent</button>
+      <!-- ── Chat (home) ─────────────────────────────────────────────────── -->
+      <section class="screen screen-chat active" id="screen-chat" data-screen="chat" aria-label="Chat">
+        <div id="gpu-banner" class="gpu-banner" role="status" hidden>
+          <span class="gpu-dot" aria-hidden="true"></span>
+          <span id="gpu-banner-text">Checking GPU…</span>
+          <button id="gpu-warmup-btn" class="gpu-banner-btn" type="button" hidden>Warm up</button>
+        </div>
+
+        <div id="message-list" role="log" aria-label="Conversation messages" aria-live="polite"></div>
+
+        <div id="input-area">
+          <div id="composer">
+            <div id="composer-top">
+              <label id="model-label" for="model-select">Model</label>
+              <select id="model-select" aria-label="Select model"></select>
+              <div id="mode-toggle" role="tablist" aria-label="Send mode">
+                <button id="mode-chat" class="mode-btn active" type="button" role="tab" aria-selected="true">Chat</button>
+                <button id="mode-agent" class="mode-btn" type="button" role="tab" aria-selected="false">Agent</button>
+              </div>
+            </div>
+            <textarea id="chat-input" rows="1" placeholder="Message Private AI…" aria-label="Message input" autocomplete="off" spellcheck="true"></textarea>
+            <div id="composer-bottom">
+              <div id="composer-tools">
+                <button class="composer-tool" type="button" data-screen="documents" aria-label="Documents" title="Documents">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 1.5h5l3 3v10H4z"/><path d="M9 1.5v3h3"/></svg>
+                </button>
+                <button class="composer-tool" type="button" data-screen="mcp" aria-label="Tools" title="Tools">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M10.5 2.5a2.5 2.5 0 0 0-3 3.2L3 10.2l1.6 1.6 4.5-4.5a2.5 2.5 0 0 0 3.2-3l-1.7 1.7-1.1-1.1z"/></svg>
+                </button>
+              </div>
+              <button id="send-btn" type="button" aria-label="Send message">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg>
+              </button>
+            </div>
+          </div>
+          <p id="input-hint">Enter to send · Shift+Enter for new line</p>
+        </div>
+      </section>
+
+      <!-- ── Documents ───────────────────────────────────────────────────── -->
+      <section class="screen" id="screen-documents" data-screen="documents" aria-label="Documents">
+        <div class="screen-head"><h1>Documents</h1><p class="screen-sub">Upload a document, then ask questions grounded in it.</p></div>
+        <div class="screen-body">
+          <div class="panel">
+            <h2 class="panel-title">Upload &amp; index</h2>
+            <input type="file" id="doc-file" accept=".txt,.md,.markdown,.csv,.json,.pdf,text/*" aria-label="Document to upload" />
+            <button class="tool-btn" id="doc-upload-btn" type="button">Upload &amp; index</button>
+            <div id="doc-upload-status" class="tool-status" role="status"></div>
+          </div>
+          <div class="panel">
+            <h2 class="panel-title">Search your documents</h2>
+            <div class="tool-row">
+              <input type="text" id="doc-query" placeholder="Search your documents…" aria-label="Document search query" />
+              <button class="tool-btn" id="doc-query-btn" type="button">Search</button>
+            </div>
+            <div id="doc-results" class="tool-results" role="list"></div>
           </div>
         </div>
-        <textarea
-          id="chat-input"
-          rows="1"
-          placeholder="Message Private AI…"
-          aria-label="Message input"
-          autocomplete="off"
-          spellcheck="true"
-        ></textarea>
-        <div id="composer-bottom">
-          <div id="composer-tools">
-            <button class="composer-tool" type="button" data-feature="feat-docs" aria-label="Search documents" title="Search documents">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
-            </button>
-            <button class="composer-tool" type="button" id="composer-tools-btn" aria-label="Open tools" title="Open tools">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M10.5 2.5a2.5 2.5 0 0 0-3 3.2L3 10.2l1.6 1.6 4.5-4.5a2.5 2.5 0 0 0 3.2-3l-1.7 1.7-1.1-1.1z"/></svg>
-            </button>
+      </section>
+
+      <!-- ── Editor ──────────────────────────────────────────────────────── -->
+      <section class="screen" id="screen-editor" data-screen="editor" aria-label="Editor">
+        <div class="screen-head"><h1>Editor</h1><p class="screen-sub">Write a document, then ask AI to edit it. Private to you.</p></div>
+        <div class="screen-body screen-body-wide">
+          <div class="panel panel-grow">
+            <input type="text" id="doc-editor-title" placeholder="Document title…" aria-label="Document title" />
+            <textarea id="doc-editor-body" rows="14" placeholder="Start writing…" aria-label="Document body"></textarea>
+            <div class="tool-row">
+              <button class="tool-btn" id="doc-save-btn" type="button">Save</button>
+              <button class="tool-btn tool-btn-ghost" id="doc-new-btn" type="button">New</button>
+            </div>
+            <div class="tool-row">
+              <input type="text" id="doc-instruction" placeholder="AI: e.g. make it more concise…" aria-label="AI edit instruction" />
+              <button class="tool-btn" id="doc-ai-btn" type="button">AI edit</button>
+            </div>
+            <div id="doc-editor-status" class="tool-status" role="status"></div>
           </div>
-          <button id="send-btn" type="button" aria-label="Send message">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-              <path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/>
-            </svg>
-          </button>
+          <div class="panel panel-side">
+            <h2 class="panel-title">Saved documents</h2>
+            <div id="doc-editor-list" class="tool-results" role="list"></div>
+          </div>
         </div>
-      </div>
-      <p id="input-hint">Enter to send · Shift+Enter for new line</p>
-    </div>
+      </section>
+
+      <!-- ── Memory ──────────────────────────────────────────────────────── -->
+      <section class="screen" id="screen-memory" data-screen="memory" aria-label="Memory">
+        <div class="screen-head"><h1>Memory</h1><p class="screen-sub">Things you ask the assistant to remember about you.</p></div>
+        <div class="screen-body">
+          <div class="panel">
+            <textarea id="mem-text" rows="3" placeholder="Remember that…" aria-label="Memory text"></textarea>
+            <label class="tool-check"><input type="checkbox" id="mem-consent" /> I consent to storing this</label>
+            <button class="tool-btn" id="mem-save-btn" type="button">Save memory</button>
+            <div id="mem-status" class="tool-status" role="status"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-title-row"><h2 class="panel-title">Stored memories</h2><button class="tool-btn tool-btn-ghost" id="mem-refresh-btn" type="button">Refresh</button></div>
+            <div id="mem-results" class="tool-results" role="list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Notes & Tasks ───────────────────────────────────────────────── -->
+      <section class="screen" id="screen-notes" data-screen="notes" aria-label="Notes and tasks">
+        <div class="screen-head"><h1>Notes &amp; Tasks</h1><p class="screen-sub">Jot a note or track a task. Private to you.</p></div>
+        <div class="screen-body">
+          <div class="panel">
+            <div class="tool-row">
+              <select id="note-kind" aria-label="Kind"><option value="note">Note</option><option value="task">Task</option></select>
+              <input type="text" id="note-title" placeholder="Title…" aria-label="Note or task title" />
+            </div>
+            <textarea id="note-body" rows="2" placeholder="Details (optional)…" aria-label="Note details"></textarea>
+            <button class="tool-btn" id="note-add-btn" type="button">Add</button>
+            <div id="note-status" class="tool-status" role="status"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-title-row"><h2 class="panel-title">Your items</h2><button class="tool-btn tool-btn-ghost" id="note-refresh-btn" type="button">Refresh</button></div>
+            <div id="note-results" class="tool-results" role="list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Agent / Research ────────────────────────────────────────────── -->
+      <section class="screen" id="screen-agent" data-screen="agent" aria-label="Agent">
+        <div class="screen-head"><h1>Agent</h1><p class="screen-sub">Give the agent a task, or run deep research over your documents.</p></div>
+        <div class="screen-body">
+          <div class="panel">
+            <textarea id="agent-task" rows="3" placeholder="e.g. Summarise my uploaded notes" aria-label="Agent task"></textarea>
+            <label class="tool-check"><input type="checkbox" id="agent-web" /> Search the web (deep research)</label>
+            <div class="tool-row">
+              <button class="tool-btn" id="agent-run-btn" type="button">Run agent</button>
+              <button class="tool-btn" id="agent-research-btn" type="button">Deep research</button>
+            </div>
+            <div id="agent-status" class="tool-status" role="status"></div>
+          </div>
+          <div class="panel"><div id="agent-result" class="tool-results"></div></div>
+        </div>
+      </section>
+
+      <!-- ── Compare ─────────────────────────────────────────────────────── -->
+      <section class="screen" id="screen-compare" data-screen="compare" aria-label="Compare models">
+        <div class="screen-head"><h1>Compare</h1><p class="screen-sub">Run one prompt against two models, blind, then reveal.</p></div>
+        <div class="screen-body">
+          <div class="panel">
+            <textarea id="compare-prompt" rows="3" placeholder="Prompt to compare…" aria-label="Compare prompt"></textarea>
+            <div class="tool-row">
+              <select id="compare-model-a" aria-label="Model A"></select>
+              <select id="compare-model-b" aria-label="Model B"></select>
+            </div>
+            <label class="tool-check"><input type="checkbox" id="compare-synth" /> Also synthesize a combined answer</label>
+            <button class="tool-btn" id="compare-btn" type="button">Compare</button>
+            <div id="compare-status" class="tool-status" role="status"></div>
+          </div>
+          <div class="panel"><div id="compare-results" class="tool-results"></div></div>
+        </div>
+      </section>
+
+      <!-- ── Media ───────────────────────────────────────────────────────── -->
+      <section class="screen" id="screen-media" data-screen="media" aria-label="Media">
+        <div class="screen-head"><h1>Media</h1><p class="screen-sub">Transcribe audio, generate an image, or synthesize speech.</p></div>
+        <div class="screen-body">
+          <div class="panel">
+            <h2 class="panel-title">Transcribe</h2>
+            <select id="media-stt-service" aria-label="Transcription service"></select>
+            <input type="file" id="media-audio" accept="audio/*" aria-label="Audio to transcribe" />
+            <button class="tool-btn" id="media-transcribe-btn" type="button">Transcribe</button>
+            <div id="media-transcript" class="tool-results"></div>
+          </div>
+          <div class="panel">
+            <h2 class="panel-title">Generate image</h2>
+            <div class="tool-row">
+              <select id="media-img-service" aria-label="Image service"></select>
+              <input type="text" id="media-prompt" placeholder="Image prompt…" aria-label="Image prompt" />
+              <button class="tool-btn" id="media-generate-btn" type="button">Generate</button>
+            </div>
+            <div id="media-image" class="tool-results"></div>
+          </div>
+          <div class="panel">
+            <h2 class="panel-title">Text to speech</h2>
+            <div class="tool-row">
+              <select id="media-tts-service" aria-label="Speech service"></select>
+              <input type="text" id="media-tts-text" placeholder="Text to speak…" aria-label="Text to synthesize" />
+              <button class="tool-btn" id="media-synthesize-btn" type="button">Speak</button>
+            </div>
+            <div id="media-audio-out" class="tool-results"></div>
+          </div>
+          <div id="media-status" class="tool-status" role="status"></div>
+        </div>
+      </section>
+
+      <!-- ── Integrations / Calendar ─────────────────────────────────────── -->
+      <!-- Escalation-reviewed surface (docs/13 §7); backend authz gates every call. -->
+      <section class="screen" id="screen-integrations" data-screen="integrations" aria-label="Integrations">
+        <div class="screen-head"><h1>Calendar &amp; integrations</h1><p class="screen-sub">Call a connected external service (e.g. Google Calendar).</p></div>
+        <div class="screen-body">
+          <div class="panel">
+            <div class="tool-row">
+              <select id="integ-provider" aria-label="Integration provider"></select>
+              <button class="tool-btn tool-btn-ghost" id="integ-refresh-btn" type="button">Refresh</button>
+            </div>
+            <input type="text" id="integ-operation" placeholder="operation (e.g. list_events)" aria-label="Integration operation" />
+            <textarea id="integ-params" rows="3" placeholder='params JSON (e.g. {})' aria-label="Integration params (JSON)"></textarea>
+            <button class="tool-btn" id="integ-invoke-btn" type="button">Invoke</button>
+            <div id="integ-status" class="tool-status" role="status"></div>
+          </div>
+          <div class="panel"><div id="integ-result" class="tool-results"></div></div>
+        </div>
+      </section>
+
+      <!-- ── MCP / Tools ─────────────────────────────────────────────────── -->
+      <section class="screen" id="screen-mcp" data-screen="mcp" aria-label="MCP tools">
+        <div class="screen-head"><h1>Tools (MCP)</h1><p class="screen-sub">List and invoke tools from a per-tenant MCP server.</p></div>
+        <div class="screen-body">
+          <div class="panel">
+            <div class="tool-row">
+              <input type="text" id="mcp-server" placeholder="server (e.g. stub)" aria-label="MCP server name" />
+              <button class="tool-btn tool-btn-ghost" id="mcp-list-btn" type="button">List tools</button>
+            </div>
+            <select id="mcp-tool" aria-label="MCP tool"></select>
+            <textarea id="mcp-args" rows="3" placeholder='arguments JSON (e.g. {})' aria-label="MCP tool arguments (JSON)"></textarea>
+            <button class="tool-btn" id="mcp-invoke-btn" type="button">Invoke</button>
+            <div id="mcp-status" class="tool-status" role="status"></div>
+          </div>
+          <div class="panel"><div id="mcp-result" class="tool-results"></div></div>
+        </div>
+      </section>
+
+      <!-- ── Models ──────────────────────────────────────────────────────── -->
+      <section class="screen" id="screen-models" data-screen="models" aria-label="Models">
+        <div class="screen-head">
+          <h1>Models</h1>
+          <p class="screen-sub">Serve and manage models. GPU capacity is scale-to-zero — the first request wakes it.</p>
+        </div>
+        <div class="screen-body">
+          <div class="panel">
+            <div class="panel-title-row">
+              <h2 class="panel-title">Served models</h2>
+              <button class="tool-btn tool-btn-ghost" id="models-refresh-btn" type="button">Refresh</button>
+            </div>
+            <div id="models-gpu" class="models-gpu">
+              <span class="gpu-dot" id="models-gpu-dot" aria-hidden="true"></span>
+              <span id="models-gpu-text">Checking GPU…</span>
+              <button class="tool-btn tool-btn-ghost" id="models-warmup-btn" type="button">Warm up</button>
+            </div>
+            <div id="models-list" class="tool-results" role="list"></div>
+          </div>
+
+          <div class="panel">
+            <h2 class="panel-title">Add a model from Hugging Face</h2>
+            <p class="tool-hint">Enter a Hugging Face repo id to request installation. Gated models need a token.</p>
+            <input type="text" id="model-hf-repo" placeholder="e.g. meta-llama/Llama-3.1-8B-Instruct" aria-label="Hugging Face model repo id" />
+            <input type="password" id="model-hf-token" placeholder="Hugging Face token (only for gated/private models)" aria-label="Hugging Face token" autocomplete="off" />
+            <label class="tool-check"><input type="checkbox" id="model-hf-trust" /> This repo is trusted (I understand custom model code is a security risk)</label>
+            <button class="tool-btn" id="model-install-btn" type="button">Request install</button>
+            <div id="model-install-status" class="tool-status" role="status"></div>
+            <p id="model-install-note" class="screen-note"></p>
+          </div>
+
+          <div class="panel">
+            <h2 class="panel-title">Hugging Face configuration</h2>
+            <p class="tool-hint">The token is stored write-only in the cluster secret store and consumed by the GPU inference plane; the control plane never returns it.</p>
+            <div class="tool-row">
+              <input type="password" id="hf-token-config" placeholder="Set / rotate Hugging Face token…" aria-label="Hugging Face token config" autocomplete="off" />
+              <button class="tool-btn" id="hf-token-save-btn" type="button">Save</button>
+            </div>
+            <div id="hf-token-status" class="tool-status" role="status"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Settings ────────────────────────────────────────────────────── -->
+      <section class="screen" id="screen-settings" data-screen="settings" aria-label="Settings">
+        <div class="screen-head"><h1>Settings</h1><p class="screen-sub">Preferences and workspace status.</p></div>
+        <div class="screen-body">
+          <div class="panel">
+            <h2 class="panel-title">Appearance</h2>
+            <div class="setting-row">
+              <div><div class="setting-label">Theme</div><div class="setting-desc">Light or dark. Saved on this device.</div></div>
+              <div id="settings-theme-toggle" class="seg-toggle" role="group" aria-label="Theme">
+                <button class="seg-btn" id="settings-theme-dark" type="button">Dark</button>
+                <button class="seg-btn" id="settings-theme-light" type="button">Light</button>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <h2 class="panel-title">Chat defaults</h2>
+            <div class="setting-row">
+              <div><div class="setting-label">Default model</div><div class="setting-desc">Pre-selected for new chats. Saved on this device.</div></div>
+              <select id="settings-default-model" aria-label="Default model"></select>
+            </div>
+          </div>
+          <div class="panel">
+            <h2 class="panel-title">Inference</h2>
+            <div id="settings-inference" class="settings-kv"><div class="tool-status">Loading…</div></div>
+          </div>
+          <div class="panel">
+            <h2 class="panel-title">Account</h2>
+            <div class="settings-kv">
+              <div class="kv-row"><span class="kv-key">Signed in as</span><span class="kv-val" id="settings-email"></span></div>
+              <div class="kv-row"><span class="kv-key">Tenant</span><span class="kv-val" id="settings-tenant"></span></div>
+            </div>
+            <button class="tool-btn tool-btn-ghost" id="settings-signout-btn" type="button">Sign out</button>
+          </div>
+          <div class="panel">
+            <h2 class="panel-title">About</h2>
+            <div class="settings-kv">
+              <div class="kv-row"><span class="kv-key">Product</span><span class="kv-val">Private AI Workspace</span></div>
+              <div class="kv-row"><span class="kv-key">Notifications</span><span class="kv-val"><button class="tool-btn tool-btn-ghost" id="settings-reset-dismissed" type="button">Reset dismissed</button></span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div><!-- /#screen-host -->
   </main>
 
-  <!-- Notification drawer (slides in from right) -->
+  <!-- ── Notification drawer (slides in from right) ────────────────────────── -->
   <aside id="notif-drawer" role="complementary" aria-label="Notifications panel">
     <div id="notif-drawer-header">
       <span>Notifications</span>
       <button id="notif-close-btn" type="button" aria-label="Close notifications">&times;</button>
     </div>
-    <div id="notif-list" role="list">
-      <p id="notif-empty">No unread notifications</p>
-    </div>
-  </aside>
-
-  <!-- Tools drawer: surfaces the backend feature areas (RAG, memory, agent, media) -->
-  <aside id="tools-drawer" role="complementary" aria-label="Tools panel">
-    <div id="tools-drawer-header">
-      <span>Tools</span>
-      <button id="tools-close-btn" type="button" aria-label="Close tools">&times;</button>
-    </div>
-    <div id="tools-body">
-
-      <section class="tool-section" id="feat-docs" aria-labelledby="t-docs-h">
-        <h3 id="t-docs-h">Documents</h3>
-        <p class="tool-hint">Upload a document, then ask questions grounded in it.</p>
-        <input type="file" id="doc-file" accept=".txt,.md,.markdown,.csv,.json,.pdf,text/*" aria-label="Document to upload" />
-        <button class="tool-btn" id="doc-upload-btn" type="button">Upload &amp; index</button>
-        <div id="doc-upload-status" class="tool-status" role="status"></div>
-        <div class="tool-row">
-          <input type="text" id="doc-query" placeholder="Search your documents…" aria-label="Document search query" />
-          <button class="tool-btn" id="doc-query-btn" type="button">Search</button>
-        </div>
-        <div id="doc-results" class="tool-results" role="list"></div>
-      </section>
-
-      <section class="tool-section" id="feat-editor" aria-labelledby="t-editor-h">
-        <h3 id="t-editor-h">Editor</h3>
-        <p class="tool-hint">Write a document, then ask AI to edit it. Private to you.</p>
-        <input type="text" id="doc-editor-title" placeholder="Document title…" aria-label="Document title" />
-        <textarea id="doc-editor-body" rows="6" placeholder="Start writing…" aria-label="Document body"></textarea>
-        <div class="tool-row">
-          <button class="tool-btn" id="doc-save-btn" type="button">Save</button>
-          <button class="tool-btn tool-btn-ghost" id="doc-new-btn" type="button">New</button>
-        </div>
-        <div class="tool-row">
-          <input type="text" id="doc-instruction" placeholder="AI: e.g. make it more concise…" aria-label="AI edit instruction" />
-          <button class="tool-btn" id="doc-ai-btn" type="button">AI edit</button>
-        </div>
-        <div id="doc-editor-status" class="tool-status" role="status"></div>
-        <div id="doc-editor-list" class="tool-results" role="list"></div>
-      </section>
-
-      <section class="tool-section" id="feat-memory" aria-labelledby="t-mem-h">
-        <h3 id="t-mem-h">Memory</h3>
-        <p class="tool-hint">Things you ask the assistant to remember about you.</p>
-        <textarea id="mem-text" rows="2" placeholder="Remember that…" aria-label="Memory text"></textarea>
-        <label class="tool-check"><input type="checkbox" id="mem-consent" /> I consent to storing this</label>
-        <button class="tool-btn" id="mem-save-btn" type="button">Save memory</button>
-        <div id="mem-status" class="tool-status" role="status"></div>
-        <button class="tool-btn tool-btn-ghost" id="mem-refresh-btn" type="button">Refresh list</button>
-        <div id="mem-results" class="tool-results" role="list"></div>
-      </section>
-
-      <section class="tool-section" id="feat-notes" aria-labelledby="t-notes-h">
-        <h3 id="t-notes-h">Notes &amp; Tasks</h3>
-        <p class="tool-hint">Jot a note or track a task. Private to you.</p>
-        <div class="tool-row">
-          <select id="note-kind" aria-label="Kind">
-            <option value="note">Note</option>
-            <option value="task">Task</option>
-          </select>
-          <input type="text" id="note-title" placeholder="Title…" aria-label="Note or task title" />
-        </div>
-        <textarea id="note-body" rows="2" placeholder="Details (optional)…" aria-label="Note details"></textarea>
-        <button class="tool-btn" id="note-add-btn" type="button">Add</button>
-        <div id="note-status" class="tool-status" role="status"></div>
-        <button class="tool-btn tool-btn-ghost" id="note-refresh-btn" type="button">Refresh list</button>
-        <div id="note-results" class="tool-results" role="list"></div>
-      </section>
-
-      <section class="tool-section" id="feat-agent" aria-labelledby="t-agent-h">
-        <h3 id="t-agent-h">Agent</h3>
-        <p class="tool-hint">Give the agent a task, or run deep research over your documents.</p>
-        <textarea id="agent-task" rows="2" placeholder="e.g. Summarise my uploaded notes" aria-label="Agent task"></textarea>
-        <label class="tool-check"><input type="checkbox" id="agent-web" /> Search the web (deep research)</label>
-        <div class="tool-row">
-          <button class="tool-btn" id="agent-run-btn" type="button">Run agent</button>
-          <button class="tool-btn" id="agent-research-btn" type="button">Deep research</button>
-        </div>
-        <div id="agent-status" class="tool-status" role="status"></div>
-        <div id="agent-result" class="tool-results"></div>
-      </section>
-
-      <section class="tool-section" id="feat-compare" aria-labelledby="t-compare-h">
-        <h3 id="t-compare-h">Compare</h3>
-        <p class="tool-hint">Run one prompt against two models, blind, then reveal.</p>
-        <textarea id="compare-prompt" rows="2" placeholder="Prompt to compare…" aria-label="Compare prompt"></textarea>
-        <div class="tool-row">
-          <select id="compare-model-a" aria-label="Model A"></select>
-          <select id="compare-model-b" aria-label="Model B"></select>
-        </div>
-        <label class="tool-check"><input type="checkbox" id="compare-synth" /> Also synthesize a combined answer</label>
-        <button class="tool-btn" id="compare-btn" type="button">Compare</button>
-        <div id="compare-status" class="tool-status" role="status"></div>
-        <div id="compare-results" class="tool-results"></div>
-      </section>
-
-      <section class="tool-section" id="feat-media" aria-labelledby="t-media-h">
-        <h3 id="t-media-h">Media</h3>
-        <p class="tool-hint">Transcribe audio, generate an image, or synthesize speech.</p>
-        <select id="media-stt-service" aria-label="Transcription service"></select>
-        <input type="file" id="media-audio" accept="audio/*" aria-label="Audio to transcribe" />
-        <button class="tool-btn" id="media-transcribe-btn" type="button">Transcribe</button>
-        <div id="media-transcript" class="tool-results"></div>
-        <div class="tool-row">
-          <select id="media-img-service" aria-label="Image service"></select>
-          <input type="text" id="media-prompt" placeholder="Image prompt…" aria-label="Image prompt" />
-          <button class="tool-btn" id="media-generate-btn" type="button">Generate</button>
-        </div>
-        <div class="tool-row">
-          <select id="media-tts-service" aria-label="Speech service"></select>
-          <input type="text" id="media-tts-text" placeholder="Text to speak…" aria-label="Text to synthesize" />
-          <button class="tool-btn" id="media-synthesize-btn" type="button">Speak</button>
-        </div>
-        <div id="media-status" class="tool-status" role="status"></div>
-        <div id="media-image" class="tool-results"></div>
-        <div id="media-audio-out" class="tool-results"></div>
-      </section>
-
-      <!-- MCP + Integrations: exposing tool/integration execution in a user-facing
-           UI was an escalation trigger (confused-deputy / prompt-injection,
-           docs/13 §7). Maintainer sign-off is recorded in NOTICE ("MCP +
-           integrations UI surfacing — escalation sign-off"); these panels are
-           callers only — backend authz (deny-by-default, per-tenant, kill-switch)
-           gates every call server-side. Residual exposure is owned as an M7b
-           hardening item. -->
-      <section class="tool-section" id="feat-integrations" aria-labelledby="t-integ-h">
-        <h3 id="t-integ-h">Integrations</h3>
-        <p class="tool-hint">Call a connected external service (e.g. Google Calendar).</p>
-        <div class="tool-row">
-          <select id="integ-provider" aria-label="Integration provider"></select>
-          <button class="tool-btn tool-btn-ghost" id="integ-refresh-btn" type="button">Refresh</button>
-        </div>
-        <input type="text" id="integ-operation" placeholder="operation (e.g. list_events)" aria-label="Integration operation" />
-        <textarea id="integ-params" rows="2" placeholder='params JSON (e.g. {})' aria-label="Integration params (JSON)"></textarea>
-        <button class="tool-btn" id="integ-invoke-btn" type="button">Invoke</button>
-        <div id="integ-status" class="tool-status" role="status"></div>
-        <div id="integ-result" class="tool-results"></div>
-      </section>
-
-      <section class="tool-section" id="feat-mcp" aria-labelledby="t-mcp-h">
-        <h3 id="t-mcp-h">MCP</h3>
-        <p class="tool-hint">List and invoke tools from a per-tenant MCP server.</p>
-        <div class="tool-row">
-          <input type="text" id="mcp-server" placeholder="server (e.g. stub)" aria-label="MCP server name" />
-          <button class="tool-btn tool-btn-ghost" id="mcp-list-btn" type="button">List tools</button>
-        </div>
-        <select id="mcp-tool" aria-label="MCP tool"></select>
-        <textarea id="mcp-args" rows="2" placeholder='arguments JSON (e.g. {})' aria-label="MCP tool arguments (JSON)"></textarea>
-        <button class="tool-btn" id="mcp-invoke-btn" type="button">Invoke</button>
-        <div id="mcp-status" class="tool-status" role="status"></div>
-        <div id="mcp-result" class="tool-results"></div>
-      </section>
-
-    </div>
+    <div id="notif-list" role="list"><p id="notif-empty">No unread notifications</p></div>
   </aside>
 
 </div><!-- /#app-shell -->
 
 <!-- pdf.js (Mozilla, Apache-2.0) — client-side PDF text extraction for RAG upload.
-     Self-hosted UMD build (defines window.pdfjsLib); worker path is set in app.js.
-     Same-origin, so it stays within the strict CSP (default-src/script-src 'self').
-     Provenance recorded in NOTICE. -->
+     Self-hosted UMD build (defines window.pdfjsLib); same-origin, within the CSP. -->
 <script src="/static/vendor/pdf.min.js"></script>
 <script src="/static/app.js"></script>
 </body>
