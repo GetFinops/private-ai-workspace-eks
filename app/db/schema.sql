@@ -151,3 +151,24 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE INDEX IF NOT EXISTS idx_notes_user
     ON notes (tenant_id, user_id, created_at DESC);
 
+-- Migration 0008: model install requests (design Phase 1a — model management)
+-- A tenant/user-owned INTENT record to install a Hugging Face model. Isolation is
+-- enforced at the storage layer (WHERE tenant_id/user_id); operators in the admin
+-- group list/patch all rows to action them. No cluster mutation and no HF token
+-- ever touches this table — hf_repo_id/revision are public model identifiers.
+CREATE TABLE IF NOT EXISTS model_install_requests (
+    id          UUID        PRIMARY KEY,
+    tenant_id   TEXT        NOT NULL,
+    user_id     TEXT        NOT NULL,
+    hf_repo_id  TEXT        NOT NULL,
+    revision    TEXT        NOT NULL DEFAULT '',
+    status      TEXT        NOT NULL,
+    error_class TEXT        NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL,
+    updated_at  TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_model_install_requests_user
+    ON model_install_requests (tenant_id, user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_model_install_requests_status
+    ON model_install_requests (status, created_at DESC);

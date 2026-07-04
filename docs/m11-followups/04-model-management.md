@@ -1,7 +1,10 @@
 # M11 Follow-up #4 — Model management & self-serve install
 
-> Status: **Phase 0 shipped** (read-only catalog + live GPU status). Phases 1a→3
-> are **design + escalation register** — not built. This document is the
+> Status: **Phase 0 + 1a shipped.** Phase 0 = read-only catalog + live GPU
+> status. Phase 1a = tenant-scoped install-**request** records + operator
+> notification (kill-switch + HF allow-list + per-tenant cap; cross-tenant
+> isolation tests; NO cluster mutation, NO HF token). Phases 1b→3 remain
+> **design + escalation register** — not built. This document is the
 > security-reviewed plan referenced by the Models screen in the web UI.
 
 The web UI now has a **Models** screen and a **GPU cold-start** flow. This
@@ -188,7 +191,7 @@ writer of status; vLLM `/health` is **continuously reconciled** back into
 | Phase | Scope | New privilege | Verdict |
 | --- | --- | --- | --- |
 | **0** | Read-only catalog (`items[]` + `capabilities{}`) + live GPU status (`?probe=1`) + client-side warm-up + cold-start UX | none | **shipped** |
-| **1a** | Tenant-scoped **install-request** records + operator notification; `POST/GET/PATCH /v1/models/install-requests`; apply stays human/CI | none (no cluster mutation) | **build after a cross-tenant isolation review**; gated by `MODEL_INSTALL_ENABLED` (off), allow-list, rate-limit |
+| **1a** | Tenant-scoped **install-request** records + operator notification; `GET/POST /v1/models/install-requests` (+ `POST /{id}` operator status change); apply stays human/CI | none (no cluster mutation) | **shipped**, gated by `MODEL_INSTALL_ENABLED` (default off; on for dev), deny-by-default HF allow-list, per-tenant open-request cap; cross-tenant isolation tests in `tests/test_model_requests.py`; maintainer review on the PR |
 | **1b** | Brokered HF-token write (`PUT /v1/models/hf-token`) | secret write | **escalate** — independent security review + M5 no-leak proof; until then, operator-set out-of-band |
 | **2** | Catalog search proxy (`GET /v1/models/search` via `outbound.py`) | HF egress from control plane | **escalate** |
 | **3** | Actual apply — GitOps reconciler or namespace-scoped `model-installer`; per-model vLLM release templating; weight-cache staging | cluster mutation (off the control plane) | **escalate** — largest item; §4 option (2)/(3) |

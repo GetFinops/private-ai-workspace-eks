@@ -125,6 +125,19 @@ class ControlPlaneRouteTests(TestCase):
         # Every management capability is denied by default (server-computed).
         self.assertTrue(all(v is False for v in payload["capabilities"].values()))
 
+    def test_models_request_install_capability_follows_kill_switch(self) -> None:
+        # With MODEL_INSTALL_ENABLED on, only request_install flips true; every
+        # other (escalation-gated) capability stays false.
+        response = build_response(
+            "/v1/models",
+            ControlPlaneConfig.from_env({"MODEL_INSTALL_ENABLED": "true"}),
+        )
+        caps = response.payload["capabilities"]
+        self.assertTrue(caps["request_install"])
+        self.assertFalse(caps["install"])
+        self.assertFalse(caps["token_config"])
+        self.assertFalse(caps["search"])
+
     def test_inference_status_default_path_stays_cheap_and_shape_only(self) -> None:
         # Without ?probe=1 the endpoint must NOT probe and must keep the exact
         # minimal shape (regression guard for the content-safety contract).

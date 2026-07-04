@@ -54,6 +54,8 @@ ALLOWED_EVENT_CLASSES: frozenset[str] = frozenset({
     "media_generation_complete",  # M14: image/video generation completed
     "media_task_completed",    # M14: media task (transcribe/generate) completed
     "media_task_failed",       # M14: media task failed
+    "model_install_requested", # model mgmt (Phase 1a): install request recorded
+    "model_install_updated",   # model mgmt (Phase 1a): operator changed request status
     "system_notice",           # platform-level operator messages
 })
 

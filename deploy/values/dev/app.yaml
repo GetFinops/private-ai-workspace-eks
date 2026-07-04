@@ -59,6 +59,12 @@ config:
   mediaEnabled: true
   mediaAllowlist: '{"tenant-a.test":["whisper","sdxl"]}'
   mediaServices: '{"whisper":{"kind":"stt","base_url":"http://whisper-stt.inference.svc.cluster.local:8000"},"sdxl":{"kind":"image","base_url":"http://sdxl-image.inference.svc.cluster.local:8000"}}'
+  # Model management Phase 1a: enable self-serve install REQUESTS (records intent +
+  # notifies the requester for operator review; NO cluster mutation, NO HF token).
+  # Deny-by-default HF allow-list — a curated set of well-known orgs so the request
+  # form works on dev. Operators review via GET /v1/models/install-requests (admin).
+  modelInstallEnabled: true
+  modelInstallAllowlist: "meta-llama,mistralai,Qwen,google,microsoft,HuggingFaceH4,NousResearch,tiiuae,bigcode,deepseek-ai"
 
 # M13 dev-only synthetic loopback fixture (fake in-cluster calendar provider).
 integrationsFixture:

@@ -100,6 +100,15 @@ class ControlPlaneConfig:
     media_max_concurrency: int = 2
     media_max_audio_bytes: int = 25 * 1024 * 1024
     media_max_prompt_chars: int = 2000
+    # Model management — self-serve install REQUESTS (design Phase 1a). Disabled
+    # by default (operator kill-switch). This records tenant-scoped install intent
+    # + notifies the requester for an operator to review; it NEVER downloads a
+    # model or mutates the cluster (see docs/m11-followups/04-model-management.md).
+    # MODEL_INSTALL_ALLOWLIST is a comma-separated list of allowed HF orgs or exact
+    # repo ids (deny-by-default: empty ⇒ deny all; "*" ⇒ allow any, dev only).
+    model_install_enabled: bool = False
+    model_install_allowlist: str | None = None
+    model_install_max_open_per_tenant: int = 25
     # Web search for deep research (deny-by-default, off unless configured).
     # WEB_SEARCH is JSON {"provider","url","host","api_key","api_key_header","top_k"}.
     # No search engine is bundled: this points at an external JSON search API
@@ -186,6 +195,11 @@ class ControlPlaneConfig:
             media_max_concurrency=int(values.get("MEDIA_MAX_CONCURRENCY", "2") or "2"),
             media_max_audio_bytes=int(values.get("MEDIA_MAX_AUDIO_BYTES", str(25 * 1024 * 1024)) or str(25 * 1024 * 1024)),
             media_max_prompt_chars=int(values.get("MEDIA_MAX_PROMPT_CHARS", "2000") or "2000"),
+            model_install_enabled=values.get("MODEL_INSTALL_ENABLED", "false").lower() == "true",
+            model_install_allowlist=_clean(values.get("MODEL_INSTALL_ALLOWLIST")),
+            model_install_max_open_per_tenant=int(
+                values.get("MODEL_INSTALL_MAX_OPEN_PER_TENANT", "25") or "25"
+            ),
             auth=AuthSettings(
                 issuer_url=_clean(values.get("AUTH_ISSUER_URL")),
                 audience=_clean(values.get("AUTH_AUDIENCE")),

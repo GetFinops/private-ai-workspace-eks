@@ -142,6 +142,13 @@ from app.control_plane.notes import (
     build_note_update_response,
     build_notes_list_response,
 )
+from app.control_plane.model_requests import (
+    InMemoryModelRequestStore,
+    ModelRequestStore,
+    build_model_request_create_response,
+    build_model_request_update_response,
+    build_model_requests_list_response,
+)
 from app.control_plane.conversations import (
     ConversationStore,
     InMemoryConversationStore,
@@ -199,6 +206,7 @@ _AGENT_RUNS_PATH = "/v1/agent/runs"
 _AGENT_RESEARCH_PATH = "/v1/agent/research"
 _COMPARE_PATH = "/v1/compare"
 _NOTES_PATH = "/v1/notes"
+_MODEL_REQUESTS_PATH = "/v1/models/install-requests"
 _DOCUMENT_EDIT_PATH = "/v1/documents/edit"
 _MCP_INVOKE_PATH = "/v1/mcp/invoke"
 _MCP_LIST_PATH = "/v1/mcp/tools/list"
@@ -358,7 +366,9 @@ def build_response(path: str, config: ControlPlaneConfig) -> Response:
         capabilities = {
             "search": False,
             "install": False,
-            "request_install": False,
+            # Phase 1a: recording install REQUESTS is safe (no cluster mutation);
+            # gated by the operator kill-switch. Everything else stays escalated.
+            "request_install": bool(config.model_install_enabled),
             "warm": False,
             "remove": False,
             "token_config": False,
@@ -671,6 +681,11 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
     documents_rate_limiter: RateLimiter = RateLimiter()
     chat_rate_limiter: RateLimiter = RateLimiter()  # gates SSE chat-stream opens
     notes_store: NotesStore = InMemoryNotesStore()  # type: ignore[assignment]
+    # Model install requests (design Phase 1a). Deny-by-default: the kill-switch
+    # (config.model_install_enabled) and HF allow-list gate creation; this store
+    # only records intent — no cluster mutation, no HF token.
+    model_requests_store: ModelRequestStore = InMemoryModelRequestStore()  # type: ignore[assignment]
+    model_install_rate_limiter: RateLimiter = RateLimiter(per_minute=10, max_concurrency=4)
     # MCP integration (M12). Disabled by default; allow-list empty (deny by default).
     mcp_enabled: bool = False
     mcp_allowlist: dict = {}  # type: ignore[type-arg]
@@ -785,6 +800,15 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                 token_verifier=self.__class__.token_verifier,
                 store=self.__class__.notes_store,
                 kind=kind,
+            )
+            self._instrument("GET", lambda s=status, p=payload: Response(s, p))
+            return
+        if path == _MODEL_REQUESTS_PATH:
+            status, payload = build_model_requests_list_response(
+                authorization=self.headers.get("Authorization"),
+                token_verifier=self.__class__.token_verifier,
+                store=self.__class__.model_requests_store,
+                config=self.__class__.config,
             )
             self._instrument("GET", lambda s=status, p=payload: Response(s, p))
             return
@@ -1022,6 +1046,33 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                         body=body,
                         token_verifier=self.__class__.token_verifier,
                         store=self.__class__.notes_store,
+                    )
+                    return Response(status, payload)
+
+            # POST /v1/models/install-requests — record an install request (Phase 1a).
+            if path == _MODEL_REQUESTS_PATH:
+                status, payload = build_model_request_create_response(
+                    authorization=self.headers.get("Authorization"),
+                    body=body,
+                    token_verifier=self.__class__.token_verifier,
+                    store=self.__class__.model_requests_store,
+                    config=self.__class__.config,
+                    notification_store=self.__class__.notification_store,
+                    rate_limiter=self.__class__.model_install_rate_limiter,
+                )
+                return Response(status, payload)
+            # POST /v1/models/install-requests/{id} — operator status change (admin).
+            if path.startswith(_MODEL_REQUESTS_PATH + "/"):
+                req_id = path[len(_MODEL_REQUESTS_PATH) + 1:]
+                if req_id and "/" not in req_id:
+                    status, payload = build_model_request_update_response(
+                        authorization=self.headers.get("Authorization"),
+                        request_id=req_id,
+                        body=body,
+                        token_verifier=self.__class__.token_verifier,
+                        store=self.__class__.model_requests_store,
+                        config=self.__class__.config,
+                        notification_store=self.__class__.notification_store,
                     )
                     return Response(status, payload)
 
@@ -1462,6 +1513,28 @@ def _build_integration_secret_resolver(config: ControlPlaneConfig):
     )
 
 
+def _build_model_requests_store(config: ControlPlaneConfig) -> ModelRequestStore:
+    """Return a Postgres-backed model-request store when DATABASE_URL is set."""
+    if not config.database_url:
+        return InMemoryModelRequestStore()
+    try:
+        from app.db.connection import open_pool
+        from app.control_plane.model_requests import PostgresModelRequestStore
+
+        pool = open_pool(config.database_url)
+        logger.info("Using PostgreSQL model-request store.")
+        return PostgresModelRequestStore(pool)
+    except Exception as exc:
+        if config.environment != "development":
+            raise RuntimeError(
+                f"Failed to initialize PostgreSQL model-request store "
+                f"({type(exc).__name__}); refusing to fall back in "
+                f"environment={config.environment!r}."
+            ) from None
+        logger.error("Failed to init PostgreSQL model-request store — using in-memory.")
+        return InMemoryModelRequestStore()
+
+
 def _build_notes_store(config: ControlPlaneConfig) -> NotesStore:
     """Return a Postgres-backed notes store when DATABASE_URL is configured."""
     if not config.database_url:
@@ -1682,6 +1755,7 @@ def run_server(
     )
     ControlPlaneHandler.conversation_store = _build_conversation_store(resolved_config)  # type: ignore[assignment]
     ControlPlaneHandler.notes_store = _build_notes_store(resolved_config)  # type: ignore[assignment]
+    ControlPlaneHandler.model_requests_store = _build_model_requests_store(resolved_config)  # type: ignore[assignment]
     ControlPlaneHandler.embedding_client = (
         embedding_client or _build_embedding_client(resolved_config)
     )

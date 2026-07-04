@@ -81,3 +81,12 @@ data:
   MEDIA_MAX_AUDIO_BYTES: {{ .Values.config.mediaMaxAudioBytes | default "26214400" | quote }}
   MEDIA_MAX_PROMPT_CHARS: {{ .Values.config.mediaMaxPromptChars | default 2000 | quote }}
   {{- end }}
+  {{- if .Values.config.modelInstallEnabled }}
+  # Model management Phase 1a: record self-serve install REQUESTS only (no cluster
+  # mutation, no HF token). Deny-by-default: kill-switch + HF repo/org allow-list.
+  MODEL_INSTALL_ENABLED: "true"
+  {{- if .Values.config.modelInstallAllowlist }}
+  MODEL_INSTALL_ALLOWLIST: {{ .Values.config.modelInstallAllowlist | quote }}
+  {{- end }}
+  MODEL_INSTALL_MAX_OPEN_PER_TENANT: {{ .Values.config.modelInstallMaxOpenPerTenant | default 25 | quote }}
+  {{- end }}

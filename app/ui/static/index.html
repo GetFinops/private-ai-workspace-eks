@@ -384,13 +384,21 @@
 
           <div class="panel">
             <h2 class="panel-title">Add a model from Hugging Face</h2>
-            <p class="tool-hint">Enter a Hugging Face repo id to request installation. Gated models need a token.</p>
+            <p class="tool-hint">Enter a Hugging Face repo id to request installation. An operator reviews and applies it.</p>
             <input type="text" id="model-hf-repo" placeholder="e.g. meta-llama/Llama-3.1-8B-Instruct" aria-label="Hugging Face model repo id" />
-            <input type="password" id="model-hf-token" placeholder="Hugging Face token (only for gated/private models)" aria-label="Hugging Face token" autocomplete="off" />
+            <input type="text" id="model-hf-revision" placeholder="revision (optional — a branch, tag, or commit)" aria-label="Model revision" />
             <label class="tool-check"><input type="checkbox" id="model-hf-trust" /> This repo is trusted (I understand custom model code is a security risk)</label>
             <button class="tool-btn" id="model-install-btn" type="button">Request install</button>
             <div id="model-install-status" class="tool-status" role="status"></div>
             <p id="model-install-note" class="screen-note"></p>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title-row">
+              <h2 class="panel-title">Your install requests</h2>
+              <button class="tool-btn tool-btn-ghost" id="model-requests-refresh-btn" type="button">Refresh</button>
+            </div>
+            <div id="model-requests-list" class="tool-results" role="list"></div>
           </div>
 
           <div class="panel">

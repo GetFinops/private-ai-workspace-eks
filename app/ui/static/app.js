@@ -165,11 +165,13 @@
     modelsGpuText:   $('models-gpu-text'),
     modelsWarmupBtn: $('models-warmup-btn'),
     modelHfRepo:     $('model-hf-repo'),
-    modelHfToken:    $('model-hf-token'),
+    modelHfRevision: $('model-hf-revision'),
     modelHfTrust:    $('model-hf-trust'),
     modelInstallBtn: $('model-install-btn'),
     modelInstallStatus: $('model-install-status'),
     modelInstallNote:$('model-install-note'),
+    modelRequestsList: $('model-requests-list'),
+    modelRequestsRefreshBtn: $('model-requests-refresh-btn'),
     hfTokenConfig:   $('hf-token-config'),
     hfTokenSaveBtn:  $('hf-token-save-btn'),
     hfTokenStatus:   $('hf-token-status'),
@@ -1502,6 +1504,40 @@
     var gpu = await refreshGpuStatus();
     renderModelsList(items, gpu);
     applyModelCapabilities(caps);
+    loadModelRequests();
+  }
+
+  // Your install requests (Phase 1a) — the caller's own requests + live status.
+  async function loadModelRequests() {
+    if (!els.modelRequestsList) return;
+    clearChildren(els.modelRequestsList);
+    try {
+      var r = await toolJson('/v1/models/install-requests');
+      if (r.status === 404 || r.status === 501 || (r.data && r.data.enabled === false && !r.ok)) {
+        appendResultLine(els.modelRequestsList, 'Install requests are not enabled here yet.');
+        return;
+      }
+      var reqs = (r.data && r.data.requests) || [];
+      if (!reqs.length) { appendResultLine(els.modelRequestsList, 'No install requests yet.'); return; }
+      reqs.forEach(function (req) {
+        var row = document.createElement('div'); row.className = 'model-row';
+        var name = document.createElement('div'); name.className = 'model-name';
+        var b = document.createElement('b'); setText(b, req.hf_repo_id); name.appendChild(b);
+        if (req.revision) { var rv = document.createElement('span'); rv.className = 'model-meta'; setText(rv, ' @ ' + req.revision); name.appendChild(rv); }
+        row.appendChild(name);
+        row.appendChild(buildRequestPill(req.status));
+        els.modelRequestsList.appendChild(row);
+      });
+    } catch (_) {}
+  }
+
+  function buildRequestPill(status) {
+    var map = { requested: 'loading', approved: 'warm', applied: 'warm', rejected: 'failed', failed: 'failed' };
+    var pill = document.createElement('span');
+    pill.className = 'status-pill ' + (map[status] || 'unknown');
+    var dot = document.createElement('span'); dot.className = 'dot'; pill.appendChild(dot);
+    var t = document.createElement('span'); setText(t, status || 'unknown'); pill.appendChild(t);
+    return pill;
   }
 
   function buildStatusPill(st) {
@@ -1551,19 +1587,28 @@
     if (!els.modelHfRepo) return;
     var repo = els.modelHfRepo.value.trim();
     if (!repo) { setStatus(els.modelInstallStatus, 'Enter a Hugging Face repo id.', true); return; }
+    var payload = { hf_repo_id: repo };
+    var rev = els.modelHfRevision && els.modelHfRevision.value.trim();
+    if (rev) payload.revision = rev;
     setStatus(els.modelInstallStatus, 'Submitting request…');
     try {
       var r = await toolJson('/v1/models/install-requests', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hf_repo_id: repo }),
+        body: JSON.stringify(payload),
       });
       if (r.status === 404 || r.status === 501) {
         setStatus(els.modelInstallStatus, 'Self-serve install is not enabled yet (operator-gated).', true);
         return;
       }
-      if (!r.ok) { setStatus(els.modelInstallStatus, (r.data && (r.data.detail || r.data.error)) || ('Failed (' + r.status + ')'), true); return; }
+      // 202 Accepted (or 200/201) on success.
+      if (!r.ok && r.status !== 202) {
+        setStatus(els.modelInstallStatus, (r.data && (r.data.detail || r.data.error)) || ('Failed (' + r.status + ')'), true);
+        return;
+      }
       setStatus(els.modelInstallStatus, 'Requested — an operator will review it.');
       els.modelHfRepo.value = '';
+      if (els.modelHfRevision) els.modelHfRevision.value = '';
+      loadModelRequests();
     } catch (_) {}
   }
 
@@ -2201,6 +2246,7 @@
     // Models screen actions.
     if (els.modelsRefreshBtn) els.modelsRefreshBtn.addEventListener('click', loadModelsScreen);
     if (els.modelInstallBtn) els.modelInstallBtn.addEventListener('click', requestModelInstall);
+    if (els.modelRequestsRefreshBtn) els.modelRequestsRefreshBtn.addEventListener('click', loadModelRequests);
 
     // Settings screen actions.
     if (els.settingsThemeDark) els.settingsThemeDark.addEventListener('click', function () { applyTheme('dark'); persistTheme('dark'); syncSettingsTheme(); });
