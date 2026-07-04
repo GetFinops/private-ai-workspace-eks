@@ -357,6 +357,26 @@ class TestArtifactFetch(unittest.TestCase):
             authorization="Bearer valid", artifact_id="abc-123", token_verifier=_ALICE, executor=ex)
         self.assertEqual(status, HTTPStatus.NOT_FOUND)
 
+    def test_cross_tenant_artifact_fetch_is_404(self):
+        # Storage physically holds only ALICE's object. BOB requesting the SAME
+        # artifact_id addresses a DIFFERENT key (his own tenant/user prefix), so
+        # isolation-by-key-reconstruction denies him — even knowing the id.
+        from app.control_plane.media import build_media_artifact_response
+
+        class _OnlyAlice:
+            def generate_presigned_url(self, *, key, expires_in=300, operation="get_object"):
+                if key == "media/tenant-a.test/user-x/abc-123.bin":
+                    return f"https://s3.example/{key}"
+                raise Exception("not found")
+
+        ex = MediaExecutor(storage_client=_OnlyAlice())
+        owner_status, _ = build_media_artifact_response(
+            authorization="Bearer valid", artifact_id="abc-123", token_verifier=_ALICE, executor=ex)
+        self.assertEqual(owner_status, HTTPStatus.OK)                 # owner can fetch
+        other_status, _ = build_media_artifact_response(
+            authorization="Bearer valid", artifact_id="abc-123", token_verifier=_BOB, executor=ex)
+        self.assertEqual(other_status, HTTPStatus.NOT_FOUND)          # other tenant cannot
+
     def test_bad_artifact_id_rejected(self):
         from app.control_plane.media import build_media_artifact_response
         ex = MediaExecutor(storage_client=_PresignStorage())

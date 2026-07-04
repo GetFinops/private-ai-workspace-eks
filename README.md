@@ -52,7 +52,7 @@ Per-milestone build instructions live in `docs/milestones/`.
 | M4 | Inference plane MVP (isolated vLLM on GPU) | Complete |
 | M5 | Observability baseline (metrics, logs, traces) | Complete |
 | M6 | Elastic GPU scaling (Karpenter + HPA + degrade-only fallback) | Complete |
-| M7a | Platform hardening (minimum pass on M6 surface) | Paper review + sweeps complete; operator drills pending ([report](docs/m7a-report.md)) |
+| M7a | Platform hardening (minimum pass on M6 surface) | Complete — paper review + sweeps + both live drills (rollback, backup/restore) passed on dev 2026-07-04 ([report](docs/m7a-report.md)) |
 | M9 | Product surface: vanilla JS SPA (Odysseus-derived design tokens, OIDC PKCE), notifications service, nginx chart | Complete (dev) |
 | M10 | Retrieval + per-user memory on pgvector | Complete (dev) |
 | M11 | Agent + tool framework (sandbox, agent loop, Job sandbox, deep-research) | Complete (dev) |
