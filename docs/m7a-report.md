@@ -10,9 +10,11 @@
 
 ## Status
 
-Partial — paper review and license/governance sweeps complete; the two
-live drills (rollback, backup-and-restore) require a dev EKS cluster
-and are tracked below for the operator who runs them.
+Partial — paper review, license sweep, and governance/branch-protection
+verification are complete (the latter re-verified live against the GitHub API
+on 2026-07-04, §3). The only remaining items are the two infrastructure drills
+(rollback, backup-and-restore), which require dev EKS + RDS/S3 access; their
+harnesses are verified and the operator run-books are turnkey below (§4, §5).
 
 ## Scope
 
@@ -120,25 +122,30 @@ account; no role is assumable cluster-wide.
 - Local artifacts (CODEOWNERS, CONTRIBUTING.md with DCO reference,
   SECURITY.md, CODE_OF_CONDUCT.md, PR template): all present.
 - Repository-level finding: F-05 (DCO web-commit setting is off).
-- Branch-protection finding: not verifiable without an authenticated
-  GitHub token. Operator must run
-  `GITHUB_TOKEN=… scripts/m7a/governance-check.sh` and record the
-  result here. The expected contract from
+- Branch-protection finding: **VERIFIED (2026-07-04)** via an authenticated
+  `GITHUB_TOKEN=$(gh auth token) scripts/m7a/governance-check.sh
+  GetFinops/private-ai-workspace-eks` run. The expected contract from
   [`04-governance-and-contribution.md`](04-governance-and-contribution.md)
-  is: PR-only changes, ≥1 required reviewer, required status checks,
-  no force-pushes, no branch deletions.
+  — PR-only changes, ≥1 required reviewer, required status checks, no
+  force-pushes, no branch deletions — **is satisfied on `main`** (table below).
 
-### Operator action required
+### Live branch-protection verification (2026-07-04)
 
-Fill in the table below after running the authenticated check:
+Observed values from the authenticated check; all four settings meet the
+expected contract. Re-run the harness to refresh.
 
 | Setting | Expected | Observed | Date |
 | --- | --- | --- | --- |
-| `required_approving_review_count` | `≥ 1` | _to fill_ | _to fill_ |
-| `allow_force_pushes` | `false` | _to fill_ | _to fill_ |
-| `allow_deletions` | `false` | _to fill_ | _to fill_ |
-| `required_status_checks` | `≥ 1` (currently the CI job) | _to fill_ | _to fill_ |
-| `web_commit_signoff_required` (F-05) | `true` | `false` | 2026-06-06 |
+| `required_approving_review_count` | `≥ 1` | `1` ✅ | 2026-07-04 |
+| `allow_force_pushes` | `false` | `false` ✅ | 2026-07-04 |
+| `allow_deletions` | `false` | `false` ✅ | 2026-07-04 |
+| `required_status_checks` | `≥ 1` (currently the CI job) | `1` (`docs-and-structure`) ✅ | 2026-07-04 |
+| `web_commit_signoff_required` (F-05) | `true` | `false` ⚠ | 2026-07-04 |
+
+> F-05 (web-based commit sign-off) remains **off** — a repository **Settings →
+> General** toggle only the repo owner can change. Until then, DCO on web-edited
+> commits relies on maintainer review. This is the one open governance item; it
+> is a warning, not a blocker (all local commits already carry `Signed-off-by`).
 
 ## 4. Drill 1 — Rollback
 
@@ -146,16 +153,24 @@ Fill in the table below after running the authenticated check:
 - Status: **pending operator execution against the dev EKS cluster.**
 - Prerequisite: dev cluster healthy with the `private-ai-workspace`
   Helm release deployed.
+- Harness verified 2026-07-04: correct release/namespace defaults, chart path
+  `deploy/helm/private-ai-workspace`, cleanup trap that rolls back on any exit,
+  and it prints the exact values to paste below. Requires `helm`, `kubectl`, `jq`.
 
 ### Operator action required
 
-Run:
-
 ```bash
+# 1. Point kubectl at the dev EKS cluster (account 069133419519).
+export AWS_PROFILE=personal AWS_REGION=us-west-2
+aws eks update-kubeconfig --name private-ai-workspace-dev --region us-west-2
+kubectl -n app get deploy private-ai-workspace-private-ai-workspace   # confirm healthy
+
+# 2. Run the drill (deploys a broken image, confirms the readiness gate blocks
+#    it, rolls back, verifies health — all reversed on exit).
 scripts/m7a/rollback-drill.sh --release private-ai-workspace --namespace app
 ```
 
-Then fill in:
+The script prints a ready-to-paste block on success; copy it into the table:
 
 | Field | Value |
 | --- | --- |
@@ -171,16 +186,29 @@ Then fill in:
 
 - Harness: `scripts/m7a/backup-restore-drill.sh`
 - Status: **pending operator execution against the dev RDS instance and S3 bucket.**
+- Harness verified 2026-07-04: targets `private-ai-workspace-dev` RDS, restores to
+  a suffixed instance in the same subnet group / SGs, verifies S3 versioning +
+  lifecycle, and deletes the restored instance on exit (unless `--keep-restored`).
+  Requires `aws`, `jq`. IAM: rds snapshot/restore/describe/delete + s3 versioning/
+  lifecycle reads (listed in the script header).
 
 ### Operator action required
 
-Run:
-
 ```bash
+# 1. AWS creds for the dev account (069133419519).
+export AWS_PROFILE=personal AWS_REGION=us-west-2
+aws sts get-caller-identity            # confirm the right account
+
+# 2. Run the drill (snapshot → restore to a temp instance → verify → cleanup).
+#    Add --keep-restored to run a manual sentinel SELECT before cleanup.
 scripts/m7a/backup-restore-drill.sh --project private-ai-workspace --environment dev
+
+# 3. Data-integrity check (the script prints the restored endpoint):
+#    psql "host=<restored-endpoint> ..." -c "SELECT count(*) FROM <sentinel table>;"
+# 4. Delete the M7a snapshot once recorded (command printed by the script).
 ```
 
-Then fill in:
+The script prints a ready-to-paste block on success; copy it into the table:
 
 | Field | Value |
 | --- | --- |
@@ -212,7 +240,8 @@ Then fill in:
 | Exit criterion (from milestone file) | Status |
 | --- | --- |
 | Security posture of M0–M6 reviewed and recorded | ✅ this document |
-| Backup, restore, and rollback drills performed at least once on dev and documented | ⏳ harnesses ready; awaiting operator runs (§4, §5) |
+| Branch protection + contribution flow operate as documented | ✅ verified live 2026-07-04 (§3): ≥1 review, required checks, no force-push, no deletions |
+| Backup, restore, and rollback drills performed at least once on dev and documented | ⏳ harnesses verified + run-books turnkey; awaiting operator runs (§4, §5) |
 | Known operational risks recorded with owners | ✅ §1.6 (findings F-01 … F-07) + §6 |
 | Phase 2 can begin without un-validated platform debt | ✅ for paper review; conditional on §4 + §5 drill runs |
 
