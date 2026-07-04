@@ -1239,14 +1239,20 @@
     models:       function () { loadModelsScreen(); },
     settings:     function () { loadSettingsScreen(); },
   };
-  var loadedScreens = {};
+  var loadedScreens = new Set();   // Set (not an object) — no dynamic property write
+
+  // Own-property membership test — the sanitiser for every screen-name lookup so
+  // a user-controlled hash (e.g. "#/__proto__") can never index a prototype key.
+  function isKnownScreen(name) {
+    return typeof name === 'string' && Object.prototype.hasOwnProperty.call(SCREENS, name);
+  }
 
   function currentScreen() { return state.screen || 'chat'; }
 
   // Navigate by setting the hash; onHashChange does the actual show. `opts` may
   // carry presets (note kind, deep-research toggle) applied after the screen shows.
   function navigate(name, opts) {
-    if (!SCREENS[name]) name = 'chat';
+    if (!isKnownScreen(name)) name = 'chat';
     state.navOpts = opts || null;
     var target = '#/' + name;
     if (window.location.hash === target) { onHashChange(); }  // re-apply presets
@@ -1255,12 +1261,14 @@
 
   function onHashChange() {
     var name = (window.location.hash || '').replace(/^#\/?/, '') || 'chat';
-    if (!SCREENS[name]) name = 'chat';
+    if (!isKnownScreen(name)) name = 'chat';
     showScreen(name, state.navOpts);
     state.navOpts = null;
   }
 
   function showScreen(name, opts) {
+    // Only ever act on a known, own-property screen key (property-injection safe).
+    if (!isKnownScreen(name)) name = 'chat';
     state.screen = name;
     // Toggle screen sections.
     var screens = els.screenHost ? els.screenHost.querySelectorAll('.screen') : [];
@@ -1283,9 +1291,10 @@
     opts = opts || {};
     if (opts.noteKind && els.noteKind) els.noteKind.value = opts.noteKind;
     if (opts.agentWeb && els.agentWeb) els.agentWeb.checked = true;
-    // Lazy first-load.
-    if (!loadedScreens[name] && screenLoaders[name]) {
-      loadedScreens[name] = true;
+    // Lazy first-load. name is a validated own-key of SCREENS; guard the loader
+    // lookup with hasOwnProperty and record via a Set (no dynamic property write).
+    if (!loadedScreens.has(name) && Object.prototype.hasOwnProperty.call(screenLoaders, name)) {
+      loadedScreens.add(name);
       try { screenLoaders[name](); } catch (_) {}
     }
     // The Models screen shares the GPU poll; refresh it on entry.
