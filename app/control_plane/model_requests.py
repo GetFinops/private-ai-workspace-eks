@@ -44,8 +44,8 @@ logger = logging.getLogger(__name__)
 # plane) advances it: requested -> installing -> applied | failed. There is no
 # in-app approval step — permission to request IS the authorization (docs/14).
 _STATUSES = ("requested", "installing", "applied", "failed")
-# Statuses the reconciler may set via the internal status endpoint.
-_RECONCILER_STATUSES = ("installing", "applied", "failed")
+# The reconciler may set any status except the user-created "requested".
+_RECONCILER_STATUSES = tuple(s for s in _STATUSES if s != "requested")
 
 # HF repo ids are "<org>/<name>"; revisions are a branch/tag/commit token.
 _HF_REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -117,23 +117,30 @@ def is_repo_allowed(allowlist: frozenset[str], repo_id: str) -> bool:
 
 @runtime_checkable
 class ModelRequestStore(Protocol):
-    def create(self, item: ModelInstallRequest) -> None: ...
+    def create(self, item: ModelInstallRequest) -> None:
+        """Persist a new install request."""
 
     def list_for_user(
         self, *, tenant_id: str, user_id: str, limit: int = 100
-    ) -> list[ModelInstallRequest]: ...
+    ) -> list[ModelInstallRequest]:
+        """The caller's own (tenant, user) requests, newest first."""
 
-    def list_all(self, *, limit: int = 100) -> list[ModelInstallRequest]: ...
+    def list_all(self, *, limit: int = 100) -> list[ModelInstallRequest]:
+        """All requests (admin / reconciler view), newest first."""
 
-    def list_pending(self, *, limit: int = 50) -> list[ModelInstallRequest]: ...
+    def list_pending(self, *, limit: int = 50) -> list[ModelInstallRequest]:
+        """Requests still in 'requested' state, oldest first (FIFO)."""
 
-    def get(self, *, request_id: str) -> "ModelInstallRequest | None": ...
+    def get(self, *, request_id: str) -> "ModelInstallRequest | None":
+        """Fetch one request by id, or None."""
 
     def update_status(
         self, *, request_id: str, status: str, error_class: str = ""
-    ) -> "ModelInstallRequest | None": ...
+    ) -> "ModelInstallRequest | None":
+        """Set a request's status/error_class; returns the updated row or None."""
 
-    def count_open_for_tenant(self, *, tenant_id: str) -> int: ...
+    def count_open_for_tenant(self, *, tenant_id: str) -> int:
+        """Count a tenant's open (requested/installing) requests."""
 
 
 # ── In-memory implementation (development / tests) ─────────────────────────────
@@ -430,6 +437,8 @@ def user_can_request_install(claims, config) -> bool:
         if group and claims.has_group(group):
             return True
     except Exception:
+        # A malformed/edge claims object must never grant permission — fall
+        # through to the admin check (deny-by-default).
         pass
     return _is_admin(claims, config)
 
