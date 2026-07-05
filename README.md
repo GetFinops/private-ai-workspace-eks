@@ -35,6 +35,19 @@ AWS EKS.
 projects, standards, and communities — see [`ACKNOWLEDGMENTS.md`](ACKNOWLEDGMENTS.md)
 (legal provenance is in [`NOTICE`](NOTICE)).
 
+## The workspace
+
+![Private AI Workspace — the full-screen web UI: a feature rail on the left, the chat welcome hero, and the composer](docs/images/ui-screenshot.svg)
+
+A hash-routed, full-screen web UI (vanilla JS, CSP-strict, no build step) with a
+left feature rail — **Chat, Documents, Memory, Notes/Tasks, Compare,
+Agent/Research, Media, Calendar/Integrations, Tools/MCP, Models, Settings** —
+server-backed conversation history, SSE token streaming, and a GPU cold-start
+flow. New here:
+
+- **[Components & tech stack](docs/components.md)** — every component and what it's built on.
+- **[Installation guide](docs/install.md)** — end-to-end deploy, including monitoring and all optional components.
+
 ## Positioning
 
 This project is intended for:
@@ -229,6 +242,9 @@ python3 -m app.control_plane
 
 ## Documentation
 
+- **Components & tech stack:** [`docs/components.md`](docs/components.md)
+- **Installation guide (all components + monitoring):** [`docs/install.md`](docs/install.md)
+- **User permissions & access model:** [`docs/14-user-permissions.md`](docs/14-user-permissions.md)
 - Planning bundle and architecture: `docs/README.md`
 - Delivery roadmap: `docs/10-delivery-roadmap.md`
 - Gap analysis: `docs/11-gap-analysis.md`
