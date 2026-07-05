@@ -1,0 +1,10 @@
+apiVersion: v2
+name: model-installer
+description: >-
+  Scoped model-installer reconciler (design Phase 3). Consumes install requests
+  the control plane records and makes models servable: scales the GPU node group
+  and points vLLM at the model. Its own narrow IRSA (scale GPU nodegroup only) +
+  namespace RBAC (patch the vLLM ConfigMap + Deployment). NOT the control plane.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -147,6 +147,8 @@ from app.control_plane.model_requests import (
     ModelRequestStore,
     build_model_request_create_response,
     build_model_requests_list_response,
+    build_reconciler_pending_response,
+    build_reconciler_status_response,
 )
 from app.control_plane.conversations import (
     ConversationStore,
@@ -206,6 +208,9 @@ _AGENT_RESEARCH_PATH = "/v1/agent/research"
 _COMPARE_PATH = "/v1/compare"
 _NOTES_PATH = "/v1/notes"
 _MODEL_REQUESTS_PATH = "/v1/models/install-requests"
+# Internal reconciler (model-installer) endpoints — shared-token auth, not user OIDC.
+_MODEL_INSTALLER_PENDING = "/v1/internal/model-installer/pending"
+_MODEL_INSTALLER_REQUESTS = "/v1/internal/model-installer/requests"
 _DOCUMENT_EDIT_PATH = "/v1/documents/edit"
 _MCP_INVOKE_PATH = "/v1/mcp/invoke"
 _MCP_LIST_PATH = "/v1/mcp/tools/list"
@@ -811,6 +816,15 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
             )
             self._instrument("GET", lambda s=status, p=payload: Response(s, p))
             return
+        if path == _MODEL_INSTALLER_PENDING:
+            # Reconciler picks up pending work (shared-token auth inside).
+            status, payload = build_reconciler_pending_response(
+                authorization=self.headers.get("Authorization"),
+                store=self.__class__.model_requests_store,
+                config=self.__class__.config,
+            )
+            self._instrument("GET", lambda s=status, p=payload: Response(s, p))
+            return
         if path == _CONVERSATIONS_PATH:
             status, payload = build_conversations_list_response(
                 authorization=self.headers.get("Authorization"),
@@ -1045,6 +1059,21 @@ class ControlPlaneHandler(BaseHTTPRequestHandler):
                         body=body,
                         token_verifier=self.__class__.token_verifier,
                         store=self.__class__.notes_store,
+                    )
+                    return Response(status, payload)
+
+            # POST /v1/internal/model-installer/requests/{id}/status — reconciler
+            # advances a request (shared-token auth inside the handler).
+            if path.startswith(_MODEL_INSTALLER_REQUESTS + "/") and path.endswith("/status"):
+                rid = path[len(_MODEL_INSTALLER_REQUESTS) + 1: -len("/status")]
+                if rid and "/" not in rid:
+                    status, payload = build_reconciler_status_response(
+                        authorization=self.headers.get("Authorization"),
+                        request_id=rid,
+                        body=body,
+                        store=self.__class__.model_requests_store,
+                        config=self.__class__.config,
+                        notification_store=self.__class__.notification_store,
                     )
                     return Response(status, payload)
 

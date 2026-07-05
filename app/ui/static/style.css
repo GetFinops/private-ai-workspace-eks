@@ -1126,9 +1126,10 @@ pre, code { font-family: var(--font-mono); }
 }
 .status-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .status-pill.warm    { color: var(--green); }  .status-pill.warm .dot    { background: var(--green); }
-.status-pill.loading { color: var(--yellow); } .status-pill.loading .dot { background: var(--yellow); }
+.status-pill.loading { color: var(--yellow); } .status-pill.loading .dot { background: var(--yellow); animation: gpuPulse 1.2s infinite; }
 .status-pill.cold    { color: var(--muted); }
 .status-pill.failed  { color: var(--red); }    .status-pill.failed .dot  { background: var(--red); }
+.status-pill.pending { color: var(--brand-color); } .status-pill.pending .dot { background: var(--brand-color); }
 .status-pill.unknown { color: var(--muted); }
 
 /* ── Models screen ───────────────────────────────────────────────────────── */

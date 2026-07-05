@@ -1,0 +1,39 @@
+replicaCount: 1
+
+image:
+  repository: ""        # set to the model-installer ECR image at deploy time
+  tag: "latest"
+  pullPolicy: Always
+
+# The reconciler's own service account; annotate with the scoped IRSA role ARN
+# (module.irsa_model_installer.role_arn). NO secret/admin access.
+serviceAccount:
+  name: model-installer
+  irsaRoleArn: ""
+
+# Shared secret (bearer) the reconciler presents to the control plane's internal
+# endpoints. Must equal the control plane's MODEL_INSTALLER_TOKEN. Provided via a
+# pre-created Secret (out-of-band), NOT committed.
+tokenSecretName: "model-installer-token"
+tokenSecretKey: "MODEL_INSTALLER_TOKEN"
+
+config:
+  controlPlaneUrl: "http://private-ai-workspace-private-ai-workspace.app.svc.cluster.local:8080"
+  # Deny-by-default HF allow-list (orgs / exact repos; "*" = any). Empty = deny all.
+  allowlist: ""
+  gpuNodegroup: ""      # the GPU managed node group name
+  eksCluster: ""        # EKS cluster name
+  awsRegion: "us-west-2"
+  vllmNamespace: "inference"
+  vllmDeployment: "vllm-inference"
+  vllmConfigmap: "vllm-inference-model"
+  pollIntervalS: "15"
+  readyTimeoutS: "900"
+  enabled: true         # reconciler kill-switch
+
+resources:
+  requests: { cpu: "25m", memory: "64Mi" }
+  limits:   { cpu: "200m", memory: "128Mi" }
+
+nodeSelector: {}
+tolerations: []

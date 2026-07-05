@@ -17,6 +17,7 @@ user content) — the store carries them; logs record only the request id + stat
 from __future__ import annotations
 
 import datetime
+import hmac
 import json
 import logging
 import re
@@ -38,10 +39,13 @@ from app.control_plane.token_verifier import TokenVerifier
 
 logger = logging.getLogger(__name__)
 
-# Lifecycle: a permitted user creates a "requested" record; the out-of-band apply
-# pipeline (Phase 2/3, off the control plane) advances it. There is no in-app
-# approval step — permission to request IS the authorization (docs/14).
-_STATUSES = ("requested", "approved", "rejected", "applied", "failed")
+# Lifecycle: a permitted user creates a "requested" record; the scoped
+# model-installer reconciler (Phase 3, a separate component — NOT the control
+# plane) advances it: requested -> installing -> applied | failed. There is no
+# in-app approval step — permission to request IS the authorization (docs/14).
+_STATUSES = ("requested", "installing", "applied", "failed")
+# Statuses the reconciler may set via the internal status endpoint.
+_RECONCILER_STATUSES = ("installing", "applied", "failed")
 
 # HF repo ids are "<org>/<name>"; revisions are a branch/tag/commit token.
 _HF_REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -121,6 +125,8 @@ class ModelRequestStore(Protocol):
 
     def list_all(self, *, limit: int = 100) -> list[ModelInstallRequest]: ...
 
+    def list_pending(self, *, limit: int = 50) -> list[ModelInstallRequest]: ...
+
     def get(self, *, request_id: str) -> "ModelInstallRequest | None": ...
 
     def update_status(
@@ -160,6 +166,12 @@ class InMemoryModelRequestStore:
         items.sort(key=lambda it: it.created_at, reverse=True)
         return items[:limit]
 
+    def list_pending(self, *, limit: int = 50) -> list[ModelInstallRequest]:
+        with self._lock:
+            items = [it for it in self._items.values() if it.status == "requested"]
+        items.sort(key=lambda it: it.created_at)   # oldest first (FIFO)
+        return items[:limit]
+
     def get(self, *, request_id: str) -> "ModelInstallRequest | None":
         with self._lock:
             return self._items.get(request_id)
@@ -179,7 +191,7 @@ class InMemoryModelRequestStore:
         with self._lock:
             return sum(
                 1 for it in self._items.values()
-                if it.tenant_id == tenant_id and it.status in ("requested", "approved")
+                if it.tenant_id == tenant_id and it.status in ("requested", "installing")
             )
 
 
@@ -224,6 +236,14 @@ class PostgresModelRequestStore:
         """
         return self._query(sql, (limit,))
 
+    def list_pending(self, *, limit: int = 50) -> list[ModelInstallRequest]:
+        sql = """
+            SELECT id, tenant_id, user_id, hf_repo_id, revision, status, error_class, created_at, updated_at
+            FROM model_install_requests WHERE status = 'requested'
+            ORDER BY created_at ASC LIMIT %s
+        """
+        return self._query(sql, (limit,))
+
     def get(self, *, request_id: str) -> "ModelInstallRequest | None":
         sql = """
             SELECT id, tenant_id, user_id, hf_repo_id, revision, status, error_class, created_at, updated_at
@@ -251,7 +271,7 @@ class PostgresModelRequestStore:
     def count_open_for_tenant(self, *, tenant_id: str) -> int:
         sql = """
             SELECT COUNT(*) FROM model_install_requests
-            WHERE tenant_id = %s AND status IN ('requested', 'approved')
+            WHERE tenant_id = %s AND status IN ('requested', 'installing')
         """
         with self._pool.connection() as conn:  # type: ignore[attr-defined]
             with conn.cursor() as cur:
@@ -444,3 +464,69 @@ def build_model_requests_list_response(
         "enabled": enabled,
         "can_request": enabled and user_can_request_install(claims, config),
     }
+
+
+# ── Reconciler (model-installer) internal API ──────────────────────────────────
+# A separate, scoped component (NOT the control plane) authenticates with a shared
+# bearer to pick up pending requests and report status. The control plane holds no
+# infra rights; it is only the system of record. Trust boundary mirrors the M11
+# tool-runner shared-token pattern. When MODEL_INSTALLER_TOKEN is unset these
+# endpoints 404 (feature off) so nothing is exposed by default.
+
+
+def _verify_reconciler_token(authorization, config) -> bool:
+    expected = getattr(config, "model_installer_token", None)
+    if not expected or not authorization:
+        return False
+    parts = authorization.split(None, 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return False
+    try:
+        return hmac.compare_digest(parts[1].strip(), expected)
+    except (TypeError, ValueError):
+        # e.g. a non-ASCII bearer against an ASCII secret — treat as mismatch,
+        # never a 500.
+        return False
+
+
+def build_reconciler_pending_response(*, authorization, store: ModelRequestStore, config):
+    """GET /v1/internal/model-installer/pending — pending ('requested') work items."""
+    if not _verify_reconciler_token(authorization, config):
+        return HTTPStatus.NOT_FOUND, {"error": "not_found"}   # do not reveal the endpoint
+    # The control-plane kill-switch also halts auto-install: when install is
+    # disabled, hand the reconciler no work even for already-queued requests.
+    if not getattr(config, "model_install_enabled", False):
+        return HTTPStatus.OK, {"requests": [], "count": 0}
+    items = store.list_pending(limit=50)
+    return HTTPStatus.OK, {
+        "requests": [it.to_admin_dict() for it in items],
+        "count": len(items),
+    }
+
+
+def build_reconciler_status_response(
+    *, authorization, request_id, body, store: ModelRequestStore, config, notification_store=None,
+):
+    """POST /v1/internal/model-installer/requests/{id}/status — reconciler status update."""
+    if not _verify_reconciler_token(authorization, config):
+        return HTTPStatus.NOT_FOUND, {"error": "not_found"}
+    try:
+        data = json.loads(body)
+    except (ValueError, json.JSONDecodeError):
+        return _bad("Body is not valid JSON.")
+    if not isinstance(data, dict):
+        return _bad("Body must be a JSON object.")
+    status = data.get("status")
+    if status not in _RECONCILER_STATUSES:
+        return _bad(f"'status' must be one of {list(_RECONCILER_STATUSES)}.")
+    error_class = data.get("error_class") or ""
+    if not isinstance(error_class, str) or len(error_class) > 100:
+        return _bad("'error_class' must be a short string.")
+    updated = store.update_status(request_id=request_id, status=status, error_class=error_class)
+    if updated is None:
+        return HTTPStatus.NOT_FOUND, {"error": "not_found"}
+    # Notify the request's owner that their install advanced.
+    _notify(notification_store, tenant_id=updated.tenant_id, user_id=updated.user_id,
+            event_class="model_install_updated", resource_id=updated.id)
+    logger.info("model_install_request reconciled id=%s status=%s", updated.id, updated.status)
+    return HTTPStatus.OK, updated.to_admin_dict()

@@ -9,7 +9,7 @@ from app.control_plane.token_verifier import TokenClaims
 
 
 def _config(enabled=True, allow="*", admin="admin", cap=25,
-            allow_all=True, group=None):
+            allow_all=True, group=None, installer_token=None):
     # allow_all defaults True so the non-permission tests exercise create paths;
     # PermissionTests override it to exercise the permission gate itself.
     return types.SimpleNamespace(
@@ -18,6 +18,7 @@ def _config(enabled=True, allow="*", admin="admin", cap=25,
         model_install_max_open_per_tenant=cap,
         model_install_allow_all_users=allow_all,
         model_install_group=group,
+        model_installer_token=installer_token,
         auth=types.SimpleNamespace(admin_group=admin),
     )
 
@@ -214,6 +215,95 @@ class PermissionTests(TestCase):
 
     def test_no_approval_endpoint_exists(self):
         self.assertFalse(hasattr(mr, "build_model_request_update_response"))
+
+
+class ReconcilerApiTests(TestCase):
+    """The scoped model-installer reconciler's internal, shared-token API."""
+
+    TOK = "reconciler-secret"
+
+    def _seed(self):
+        store, notif = mr.InMemoryModelRequestStore(), _FakeNotif()
+        _st, pl = _create(store, _FakeTV("alice", "alice@t-a.test"),
+                          '{"hf_repo_id":"Qwen/Qwen2.5-1.5B-Instruct"}',
+                          _config(installer_token=self.TOK), notif)
+        return store, pl["id"]
+
+    def _pending(self, store, auth):
+        return mr.build_reconciler_pending_response(
+            authorization=auth, store=store, config=_config(installer_token=self.TOK))
+
+    def test_pending_requires_matching_token(self):
+        store, _ = self._seed()
+        # wrong token → 404 (endpoint hidden)
+        st, _ = self._pending(store, "Bearer WRONG")
+        self.assertEqual(st, HTTPStatus.NOT_FOUND)
+        # no token → 404
+        st, _ = self._pending(store, None)
+        self.assertEqual(st, HTTPStatus.NOT_FOUND)
+
+    def test_pending_disabled_when_token_unset(self):
+        store, _ = self._seed()
+        st, _ = mr.build_reconciler_pending_response(
+            authorization=f"Bearer {self.TOK}", store=store,
+            config=_config(installer_token=None))
+        self.assertEqual(st, HTTPStatus.NOT_FOUND)
+
+    def test_kill_switch_halts_auto_install(self):
+        # With MODEL_INSTALL_ENABLED off, the reconciler gets NO work even for
+        # already-queued requests (kill-switch stops auto-install, not just create).
+        store, _ = self._seed()
+        st, pl = mr.build_reconciler_pending_response(
+            authorization=f"Bearer {self.TOK}", store=store,
+            config=_config(enabled=False, installer_token=self.TOK))
+        self.assertEqual(st, HTTPStatus.OK)
+        self.assertEqual(pl["count"], 0)
+
+    def test_pending_returns_requested_items_with_tenant(self):
+        store, rid = self._seed()
+        st, pl = self._pending(store, f"Bearer {self.TOK}")
+        self.assertEqual(st, HTTPStatus.OK)
+        self.assertEqual(pl["count"], 1)
+        self.assertEqual(pl["requests"][0]["id"], rid)
+        self.assertIn("tenant_id", pl["requests"][0])
+
+    def test_status_lifecycle_and_owner_notification(self):
+        store, rid = self._seed()
+        notif = _FakeNotif()
+
+        def upd(status, body=None):
+            return mr.build_reconciler_status_response(
+                authorization=f"Bearer {self.TOK}", request_id=rid,
+                body=body or ('{"status":"%s"}' % status), store=store,
+                config=_config(installer_token=self.TOK), notification_store=notif)
+
+        st, pl = upd("installing")
+        self.assertEqual((st, pl["status"]), (HTTPStatus.OK, "installing"))
+        st, pl = upd("applied")
+        self.assertEqual((st, pl["status"]), (HTTPStatus.OK, "applied"))
+        # owner (alice@t-a.test) notified on each advance
+        ev = [e for e in notif.events if e.event_class == "model_install_updated"]
+        self.assertEqual(len(ev), 2)
+        self.assertEqual(ev[0].tenant_id, "t-a.test")
+        # applied is no longer pending
+        _st, pl = self._pending(store, f"Bearer {self.TOK}")
+        self.assertEqual(pl["count"], 0)
+
+    def test_status_rejects_non_reconciler_status(self):
+        store, rid = self._seed()
+        st, _ = mr.build_reconciler_status_response(
+            authorization=f"Bearer {self.TOK}", request_id=rid,
+            body='{"status":"requested"}', store=store,
+            config=_config(installer_token=self.TOK))
+        self.assertEqual(st, HTTPStatus.BAD_REQUEST)
+
+    def test_status_requires_token(self):
+        store, rid = self._seed()
+        st, _ = mr.build_reconciler_status_response(
+            authorization="Bearer WRONG", request_id=rid,
+            body='{"status":"applied"}', store=store,
+            config=_config(installer_token=self.TOK))
+        self.assertEqual(st, HTTPStatus.NOT_FOUND)
 
 
 class ConfigTests(TestCase):

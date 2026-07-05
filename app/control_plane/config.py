@@ -116,6 +116,13 @@ class ControlPlaneConfig:
     # if none apply, the request is refused even with the kill-switch on.
     model_install_group: str | None = None
     model_install_allow_all_users: bool = False
+    # Shared bearer presented by the out-of-cluster/namespace model-installer
+    # reconciler (Phase 3) to the internal endpoints that hand it pending
+    # requests and accept status updates. The control plane holds NO infra
+    # rights — the reconciler is a separate, scoped component. When unset, the
+    # internal reconciler endpoints are disabled (404). Mirrors the M11
+    # tool-runner shared-token trust boundary.
+    model_installer_token: str | None = None
     # Web search for deep research (deny-by-default, off unless configured).
     # WEB_SEARCH is JSON {"provider","url","host","api_key","api_key_header","top_k"}.
     # No search engine is bundled: this points at an external JSON search API
@@ -211,6 +218,7 @@ class ControlPlaneConfig:
             model_install_allow_all_users=values.get(
                 "MODEL_INSTALL_ALLOW_ALL_USERS", "false"
             ).lower() == "true",
+            model_installer_token=_clean(values.get("MODEL_INSTALLER_TOKEN")),
             auth=AuthSettings(
                 issuer_url=_clean(values.get("AUTH_ISSUER_URL")),
                 audience=_clean(values.get("AUTH_AUDIENCE")),

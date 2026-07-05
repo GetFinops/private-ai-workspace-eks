@@ -1,0 +1,13 @@
+{{- if .Values.modelInstaller.enabled }}
+# Model id for vLLM, sourced as env MODEL_ID by the Deployment. The scoped
+# model-installer reconciler patches this key + restarts the Deployment to swap
+# the served model (design Phase 3). Off by default.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vllm-inference.fullname" . }}-model
+  labels:
+    {{- include "vllm-inference.labels" . | nindent 4 }}
+data:
+  model_id: {{ .Values.model.id | required "model.id is required" | quote }}
+{{- end }}

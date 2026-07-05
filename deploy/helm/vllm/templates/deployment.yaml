@@ -24,7 +24,19 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - "--model"
+            {{- if .Values.modelInstaller.enabled }}
+            # Model id is sourced from a ConfigMap (env MODEL_ID) so the scoped
+            # model-installer reconciler can swap it + restart. Served alias stays
+            # servedModelName, so the control plane's model id is unchanged.
+            - "$(MODEL_ID)"
+            # Safetensors-only: refuse legacy pickle (.bin) checkpoints, closing the
+            # torch.load/pickle RCE vector for self-serve-installed models. A model
+            # without safetensors fails to load (safe) rather than executing code.
+            - "--load-format"
+            - "safetensors"
+            {{- else }}
             - {{ .Values.model.id | required "model.id is required" | quote }}
+            {{- end }}
             - "--dtype"
             - {{ .Values.model.dtype | quote }}
             - "--max-model-len"
@@ -67,6 +79,13 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           env:
+            {{- if .Values.modelInstaller.enabled }}
+            - name: MODEL_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "vllm-inference.fullname" . }}-model
+                  key: model_id
+            {{- end }}
             {{- if .Values.externalSecrets.enabled }}
             - name: HUGGING_FACE_HUB_TOKEN
               valueFrom:

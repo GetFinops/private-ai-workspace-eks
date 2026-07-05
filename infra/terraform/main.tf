@@ -156,6 +156,24 @@ module "irsa_vllm" {
   tags = local.tags
 }
 
+# IRSA for the model-installer reconciler (design Phase 3). Scoped to scale GPU
+# node groups only; K8s mutation is granted by a namespace Role in the chart.
+module "irsa_model_installer" {
+  source = "./modules/irsa-model-installer"
+
+  project_name = var.project_name
+  environment  = var.environment
+  cluster_name = module.eks.cluster_name
+
+  oidc_provider_arn = module.eks.cluster_oidc_provider_arn
+  oidc_provider_url = module.eks.cluster_oidc_provider_url
+
+  service_account_namespace = var.inference_namespace
+  service_account_name      = "model-installer"
+
+  tags = local.tags
+}
+
 # ── M6 — Elastic GPU Scaling ────────────────────────────────────────────────
 # Scaling controllers run on the CPU node group; the Helm charts are installed
 # by the cluster-addons umbrella.  Terraform only creates the IAM identities

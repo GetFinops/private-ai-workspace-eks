@@ -50,6 +50,7 @@
     gpuState:       null,     // last known inference state: warm|loading|cold|…
     gpuPollTimer:   null,     // GPU status poll interval
     warming:        false,    // a warm-up / cold-start retry is in flight
+    modelRequestsPollTimer: null,  // Models screen: poll while an install is in flight
   };
 
   // ─── DOM refs ─────────────────────────────────────────────────────────────
@@ -1529,15 +1530,30 @@
         row.appendChild(buildRequestPill(req.status));
         els.modelRequestsList.appendChild(row);
       });
+      // Auto-poll while anything is in flight so the reconciler's progress
+      // (requested → installing → serving) shows live without a manual refresh.
+      var inFlight = reqs.some(function (q) { return q.status === 'requested' || q.status === 'installing'; });
+      scheduleModelRequestsPoll(inFlight);
     } catch (_) {}
   }
 
+  function scheduleModelRequestsPoll(inFlight) {
+    if (state.modelRequestsPollTimer) { clearTimeout(state.modelRequestsPollTimer); state.modelRequestsPollTimer = null; }
+    if (!inFlight) return;
+    state.modelRequestsPollTimer = setTimeout(function () {
+      // Only keep polling while the Models screen is open.
+      if (state.token && currentScreen() === 'models') loadModelRequests();
+    }, 6000);
+  }
+
   function buildRequestPill(status) {
-    var map = { requested: 'loading', approved: 'warm', applied: 'warm', rejected: 'failed', failed: 'failed' };
+    // class controls colour; label is the user-facing wording.
+    var cls = { requested: 'pending', installing: 'loading', applied: 'warm', failed: 'failed' };
+    var label = { requested: 'Pending', installing: 'Installing…', applied: 'Serving', failed: 'Failed' };
     var pill = document.createElement('span');
-    pill.className = 'status-pill ' + (map[status] || 'unknown');
+    pill.className = 'status-pill ' + (cls[status] || 'unknown');
     var dot = document.createElement('span'); dot.className = 'dot'; pill.appendChild(dot);
-    var t = document.createElement('span'); setText(t, status || 'unknown'); pill.appendChild(t);
+    var t = document.createElement('span'); setText(t, label[status] || (status || 'unknown')); pill.appendChild(t);
     return pill;
   }
 

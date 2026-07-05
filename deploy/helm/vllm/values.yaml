@@ -128,3 +128,9 @@ podAnnotations:
   prometheus.io/scrape: "true"
   prometheus.io/port: "8000"
   prometheus.io/path: "/metrics"
+
+# When enabled, vLLM reads its model id from a ConfigMap (env MODEL_ID) so the
+# scoped model-installer reconciler can swap the served model + restart. Off by
+# default (the model id is baked from model.id). See app/model_installer/.
+modelInstaller:
+  enabled: false
