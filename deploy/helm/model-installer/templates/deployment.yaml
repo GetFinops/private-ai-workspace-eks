@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-installer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "model-installer.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: model-installer
+  template:
+    metadata:
+      labels:
+        {{- include "model-installer.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: reconciler
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "app.model_installer"]
+          env:
+            - name: CONTROL_PLANE_URL
+              value: {{ .Values.config.controlPlaneUrl | quote }}
+            - name: MODEL_INSTALLER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.tokenSecretName | quote }}
+                  key: {{ .Values.tokenSecretKey | quote }}
+            - name: INSTALLER_ALLOWLIST
+              value: {{ .Values.config.allowlist | quote }}
+            - name: GPU_NODEGROUP
+              value: {{ .Values.config.gpuNodegroup | quote }}
+            - name: EKS_CLUSTER
+              value: {{ .Values.config.eksCluster | quote }}
+            - name: AWS_REGION
+              value: {{ .Values.config.awsRegion | quote }}
+            - name: VLLM_NAMESPACE
+              value: {{ .Values.config.vllmNamespace | quote }}
+            - name: VLLM_DEPLOYMENT
+              value: {{ .Values.config.vllmDeployment | quote }}
+            - name: VLLM_CONFIGMAP
+              value: {{ .Values.config.vllmConfigmap | quote }}
+            - name: POLL_INTERVAL_S
+              value: {{ .Values.config.pollIntervalS | quote }}
+            - name: READY_TIMEOUT_S
+              value: {{ .Values.config.readyTimeoutS | quote }}
+            - name: INSTALLER_ENABLED
+              value: {{ .Values.config.enabled | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

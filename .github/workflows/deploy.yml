@@ -69,6 +69,14 @@ on:
         options:
           - "false"
           - "true"
+      deploy_installer:
+        description: "Deploy the scoped model-installer reconciler (auto model install; needs ECR_MODEL_INSTALLER_URL + MODEL_INSTALLER_ROLE_ARN + MODEL_INSTALLER_TOKEN)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 # Prevent concurrent deploys to the same environment.
 concurrency:
@@ -128,6 +136,15 @@ jobs:
           push: true
           # Immutable tags: push only the per-commit SHA tag (see control-plane note).
           tags: ${{ vars.ECR_UI_URL }}:${{ steps.meta.outputs.tag }}
+
+      - name: Build and push model-installer image (Phase 3, opt-in)
+        if: ${{ github.event.inputs.deploy_installer == 'true' }}
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: app/model_installer/Dockerfile
+          push: true
+          tags: ${{ vars.ECR_MODEL_INSTALLER_URL }}:${{ steps.meta.outputs.tag }}
 
   # ── Deploy to target environment via Helm ───────────────────────────────────
   deploy:
@@ -237,6 +254,27 @@ jobs:
             -f "deploy/values/${ENV}/vllm.yaml" \
             --wait \
             --timeout 15m
+
+      - name: Deploy model-installer reconciler (Phase 3, opt-in)
+        if: ${{ github.event.inputs.deploy_installer == 'true' }}
+        run: |
+          # Scoped reconciler: own IRSA (scale GPU nodegroup only) + namespace
+          # RBAC (patch the vLLM ConfigMap/Deployment). The control plane holds no
+          # infra rights. MODEL_INSTALLER_TOKEN must also be present in the app
+          # config secret so the control plane accepts the reconciler's calls.
+          helm upgrade --install model-installer deploy/helm/model-installer \
+            --namespace inference \
+            --create-namespace \
+            --set image.repository="${{ vars.ECR_MODEL_INSTALLER_URL }}" \
+            --set image.tag="${IMAGE_TAG}" \
+            --set serviceAccount.irsaRoleArn="${{ vars.MODEL_INSTALLER_ROLE_ARN }}" \
+            --set tokenSecretName="model-installer-token" \
+            --set config.eksCluster="${{ vars.EKS_CLUSTER_NAME }}" \
+            --set config.awsRegion="${{ vars.AWS_REGION }}" \
+            --set config.gpuNodegroup="${{ vars.GPU_NODEGROUP_NAME }}" \
+            -f "deploy/values/${ENV}/model-installer.yaml" \
+            --wait \
+            --timeout 5m
 
       - name: Deploy external-dns (opt-in)
         if: ${{ github.event.inputs.deploy_external_dns == 'true' }}

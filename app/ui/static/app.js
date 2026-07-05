@@ -50,6 +50,7 @@
     gpuState:       null,     // last known inference state: warm|loading|cold|…
     gpuPollTimer:   null,     // GPU status poll interval
     warming:        false,    // a warm-up / cold-start retry is in flight
+    modelRequestsPollTimer: null,  // Models screen: poll while an install is in flight
   };
 
   // ─── DOM refs ─────────────────────────────────────────────────────────────
@@ -165,11 +166,13 @@
     modelsGpuText:   $('models-gpu-text'),
     modelsWarmupBtn: $('models-warmup-btn'),
     modelHfRepo:     $('model-hf-repo'),
-    modelHfToken:    $('model-hf-token'),
+    modelHfRevision: $('model-hf-revision'),
     modelHfTrust:    $('model-hf-trust'),
     modelInstallBtn: $('model-install-btn'),
     modelInstallStatus: $('model-install-status'),
     modelInstallNote:$('model-install-note'),
+    modelRequestsList: $('model-requests-list'),
+    modelRequestsRefreshBtn: $('model-requests-refresh-btn'),
     hfTokenConfig:   $('hf-token-config'),
     hfTokenSaveBtn:  $('hf-token-save-btn'),
     hfTokenStatus:   $('hf-token-status'),
@@ -1502,6 +1505,56 @@
     var gpu = await refreshGpuStatus();
     renderModelsList(items, gpu);
     applyModelCapabilities(caps);
+    loadModelRequests();
+  }
+
+  // Your install requests (Phase 1a) — the caller's own requests + live status.
+  async function loadModelRequests() {
+    if (!els.modelRequestsList) return;
+    clearChildren(els.modelRequestsList);
+    try {
+      var r = await toolJson('/v1/models/install-requests');
+      applyInstallPermission(r.data || {});
+      if (r.status === 404 || r.status === 501) {
+        appendResultLine(els.modelRequestsList, 'Install requests are not enabled here yet.');
+        return;
+      }
+      var reqs = (r.data && r.data.requests) || [];
+      if (!reqs.length) { appendResultLine(els.modelRequestsList, 'No install requests yet.'); return; }
+      reqs.forEach(function (req) {
+        var row = document.createElement('div'); row.className = 'model-row';
+        var name = document.createElement('div'); name.className = 'model-name';
+        var b = document.createElement('b'); setText(b, req.hf_repo_id); name.appendChild(b);
+        if (req.revision) { var rv = document.createElement('span'); rv.className = 'model-meta'; setText(rv, ' @ ' + req.revision); name.appendChild(rv); }
+        row.appendChild(name);
+        row.appendChild(buildRequestPill(req.status));
+        els.modelRequestsList.appendChild(row);
+      });
+      // Auto-poll while anything is in flight so the reconciler's progress
+      // (requested → installing → serving) shows live without a manual refresh.
+      var inFlight = reqs.some(function (q) { return q.status === 'requested' || q.status === 'installing'; });
+      scheduleModelRequestsPoll(inFlight);
+    } catch (_) {}
+  }
+
+  function scheduleModelRequestsPoll(inFlight) {
+    if (state.modelRequestsPollTimer) { clearTimeout(state.modelRequestsPollTimer); state.modelRequestsPollTimer = null; }
+    if (!inFlight) return;
+    state.modelRequestsPollTimer = setTimeout(function () {
+      // Only keep polling while the Models screen is open.
+      if (state.token && currentScreen() === 'models') loadModelRequests();
+    }, 6000);
+  }
+
+  function buildRequestPill(status) {
+    // class controls colour; label is the user-facing wording.
+    var cls = { requested: 'pending', installing: 'loading', applied: 'warm', failed: 'failed' };
+    var label = { requested: 'Pending', installing: 'Installing…', applied: 'Serving', failed: 'Failed' };
+    var pill = document.createElement('span');
+    pill.className = 'status-pill ' + (cls[status] || 'unknown');
+    var dot = document.createElement('span'); dot.className = 'dot'; pill.appendChild(dot);
+    var t = document.createElement('span'); setText(t, label[status] || (status || 'unknown')); pill.appendChild(t);
+    return pill;
   }
 
   function buildStatusPill(st) {
@@ -1531,39 +1584,63 @@
     });
   }
 
-  // Deny-by-default: management actions stay disabled until the server reports
-  // the matching capability (which is gated behind the escalation-reviewed
-  // backend phases — see docs/m11-followups/04-model-management.md).
+  // Deny-by-default: management actions stay disabled until the server confirms
+  // the matching capability / permission. The Request-install button is gated
+  // PER-USER by can_request (from the authenticated list endpoint) — see
+  // applyInstallPermission — so disable it here until that resolves.
   function applyModelCapabilities(caps) {
     caps = caps || {};
-    var canRequest = !!(caps.install || caps.request_install);
-    if (els.modelInstallBtn) els.modelInstallBtn.disabled = !canRequest;
-    if (els.modelInstallNote) setText(els.modelInstallNote, canRequest
-      ? 'Requests are recorded for an operator to review; installs are applied via the deploy pipeline.'
-      : 'Self-serve model install is operator-gated and not enabled here yet (design Phase 1a). Downloading arbitrary models onto GPU nodes is an escalation-reviewed change applied via the deploy pipeline.');
+    if (els.modelInstallBtn) els.modelInstallBtn.disabled = true;
+    // HF token config stays escalation-gated (operator-managed secret store).
     if (els.hfTokenSaveBtn) els.hfTokenSaveBtn.disabled = !caps.token_config;
     if (els.hfTokenConfig) els.hfTokenConfig.disabled = !caps.token_config;
     if (els.hfTokenStatus) setText(els.hfTokenStatus, caps.token_config ? ''
       : 'The Hugging Face token is managed by your operator in the cluster secret store; the control plane never returns it.');
   }
 
+  // Enable the Request-install action only if THIS user has permission to
+  // request installs (data.can_request from GET /v1/models/install-requests).
+  function applyInstallPermission(data) {
+    data = data || {};
+    var can = !!data.can_request;
+    if (els.modelInstallBtn) els.modelInstallBtn.disabled = !can;
+    if (els.modelHfRepo) els.modelHfRepo.disabled = !can;
+    if (els.modelHfRevision) els.modelHfRevision.disabled = !can;
+    if (els.modelInstallNote) {
+      setText(els.modelInstallNote, can
+        ? 'You have permission to request a model install. Requests are applied by an operator via the deploy pipeline.'
+        : (data.enabled
+            ? 'You do not have permission to request model installs on this workspace. Ask an operator for access.'
+            : 'Self-serve model install is not enabled on this workspace.'));
+    }
+  }
+
   async function requestModelInstall() {
     if (!els.modelHfRepo) return;
     var repo = els.modelHfRepo.value.trim();
     if (!repo) { setStatus(els.modelInstallStatus, 'Enter a Hugging Face repo id.', true); return; }
+    var payload = { hf_repo_id: repo };
+    var rev = els.modelHfRevision && els.modelHfRevision.value.trim();
+    if (rev) payload.revision = rev;
     setStatus(els.modelInstallStatus, 'Submitting request…');
     try {
       var r = await toolJson('/v1/models/install-requests', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hf_repo_id: repo }),
+        body: JSON.stringify(payload),
       });
       if (r.status === 404 || r.status === 501) {
         setStatus(els.modelInstallStatus, 'Self-serve install is not enabled yet (operator-gated).', true);
         return;
       }
-      if (!r.ok) { setStatus(els.modelInstallStatus, (r.data && (r.data.detail || r.data.error)) || ('Failed (' + r.status + ')'), true); return; }
+      // 202 Accepted (or 200/201) on success.
+      if (!r.ok && r.status !== 202) {
+        setStatus(els.modelInstallStatus, (r.data && (r.data.detail || r.data.error)) || ('Failed (' + r.status + ')'), true);
+        return;
+      }
       setStatus(els.modelInstallStatus, 'Requested — an operator will review it.');
       els.modelHfRepo.value = '';
+      if (els.modelHfRevision) els.modelHfRevision.value = '';
+      loadModelRequests();
     } catch (_) {}
   }
 
@@ -2201,6 +2278,7 @@
     // Models screen actions.
     if (els.modelsRefreshBtn) els.modelsRefreshBtn.addEventListener('click', loadModelsScreen);
     if (els.modelInstallBtn) els.modelInstallBtn.addEventListener('click', requestModelInstall);
+    if (els.modelRequestsRefreshBtn) els.modelRequestsRefreshBtn.addEventListener('click', loadModelRequests);
 
     // Settings screen actions.
     if (els.settingsThemeDark) els.settingsThemeDark.addEventListener('click', function () { applyTheme('dark'); persistTheme('dark'); syncSettingsTheme(); });

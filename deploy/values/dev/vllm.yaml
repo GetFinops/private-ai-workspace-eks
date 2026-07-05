@@ -69,3 +69,8 @@ podAnnotations:
   prometheus.io/scrape: "true"
   prometheus.io/port: "8000"
   prometheus.io/path: "/metrics"
+
+# Source the model id from a ConfigMap (env MODEL_ID) so the model-installer
+# reconciler can swap the served model + restart. Served alias stays "default".
+modelInstaller:
+  enabled: true

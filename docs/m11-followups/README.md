@@ -15,7 +15,7 @@ sandbox — none of them relax it.
 | 1 | [Agent loop](01-agent-loop.md) | **shipped; e2e pending GPU** | LLM-driven plan→act→observe loop that selects and calls tools | M4 inference plane (vLLM on GPU) | prompt-injection driving tool selection |
 | 2 | [Deep-research](02-deep-research.md) | **shipped; e2e pending GPU** | Multi-step research agent (plan → retrieve → synthesize) | #1 + M10 retrieval | Apache-2.0 provenance; longer autonomous runs |
 | 3 | [Job sandbox](03-job-sandbox.md) | **shipped (pure-compute); egress gated on #36** | Per-call Kubernetes-Job isolation for IO-capable tools | EKS + per-tenant RBAC | tools that need scoped network/FS at all |
-| 4 | [Model management](04-model-management.md) | **Phase 0 shipped (read-only catalog + GPU status); 1a→3 designed/escalation** | Models screen + self-serve install path + GPU cold-start UX | M4 inference plane (vLLM on GPU) | cluster mutation, HF supply-chain, secrets, tenant isolation |
+| 4 | [Model management](04-model-management.md) | **Phase 0 + 1a shipped (catalog + GPU status + install-requests); 1b→3 escalation** | Models screen + install-request flow + GPU cold-start UX | M4 inference plane (vLLM on GPU) | cluster mutation, HF supply-chain, secrets, tenant isolation |
 
 ## Sequencing
 

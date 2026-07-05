@@ -1,8 +1,13 @@
 # M11 Follow-up #4 — Model management & self-serve install
 
-> Status: **Phase 0 shipped** (read-only catalog + live GPU status). Phases 1a→3
-> are **design + escalation register** — not built. This document is the
-> security-reviewed plan referenced by the Models screen in the web UI.
+> Status: **Phase 0 + 1a shipped.** Phase 0 = read-only catalog + live GPU
+> status. Phase 1a = tenant-scoped install-**request** records, gated by a
+> **per-user permission** (kill-switch + HF allow-list + per-tenant cap;
+> cross-tenant isolation tests; NO cluster mutation, NO HF token). There is **no
+> in-app approval step** — holding the permission is the authorization; apply
+> stays an out-of-band operator/pipeline step. Permissions are documented in
+> [`../14-user-permissions.md`](../14-user-permissions.md). Phases 1b→3 remain
+> **design + escalation register** — not built.
 
 The web UI now has a **Models** screen and a **GPU cold-start** flow. This
 document is the durable design behind them: how far self-serve model
@@ -131,11 +136,15 @@ writer of status; vLLM `/health` is **continuously reconciled** back into
 - **Status-pill mapping** (client, `createElement`/`textContent` only):
   `warm→Ready` (green), `loading→Loading` (amber), `cold→Idle (cold)` (grey),
   `failed→Failed` (red), `unknown→Status unavailable`.
-- **Gated endpoints** (render disabled until the matching `capabilities.*`
-  flips; unbuilt endpoints return **HTTP 501** `{"error":"not_implemented",
-  "requires":"operator","phase":n}`): `GET /v1/models/search`,
-  `POST /v1/models/install-requests` (+ `GET`/`PATCH`), `PUT /v1/models/hf-token`,
-  `POST /v1/models/{id}/warm`, `DELETE /v1/models/{id}`.
+- **Install requests** (Phase 1a, shipped): `POST /v1/models/install-requests`
+  (permission-gated create) and `GET` (own requests; admins see all; returns
+  `can_request` so the UI enables the action per-user). **No in-app approval
+  endpoint** — the operator PATCH/approve step is intentionally omitted; a
+  permitted user's request is authoritative and applied out-of-band.
+- **Still-gated endpoints** (render disabled until the matching `capabilities.*`
+  flips; unbuilt endpoints return **HTTP 501**): `GET /v1/models/search`,
+  `PUT /v1/models/hf-token`, `POST /v1/models/{id}/warm`,
+  `DELETE /v1/models/{id}`.
 - **Warm-up** in Phase 0 is client-side: a 1-token `POST /v1/chat/completions`
   triggers Karpenter scale-from-zero — no new endpoint.
 
@@ -188,10 +197,10 @@ writer of status; vLLM `/health` is **continuously reconciled** back into
 | Phase | Scope | New privilege | Verdict |
 | --- | --- | --- | --- |
 | **0** | Read-only catalog (`items[]` + `capabilities{}`) + live GPU status (`?probe=1`) + client-side warm-up + cold-start UX | none | **shipped** |
-| **1a** | Tenant-scoped **install-request** records + operator notification; `POST/GET/PATCH /v1/models/install-requests`; apply stays human/CI | none (no cluster mutation) | **build after a cross-tenant isolation review**; gated by `MODEL_INSTALL_ENABLED` (off), allow-list, rate-limit |
+| **1a** | Tenant-scoped **install-request** records + requester notification; `GET/POST /v1/models/install-requests`; **permission-gated (no in-app approval)**; apply stays human/CI | none (no cluster mutation) | **shipped**, gated by `MODEL_INSTALL_ENABLED` (default off; on for dev) **and** a per-user permission (`MODEL_INSTALL_ALLOW_ALL_USERS` for dev / `MODEL_INSTALL_GROUP` / admin — see `../14-user-permissions.md`), deny-by-default HF allow-list, per-tenant rate limit + open-request cap; cross-tenant isolation tests |
 | **1b** | Brokered HF-token write (`PUT /v1/models/hf-token`) | secret write | **escalate** — independent security review + M5 no-leak proof; until then, operator-set out-of-band |
 | **2** | Catalog search proxy (`GET /v1/models/search` via `outbound.py`) | HF egress from control plane | **escalate** |
-| **3** | Actual apply — GitOps reconciler or namespace-scoped `model-installer`; per-model vLLM release templating; weight-cache staging | cluster mutation (off the control plane) | **escalate** — largest item; §4 option (2)/(3) |
+| **3** | Actual apply — the **scoped `model-installer` reconciler** (`app/model_installer/`): a separate component that picks up requests and makes the model servable (scale the GPU nodegroup 0→1, point vLLM at the model via a ConfigMap-backed `MODEL_ID`, wait ready, mark `applied`). Auto (`requested→installing→applied/failed`), no operator. | cluster mutation **off the control plane** — its own scoped IRSA (`eks:UpdateNodegroupConfig` on GPU nodegroups only) + namespace RBAC (patch only the vLLM ConfigMap+Deployment) | **shipped for dev, escalation-flagged** (§4 option 3). Control plane gains no infra rights (verified). Controls in place: deny-by-default allow-list (re-checked by the reconciler) + repo-id format re-check, one-install-at-a-time cap, kill-switch halts auto-install, **rollback** to the prior model on failed load, **`--load-format safetensors`** (refuses pickle/`.bin` → closes the torch.load RCE vector), `trust_remote_code` at vLLM's safe default. **Open follow-ups (tracked):** commit-SHA pinning (§8.6 — `revision` is captured but not yet applied; serves the default branch), model size / GPU-fit validation (§8.17 — keep the dev allow-list to small models), weight cache (§8.16), and the inherent **shared-inference caveat**: one vLLM release serves one model, so an install swaps the model for all tenants (per-model releases are a later increment). |
 
 ## 10. Test & audit plan
 

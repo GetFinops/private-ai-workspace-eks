@@ -114,3 +114,8 @@ output "external_dns_role_arn" {
   description = "IRSA role ARN for external-dns, or null when disabled."
   value       = try(module.irsa_external_dns[0].role_arn, null)
 }
+
+output "model_installer_role_arn" {
+  description = "IRSA role ARN for the model-installer reconciler (scoped)."
+  value       = module.irsa_model_installer.role_arn
+}

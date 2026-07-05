@@ -1,0 +1,16 @@
+# Dev overrides for the model-installer reconciler (design Phase 3).
+# Deny-by-default HF allow-list (matches the control plane's MODEL_INSTALL_ALLOWLIST).
+# The reconciler scales the dev GPU node group and points vLLM at the requested
+# model. image.repository, serviceAccount.irsaRoleArn, config.eksCluster and
+# config.gpuNodegroup are injected by the Deploy workflow from repo vars.
+image:
+  tag: "dev"
+
+config:
+  allowlist: "meta-llama,mistralai,Qwen,google,microsoft,HuggingFaceH4,NousResearch,tiiuae,bigcode,deepseek-ai"
+  vllmNamespace: "inference"
+  vllmDeployment: "vllm-inference"
+  vllmConfigmap: "vllm-inference-model"
+  pollIntervalS: "15"
+  readyTimeoutS: "900"
+  enabled: true

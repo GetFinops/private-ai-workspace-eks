@@ -1,0 +1,3 @@
+# Reconciler image deps — deliberately NOT installed for the stdlib control plane.
+boto3>=1.34,<2
+kubernetes>=29,<32

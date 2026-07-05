@@ -1,0 +1,39 @@
+# Namespace-scoped K8s mutation: patch ONLY the vLLM ConfigMap + Deployment (and
+# read pods/deployment status) in the inference namespace. No cluster-wide verbs,
+# no secrets, no other resources. This is the reconciler's entire K8s blast radius.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: model-installer
+  namespace: {{ .Values.config.vllmNamespace }}
+  labels:
+    {{- include "model-installer.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ .Values.config.vllmConfigmap | quote }}]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: [{{ .Values.config.vllmDeployment | quote }}]
+    verbs: ["get", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/status"]
+    resourceNames: [{{ .Values.config.vllmDeployment | quote }}]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: model-installer
+  namespace: {{ .Values.config.vllmNamespace }}
+  labels:
+    {{- include "model-installer.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.serviceAccount.name }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: model-installer

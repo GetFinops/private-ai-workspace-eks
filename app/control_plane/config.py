@@ -100,6 +100,29 @@ class ControlPlaneConfig:
     media_max_concurrency: int = 2
     media_max_audio_bytes: int = 25 * 1024 * 1024
     media_max_prompt_chars: int = 2000
+    # Model management — self-serve install REQUESTS (design Phase 1a). Disabled
+    # by default (operator kill-switch). This records tenant-scoped install intent
+    # + notifies the requester for an operator to review; it NEVER downloads a
+    # model or mutates the cluster (see docs/m11-followups/04-model-management.md).
+    # MODEL_INSTALL_ALLOWLIST is a comma-separated list of allowed HF orgs or exact
+    # repo ids (deny-by-default: empty ⇒ deny all; "*" ⇒ allow any, dev only).
+    model_install_enabled: bool = False
+    model_install_allowlist: str | None = None
+    model_install_max_open_per_tenant: int = 25
+    # Who may request a model install (a "permission"). A user has it when they
+    # are in MODEL_INSTALL_GROUP (an OIDC group/role claim), when they are an
+    # admin (AUTH_ADMIN_GROUP), or when MODEL_INSTALL_ALLOW_ALL_USERS is true
+    # (dev convenience — every authenticated user is permitted). Deny-by-default:
+    # if none apply, the request is refused even with the kill-switch on.
+    model_install_group: str | None = None
+    model_install_allow_all_users: bool = False
+    # Shared bearer presented by the out-of-cluster/namespace model-installer
+    # reconciler (Phase 3) to the internal endpoints that hand it pending
+    # requests and accept status updates. The control plane holds NO infra
+    # rights — the reconciler is a separate, scoped component. When unset, the
+    # internal reconciler endpoints are disabled (404). Mirrors the M11
+    # tool-runner shared-token trust boundary.
+    model_installer_token: str | None = None
     # Web search for deep research (deny-by-default, off unless configured).
     # WEB_SEARCH is JSON {"provider","url","host","api_key","api_key_header","top_k"}.
     # No search engine is bundled: this points at an external JSON search API
@@ -186,6 +209,16 @@ class ControlPlaneConfig:
             media_max_concurrency=int(values.get("MEDIA_MAX_CONCURRENCY", "2") or "2"),
             media_max_audio_bytes=int(values.get("MEDIA_MAX_AUDIO_BYTES", str(25 * 1024 * 1024)) or str(25 * 1024 * 1024)),
             media_max_prompt_chars=int(values.get("MEDIA_MAX_PROMPT_CHARS", "2000") or "2000"),
+            model_install_enabled=values.get("MODEL_INSTALL_ENABLED", "false").lower() == "true",
+            model_install_allowlist=_clean(values.get("MODEL_INSTALL_ALLOWLIST")),
+            model_install_max_open_per_tenant=int(
+                values.get("MODEL_INSTALL_MAX_OPEN_PER_TENANT", "25") or "25"
+            ),
+            model_install_group=_clean(values.get("MODEL_INSTALL_GROUP")),
+            model_install_allow_all_users=values.get(
+                "MODEL_INSTALL_ALLOW_ALL_USERS", "false"
+            ).lower() == "true",
+            model_installer_token=_clean(values.get("MODEL_INSTALLER_TOKEN")),
             auth=AuthSettings(
                 issuer_url=_clean(values.get("AUTH_ISSUER_URL")),
                 audience=_clean(values.get("AUTH_AUDIENCE")),
