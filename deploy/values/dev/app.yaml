@@ -110,6 +110,8 @@ externalSecrets:
   secretsManagerSecretName: "" # Set from: terraform output -raw app_config_secret_name
   existingSecret: "private-ai-workspace-dev-app-secrets"
   refreshInterval: "5m"        # Shorter interval for dev iteration
+  includeModelInstallerToken: true  # Model-installer reconciler enabled on dev;
+                                     # SM app-config JSON must carry MODEL_INSTALLER_TOKEN.
 
 resources:
   requests:
