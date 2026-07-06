@@ -110,6 +110,12 @@ externalSecrets:
   # Must match the deployment's envFrom.secretRef reference.
   existingSecret: ""
   refreshInterval: "1h"
+  # Also sync MODEL_INSTALLER_TOKEN from the Secrets Manager JSON. Enable only
+  # when the model-installer reconciler is deployed AND the SM secret carries a
+  # MODEL_INSTALLER_TOKEN key — otherwise ESO fails the sync on a missing
+  # property. The control plane reads this token to authenticate the internal
+  # reconciler API (deny-by-default: absent token => /v1/internal/* stays 404).
+  includeModelInstallerToken: false
 
 # Control-plane egress NetworkPolicy (defense-in-depth behind the M13 URL guard).
 # Requires the cluster to ENFORCE NetworkPolicy (EKS VPC CNI enableNetworkPolicy,
